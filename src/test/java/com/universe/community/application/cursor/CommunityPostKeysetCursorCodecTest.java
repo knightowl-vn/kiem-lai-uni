@@ -34,7 +34,7 @@ class CommunityPostKeysetCursorCodecTest {
 
         CommunityPostKeysetCursor decoded = codec.decode(encoded);
         assertThat(decoded).isNotNull();
-        assertThat(decoded.createdAt()).isEqualTo(now);
+        assertThat(decoded.publishedAt()).isEqualTo(now);
         assertThat(decoded.postId()).isEqualTo(postId);
     }
 

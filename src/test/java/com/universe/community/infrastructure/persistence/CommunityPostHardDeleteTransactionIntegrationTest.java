@@ -384,6 +384,11 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
                 }
 
                 @Override
+                public List<CommunityPost> findPendingReviewPostsByAuthor(UUID authorUserId) {
+                    return realAdapter.findPendingReviewPostsByAuthor(authorUserId);
+                }
+
+                @Override
                 public CommunityPostPage findHiddenPosts(int page, int size) {
                     return realAdapter.findHiddenPosts(page, size);
                 }
@@ -451,7 +456,7 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
     private UUID seedCommunityPost(UUID authorId, String caption, UUID imageMediaAssetId) {
         UUID postId = UUID.randomUUID();
         Instant now = Instant.now().minus(1, ChronoUnit.HOURS);
-        CommunityPost post = CommunityPost.create(postId, authorId, caption, imageMediaAssetId, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, caption, imageMediaAssetId, CommunityPostStatus.PUBLISHED, now, now, null);
         tx.executeWithoutResult(s -> postAdapter.save(post));
         return postId;
     }

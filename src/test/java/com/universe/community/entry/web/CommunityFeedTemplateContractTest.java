@@ -38,6 +38,13 @@ class CommunityFeedTemplateContractTest {
         String template = read("src/main/resources/templates/community/index.html");
 
         assertThat(template).contains("sec:authorize=\"isAuthenticated()\"");
+        assertThat(template).contains("id=\"communityComposerTrigger\"");
+        assertThat(template).contains("class=\"community-composer-trigger\"");
+        assertThat(template).contains("aria-expanded=\"false\"");
+        assertThat(template).contains("aria-controls=\"communityComposerPanel\"");
+        assertThat(template).contains("id=\"communityComposerPanel\"");
+        assertThat(template).contains("id=\"composerCollapseBtn\"");
+        assertThat(template).contains("aria-label=\"Thu gọn trình đăng bài\"");
         assertThat(template).contains("id=\"communityComposerForm\"");
         assertThat(template).contains("id=\"composerCaption\"");
         assertThat(template).contains("maxlength=\"2000\"");
@@ -128,8 +135,10 @@ class CommunityFeedTemplateContractTest {
         assertThat(fragment).contains("onerror=\"this.onerror=null;this.src='/images/default_avatar.jpg';\"");
         assertThat(fragment).contains("th:href=\"@{'/community/@' + ${item.authorPublicHandle}}\"");
         assertThat(fragment).contains("data-relative-time");
-        assertThat(fragment).contains("th:text=\"${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}\"");
+        assertThat(fragment).contains("th:datetime=\"${item.publishedAt}\"");
+        assertThat(fragment).contains("th:text=\"${#temporals.format(item.publishedAt, 'dd/MM/yyyy HH:mm')}\"");
         assertThat(fragment).doesNotContain("th:text=\"${item.createdAt}\"");
+        assertThat(fragment).doesNotContain("${item.publishedAt != null ? item.publishedAt : item.createdAt}");
 
         // Reaction and comments affordances
         assertThat(fragment).contains("data-reaction-widget");
@@ -225,6 +234,49 @@ class CommunityFeedTemplateContractTest {
         assertThat(postCardJs).doesNotContain("post-time-link");
         assertThat(postCardJs).contains("community-permalink-container");
         assertThat(postCardJs).contains("window.location.href = '/community'");
+    }
+
+    @Test
+    @DisplayName("Author pending posts section conforms to canonical post-card structure with status in footer and no reactions/comments/permalink")
+    void authorPendingPostCardContract() throws Exception {
+        String template = read("src/main/resources/templates/community/index.html");
+
+        // Container and list
+        assertThat(template).contains("id=\"communityOwnPendingSection\"");
+        assertThat(template).contains("id=\"communityOwnPendingList\"");
+
+        // Collapsible tray trigger and count badge
+        assertThat(template).contains("id=\"communityOwnPendingTrigger\"");
+        assertThat(template).contains("class=\"community-pending-tray-trigger\"");
+        assertThat(template).contains("aria-expanded=\"false\"");
+        assertThat(template).contains("aria-controls=\"communityOwnPendingList\"");
+        assertThat(template).contains("id=\"communityOwnPendingCount\"");
+        assertThat(template).contains("th:text=\"${#lists.size(ownPendingPosts)}\"");
+        assertThat(template).contains("id=\"communityOwnPendingList\" class=\"community-pending-list d-flex flex-column gap-3 mt-3\" hidden");
+
+        // Post-card structure
+        assertThat(template).contains("class=\"community-post-card community-post-card--pending\"");
+        assertThat(template).contains("class=\"post-header\"");
+        assertThat(template).contains("class=\"post-author-info\"");
+        assertThat(template).contains("class=\"post-author-avatar\"");
+        assertThat(template).contains("class=\"post-author-name\"");
+        assertThat(template).contains("class=\"post-time\"");
+
+        // Caption as plain paragraph, NOT a permalink anchor
+        assertThat(template).contains("<p class=\"post-caption\" th:text=\"${pendingItem.displayCaption}\">");
+
+        // Image container
+        assertThat(template).contains("class=\"post-image-container\"");
+        assertThat(template).contains("class=\"post-image\"");
+
+        // Footer with status only
+        assertThat(template).contains("<footer class=\"post-footer\">");
+        assertThat(template).contains("class=\"post-pending-status\"");
+        assertThat(template).contains("⏳ Đang chờ duyệt");
+        assertThat(template).contains("⏳ Đang chờ duyệt chỉnh sửa");
+
+        // No header badge group
+        assertThat(template).doesNotContain("post-pending-badge-group");
     }
 
     private String read(String relativePath) throws Exception {

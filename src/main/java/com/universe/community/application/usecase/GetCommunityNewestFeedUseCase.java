@@ -61,7 +61,7 @@ public class GetCommunityNewestFeedUseCase {
         // Fetch size + 1 to determine hasNext
         int fetchLimit = size + 1;
         List<CommunityPostPublicDTO> fetchedPosts = postQueryPort.findNewestPostsKeyset(
-                cursor != null ? cursor.createdAt() : null,
+                cursor != null ? cursor.publishedAt() : null,
                 cursor != null ? cursor.postId() : null,
                 fetchLimit
         );
@@ -104,7 +104,8 @@ public class GetCommunityNewestFeedUseCase {
                     engagementScore,
                     post.createdAt(),
                     post.updatedAt(),
-                    metrics.currentUserReaction()
+                    metrics.currentUserReaction(),
+                    post.publishedAt()
             ));
         }
 
@@ -113,7 +114,7 @@ public class GetCommunityNewestFeedUseCase {
         String nextCursor = null;
         if (hasNext) {
             CommunityPostPublicDTO lastPost = pagePosts.get(pagePosts.size() - 1);
-            nextCursor = cursorCodec.encode(new CommunityPostKeysetCursor(lastPost.createdAt(), lastPost.id()));
+            nextCursor = cursorCodec.encode(new CommunityPostKeysetCursor(lastPost.publishedAt(), lastPost.id()));
         }
 
         return new CommunityNewestFeedResponseDTO(enrichedItems, nextCursor, size, hasNext);

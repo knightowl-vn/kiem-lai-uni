@@ -5,14 +5,14 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Value record representing a keyset cursor point in the NEWEST feed sequence.
+ * Value record representing a keyset cursor point in the NEWEST feed sequence based on publishedAt.
  */
 public record CommunityPostKeysetCursor(
-        Instant createdAt,
+        Instant publishedAt,
         UUID postId
 ) {
     public CommunityPostKeysetCursor {
-        Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null in keyset cursor.");
+        Objects.requireNonNull(publishedAt, "PublishedAt timestamp cannot be null in keyset cursor.");
         Objects.requireNonNull(postId, "Post ID cannot be null in keyset cursor.");
     }
 }

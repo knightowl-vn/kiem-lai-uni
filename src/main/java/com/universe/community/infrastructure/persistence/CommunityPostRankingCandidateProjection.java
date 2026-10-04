@@ -7,5 +7,5 @@ import java.time.Instant;
  */
 public interface CommunityPostRankingCandidateProjection {
     String getId();
-    Instant getCreatedAt();
+    Instant getPublishedAt();
 }

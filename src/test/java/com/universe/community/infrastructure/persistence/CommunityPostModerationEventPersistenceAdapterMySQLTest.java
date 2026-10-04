@@ -189,7 +189,9 @@ class CommunityPostModerationEventPersistenceAdapterMySQLTest {
                 "Post to be deleted later",
                 null,
                 CommunityPostStatus.PUBLISHED,
-                t0
+                t0,
+                t0,
+                null
         );
         postAdapter.save(post);
         assertThat(postAdapter.existsById(postId)).isTrue();

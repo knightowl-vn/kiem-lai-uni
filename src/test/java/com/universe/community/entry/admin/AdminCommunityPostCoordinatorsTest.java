@@ -84,7 +84,7 @@ class AdminCommunityPostCoordinatorsTest {
         );
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Current caption", null,
-                CommunityPostStatus.PUBLISHED, 1, now, now
+                CommunityPostStatus.PUBLISHED, 1, now, now, now, null
         );
 
         when(reportRepositoryPort.findCommunityPostReports(eq(ReportStatus.PENDING), any(), anyBoolean(), eq(0), eq(20)))
@@ -115,7 +115,7 @@ class AdminCommunityPostCoordinatorsTest {
         );
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Current caption", null,
-                CommunityPostStatus.HIDDEN, 2, now.minusSeconds(100), now
+                CommunityPostStatus.HIDDEN, 2, now.minusSeconds(100), now, now.minusSeconds(100), null
         );
         CommunityPostModerationEvent event = new CommunityPostModerationEvent(
                 UUID.randomUUID(), postId, CommunityPostModerationAction.HIDE,
@@ -146,7 +146,7 @@ class AdminCommunityPostCoordinatorsTest {
     void shouldGetPendingQueue() {
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Pending caption", null,
-                CommunityPostStatus.PENDING_REVIEW, 1, now, now
+                CommunityPostStatus.PENDING_REVIEW, 1, now, now, null, now
         );
 
         when(postRepositoryPort.findPendingReviewPosts(0, 20))
@@ -160,6 +160,31 @@ class AdminCommunityPostCoordinatorsTest {
         assertThat(pendingPage.items()).hasSize(1);
         assertThat(pendingPage.items().get(0).author().displayName()).isEqualTo("Author User");
         assertThat(pendingPage.items().get(0).caption()).isEqualTo("Pending caption");
+        assertThat(pendingPage.items().get(0).pendingCaption()).isNull();
+        assertThat(pendingPage.items().get(0).isPendingCaptionEdit()).isFalse();
+    }
+
+    @Test
+    @DisplayName("AdminCommunityPostReviewCoordinator: maps pending caption edit on published post")
+    void shouldGetPendingQueueWithPendingCaptionEdit() {
+        CommunityPost post = CommunityPost.rehydrate(
+                postId, authorId, "Public caption", "Candidate edit caption",
+                null, CommunityPostStatus.PUBLISHED, 0, now, now, now, now
+        );
+
+        when(postRepositoryPort.findPendingReviewPosts(0, 20))
+                .thenReturn(new CommunityPostRepositoryPort.CommunityPostPage(List.of(post), 0, 20, 1));
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(authorId))).thenReturn(Map.of(
+                authorId, new UserPublicProfileDTO(authorId, "Author User", "/avatar.png", "author_handle")
+        ));
+
+        AdminCommunityPostPendingPageDTO pendingPage = reviewCoordinator.getPendingQueue(0, 20);
+
+        assertThat(pendingPage.items()).hasSize(1);
+        assertThat(pendingPage.items().get(0).caption()).isEqualTo("Public caption");
+        assertThat(pendingPage.items().get(0).pendingCaption()).isEqualTo("Candidate edit caption");
+        assertThat(pendingPage.items().get(0).isPendingCaptionEdit()).isTrue();
+        assertThat(pendingPage.items().get(0).getStatusBadgeText()).isEqualTo("Chờ duyệt chỉnh sửa");
     }
 
     @Test
@@ -167,7 +192,7 @@ class AdminCommunityPostCoordinatorsTest {
     void shouldGetHiddenPosts() {
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Hidden caption", null,
-                CommunityPostStatus.HIDDEN, 1, now, now
+                CommunityPostStatus.HIDDEN, 1, now, now, now, null
         );
         CommunityPostModerationEvent event = new CommunityPostModerationEvent(
                 UUID.randomUUID(), postId, CommunityPostModerationAction.HIDE,

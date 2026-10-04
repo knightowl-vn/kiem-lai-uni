@@ -99,7 +99,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Case B: Actor is not author -> throws CommunityPostUnauthorizedException, 0 side effects")
     void shouldThrowUnauthorizedWhenActorIsNotAuthor() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Caption", null, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Caption", null, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
 
         assertThatThrownBy(() -> useCase.execute(STRANGER_ID, POST_ID))
@@ -113,7 +113,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Moderation barrier: HIDDEN post cannot be deleted -> throws CommunityPostHiddenDeleteForbiddenException, 0 side effects")
     void shouldRejectDeletionWhenPostIsHidden() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Hidden post", IMAGE_ASSET_ID, CommunityPostStatus.HIDDEN, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Hidden post", IMAGE_ASSET_ID, CommunityPostStatus.HIDDEN, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
 
         assertThatThrownBy(() -> useCase.execute(AUTHOR_ID, POST_ID))
@@ -129,7 +129,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Anti-evasion barrier: Post with pending abuse reports cannot be deleted -> throws CommunityPostPendingReportConflictException, 0 side effects")
     void shouldRejectDeletionWhenPostHasPendingReports() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Reported post", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Reported post", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(reportQueryPort.hasPendingReports(POST_ID)).thenReturn(true);
 
@@ -145,7 +145,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Case C: Caption-only post deletion succeeds -> cleans up interactions, deletes post, 0 media delete")
     void shouldDeleteCaptionOnlyPostSuccessfully() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Caption only", null, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Caption only", null, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -163,7 +163,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Case D: Image post deletion succeeds -> cleans up interactions, marks media DELETED, deletes post")
     void shouldDeleteImagePostSuccessfully() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Post with image", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Post with image", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -180,7 +180,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Deletion of PENDING_REVIEW post succeeds when no pending reports exist")
     void shouldAllowDeletingPendingReviewPostWhenNoPendingReports() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Pending post", IMAGE_ASSET_ID, CommunityPostStatus.PENDING_REVIEW, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Pending post", IMAGE_ASSET_ID, CommunityPostStatus.PENDING_REVIEW, NOW, null, NOW);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(reportQueryPort.hasPendingReports(POST_ID)).thenReturn(false);
         when(clockPort.now()).thenReturn(NOW);
@@ -195,7 +195,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Deletion of REJECTED post succeeds when no pending reports exist")
     void shouldAllowDeletingRejectedPostWhenNoPendingReports() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Rejected post", null, CommunityPostStatus.REJECTED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Rejected post", null, CommunityPostStatus.REJECTED, NOW, null, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(reportQueryPort.hasPendingReports(POST_ID)).thenReturn(false);
         when(clockPort.now()).thenReturn(NOW);
@@ -209,7 +209,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Case E: Interaction cleanup fails -> exception propagates, 0 media delete, 0 post delete")
     void shouldPropagateExceptionWhenInteractionCleanupFails() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Post with image", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Post with image", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(clockPort.now()).thenReturn(NOW);
         doThrow(new RuntimeException("Simulated Interaction cleanup failure"))
@@ -226,7 +226,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Case F: Media delete fails -> exception propagates, 0 post delete")
     void shouldPropagateExceptionWhenMediaDeleteFails() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Post with image", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Post with image", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(clockPort.now()).thenReturn(NOW);
         doThrow(new RuntimeException("Simulated Media delete failure"))
@@ -243,7 +243,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Case G: Verifies strict execution ordering across all ports")
     void shouldVerifyStrictExecutionOrdering() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Ordered post", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Ordered post", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -260,7 +260,7 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Repeated Delete: First deletion succeeds -> Second deletion throws NotFound with zero side effects")
     void shouldHandleRepeatedDeleteDeterministically() {
-        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Repeated delete post", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW);
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Repeated delete post", IMAGE_ASSET_ID, CommunityPostStatus.PUBLISHED, NOW, NOW, null);
         // First execution finds post, second finds nothing
         when(postRepositoryPort.findByIdForUpdate(POST_ID))
                 .thenReturn(Optional.of(post))

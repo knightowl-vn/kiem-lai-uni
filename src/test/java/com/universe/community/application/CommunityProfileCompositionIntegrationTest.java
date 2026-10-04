@@ -160,7 +160,9 @@ class CommunityProfileCompositionIntegrationTest {
                 "Post 1 - Oldest",
                 null,
                 CommunityPostStatus.PUBLISHED,
-                baseTime.minus(2, ChronoUnit.HOURS)
+                baseTime.minus(2, ChronoUnit.HOURS),
+                baseTime.minus(2, ChronoUnit.HOURS),
+                null
         );
         CommunityPost post2 = CommunityPost.create(
                 UUID.randomUUID(),
@@ -168,7 +170,9 @@ class CommunityProfileCompositionIntegrationTest {
                 "Post 2 - Newest",
                 null,
                 CommunityPostStatus.PUBLISHED,
-                baseTime.minus(1, ChronoUnit.HOURS)
+                baseTime.minus(1, ChronoUnit.HOURS),
+                baseTime.minus(1, ChronoUnit.HOURS),
+                null
         );
 
         // Another author's post (must not appear in tieu_viem's feed)
@@ -178,7 +182,9 @@ class CommunityProfileCompositionIntegrationTest {
                 "Other author post",
                 null,
                 CommunityPostStatus.PUBLISHED,
-                baseTime
+                baseTime,
+                baseTime,
+                null
         );
 
         postPersistenceAdapter.save(post1);
@@ -225,7 +231,9 @@ class CommunityProfileCompositionIntegrationTest {
                 "First",
                 null,
                 CommunityPostStatus.PUBLISHED,
-                baseTime.minus(2, ChronoUnit.HOURS)
+                baseTime.minus(2, ChronoUnit.HOURS),
+                baseTime.minus(2, ChronoUnit.HOURS),
+                null
         );
         CommunityPost post2 = CommunityPost.create(
                 UUID.randomUUID(),
@@ -233,7 +241,9 @@ class CommunityProfileCompositionIntegrationTest {
                 "Second",
                 null,
                 CommunityPostStatus.PUBLISHED,
-                baseTime.minus(1, ChronoUnit.HOURS)
+                baseTime.minus(1, ChronoUnit.HOURS),
+                baseTime.minus(1, ChronoUnit.HOURS),
+                null
         );
 
         postPersistenceAdapter.save(post1);

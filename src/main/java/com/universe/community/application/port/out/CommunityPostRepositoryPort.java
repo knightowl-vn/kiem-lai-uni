@@ -72,6 +72,14 @@ public interface CommunityPostRepositoryPort {
     CommunityPostPage findPendingReviewPosts(int page, int size);
 
     /**
+     * Finds pending review posts authored by a specific user, ordered newest review request first.
+     *
+     * @param authorUserId the author user UUID
+     * @return list of CommunityPost domain aggregates
+     */
+    List<CommunityPost> findPendingReviewPostsByAuthor(UUID authorUserId);
+
+    /**
      * Finds a paginated page of Community posts with HIDDEN status ordered newest first.
      */
     CommunityPostPage findHiddenPosts(int page, int size);

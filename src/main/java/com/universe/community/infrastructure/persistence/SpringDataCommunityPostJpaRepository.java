@@ -41,42 +41,42 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
     boolean existsByIdAndStatus(String id, String status);
 
     /**
-     * Fetches the first page of newest Community posts ordered by {@code (created_at DESC, id DESC)}.
+     * Fetches the first page of newest Community posts ordered by {@code (published_at DESC, id DESC)}.
      * Strictly limits results to {@code PUBLISHED} posts.
      */
     @Query("""
             SELECT p FROM CommunityPostJpaEntity p
             WHERE p.status = 'PUBLISHED'
-            ORDER BY p.createdAt DESC, p.id DESC
+            ORDER BY p.publishedAt DESC, p.id DESC
             """)
     List<CommunityPostJpaEntity> findNewestPostsFirstPage(Pageable pageable);
 
     /**
-     * Fetches subsequent page of newest Community posts strictly after the cursor point {@code (created_at, id)}.
+     * Fetches subsequent page of newest Community posts strictly after the cursor point {@code (published_at, id)}.
      * Strictly limits results to {@code PUBLISHED} posts.
      */
     @Query("""
             SELECT p FROM CommunityPostJpaEntity p
             WHERE p.status = 'PUBLISHED'
-              AND ((p.createdAt < :cursorCreatedAt)
-                OR (p.createdAt = :cursorCreatedAt AND p.id < :cursorId))
-            ORDER BY p.createdAt DESC, p.id DESC
+              AND ((p.publishedAt < :cursorPublishedAt)
+                OR (p.publishedAt = :cursorPublishedAt AND p.id < :cursorId))
+            ORDER BY p.publishedAt DESC, p.id DESC
             """)
     List<CommunityPostJpaEntity> findNewestPostsAfterCursor(
-            @Param("cursorCreatedAt") Instant cursorCreatedAt,
+            @Param("cursorPublishedAt") Instant cursorPublishedAt,
             @Param("cursorId") String cursorId,
             Pageable pageable
     );
 
     /**
-     * Fetches the first page of Community posts authored by a specific user ordered by {@code (created_at DESC, id DESC)}.
+     * Fetches the first page of Community posts authored by a specific user ordered by {@code (published_at DESC, id DESC)}.
      * Strictly limits results to {@code PUBLISHED} posts.
      */
     @Query("""
             SELECT p FROM CommunityPostJpaEntity p
             WHERE p.authorUserId = :authorUserId
               AND p.status = 'PUBLISHED'
-            ORDER BY p.createdAt DESC, p.id DESC
+            ORDER BY p.publishedAt DESC, p.id DESC
             """)
     List<CommunityPostJpaEntity> findAuthoredPostsFirstPage(
             @Param("authorUserId") String authorUserId,
@@ -84,20 +84,20 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
     );
 
     /**
-     * Fetches subsequent page of Community posts authored by a specific user strictly after the cursor point {@code (created_at, id)}.
+     * Fetches subsequent page of Community posts authored by a specific user strictly after the cursor point {@code (published_at, id)}.
      * Strictly limits results to {@code PUBLISHED} posts.
      */
     @Query("""
             SELECT p FROM CommunityPostJpaEntity p
             WHERE p.authorUserId = :authorUserId
               AND p.status = 'PUBLISHED'
-              AND ((p.createdAt < :cursorCreatedAt)
-                OR (p.createdAt = :cursorCreatedAt AND p.id < :cursorId))
-            ORDER BY p.createdAt DESC, p.id DESC
+              AND ((p.publishedAt < :cursorPublishedAt)
+                OR (p.publishedAt = :cursorPublishedAt AND p.id < :cursorId))
+            ORDER BY p.publishedAt DESC, p.id DESC
             """)
     List<CommunityPostJpaEntity> findAuthoredPostsAfterCursor(
             @Param("authorUserId") String authorUserId,
-            @Param("cursorCreatedAt") Instant cursorCreatedAt,
+            @Param("cursorPublishedAt") Instant cursorPublishedAt,
             @Param("cursorId") String cursorId,
             Pageable pageable
     );
@@ -106,7 +106,7 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
      * Fetches lightweight projection candidates for all live published Community posts.
      */
     @Query("""
-            SELECT p.id AS id, p.createdAt AS createdAt
+            SELECT p.id AS id, p.publishedAt AS publishedAt
             FROM CommunityPostJpaEntity p
             WHERE p.status = 'PUBLISHED'
             """)
@@ -123,14 +123,32 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
     List<CommunityPostJpaEntity> findByIdInAndStatus(Collection<String> ids, String status);
 
     /**
-     * Fetches a page of Community posts with PENDING_REVIEW status ordered oldest first (created_at ASC, id ASC).
+     * Fetches a page of Community posts in review queue: either PENDING_REVIEW or PUBLISHED with pending_caption.
+     * Ordered oldest request first (review_requested_at ASC, id ASC).
      */
     @Query("""
             SELECT p FROM CommunityPostJpaEntity p
-            WHERE p.status = 'PENDING_REVIEW'
-            ORDER BY p.createdAt ASC, p.id ASC
+            WHERE p.reviewRequestedAt IS NOT NULL
+              AND ((p.status = 'PENDING_REVIEW')
+                OR (p.status = 'PUBLISHED' AND p.pendingCaption IS NOT NULL))
+            ORDER BY p.reviewRequestedAt ASC, p.id ASC
             """)
     Page<CommunityPostJpaEntity> findPendingReviewPosts(Pageable pageable);
+
+    /**
+     * Fetches Community posts in review queue authored by a specific user:
+     * either PENDING_REVIEW or PUBLISHED with pending_caption.
+     * Ordered newest review request first (review_requested_at DESC, id DESC).
+     */
+    @Query("""
+            SELECT p FROM CommunityPostJpaEntity p
+            WHERE p.authorUserId = :authorUserId
+              AND p.reviewRequestedAt IS NOT NULL
+              AND ((p.status = 'PENDING_REVIEW')
+                OR (p.status = 'PUBLISHED' AND p.pendingCaption IS NOT NULL))
+            ORDER BY p.reviewRequestedAt DESC, p.id DESC
+            """)
+    List<CommunityPostJpaEntity> findPendingReviewPostsByAuthor(@Param("authorUserId") String authorUserId);
 
     /**
      * Fetches a page of Community posts with HIDDEN status ordered newest first (updated_at DESC, id DESC).

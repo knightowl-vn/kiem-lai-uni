@@ -27,7 +27,7 @@ public class CommunityPostKeysetCursorCodec {
         if (cursor == null) {
             return null;
         }
-        String raw = cursor.createdAt().toString() + DELIMITER + cursor.postId().toString();
+        String raw = cursor.publishedAt().toString() + DELIMITER + cursor.postId().toString();
         return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -52,13 +52,13 @@ public class CommunityPostKeysetCursorCodec {
                 throw new CommunityPostValidationException("Invalid cursor format.");
             }
 
-            String createdAtPart = decodedString.substring(0, delimiterIndex);
+            String publishedAtPart = decodedString.substring(0, delimiterIndex);
             String postIdPart = decodedString.substring(delimiterIndex + 1);
 
-            Instant createdAt = Instant.parse(createdAtPart);
+            Instant publishedAt = Instant.parse(publishedAtPart);
             UUID postId = UUID.fromString(postIdPart);
 
-            return new CommunityPostKeysetCursor(createdAt, postId);
+            return new CommunityPostKeysetCursor(publishedAt, postId);
         } catch (DateTimeParseException | IllegalArgumentException ex) {
             throw new CommunityPostValidationException("Invalid cursor format.");
         }

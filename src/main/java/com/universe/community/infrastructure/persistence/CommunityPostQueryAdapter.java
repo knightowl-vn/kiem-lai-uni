@@ -63,7 +63,7 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
 
     @Override
     public List<CommunityPostPublicDTO> findNewestPostsKeyset(
-            Instant cursorCreatedAt,
+            Instant cursorPublishedAt,
             UUID cursorPostId,
             int limit
     ) {
@@ -74,16 +74,16 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
         Pageable pageable = PageRequest.of(0, limit);
         List<CommunityPostJpaEntity> entities;
 
-        if (cursorCreatedAt == null && cursorPostId == null) {
+        if (cursorPublishedAt == null && cursorPostId == null) {
             entities = postRepository.findNewestPostsFirstPage(pageable);
-        } else if (cursorCreatedAt != null && cursorPostId != null) {
+        } else if (cursorPublishedAt != null && cursorPostId != null) {
             entities = postRepository.findNewestPostsAfterCursor(
-                    cursorCreatedAt,
+                    cursorPublishedAt,
                     cursorPostId.toString(),
                     pageable
             );
         } else {
-            throw new IllegalArgumentException("Cursor requires both cursorCreatedAt and cursorPostId, or both to be null.");
+            throw new IllegalArgumentException("Cursor requires both cursorPublishedAt and cursorPostId, or both to be null.");
         }
 
         return entities.stream()
@@ -94,7 +94,7 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
     @Override
     public List<CommunityPostPublicDTO> findAuthoredPostsKeyset(
             UUID authorUserId,
-            Instant cursorCreatedAt,
+            Instant cursorPublishedAt,
             UUID cursorPostId,
             int limit
     ) {
@@ -108,17 +108,17 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
         Pageable pageable = PageRequest.of(0, limit);
         List<CommunityPostJpaEntity> entities;
 
-        if (cursorCreatedAt == null && cursorPostId == null) {
+        if (cursorPublishedAt == null && cursorPostId == null) {
             entities = postRepository.findAuthoredPostsFirstPage(authorUserId.toString(), pageable);
-        } else if (cursorCreatedAt != null && cursorPostId != null) {
+        } else if (cursorPublishedAt != null && cursorPostId != null) {
             entities = postRepository.findAuthoredPostsAfterCursor(
                     authorUserId.toString(),
-                    cursorCreatedAt,
+                    cursorPublishedAt,
                     cursorPostId.toString(),
                     pageable
             );
         } else {
-            throw new IllegalArgumentException("Cursor requires both cursorCreatedAt and cursorPostId, or both to be null.");
+            throw new IllegalArgumentException("Cursor requires both cursorPublishedAt and cursorPostId, or both to be null.");
         }
 
         return entities.stream()
@@ -126,13 +126,12 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
                 .toList();
     }
 
-
     @Override
     public List<CommunityPostRankingCandidateDTO> findAllRankingCandidates() {
         return postRepository.findAllRankingCandidates().stream()
                 .map(proj -> new CommunityPostRankingCandidateDTO(
                         UUID.fromString(proj.getId()),
-                        proj.getCreatedAt()
+                        proj.getPublishedAt()
                 ))
                 .toList();
     }

@@ -214,4 +214,29 @@ class CommunityPostFeedAuthorEnricherTest {
         assertThat(enriched.get(1).engagementScore()).isEqualTo(3L);
         assertThat(enriched.get(1).createdAt()).isEqualTo(t2);
     }
+
+    @Test
+    @DisplayName("Enricher strictly preserves publishedAt timestamp when differing from createdAt")
+    void shouldPreserveCanonicalPublishedAtWhenDifferentFromCreatedAt() {
+        UUID authorId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-10-04T15:00:00Z");
+        Instant publishedAt = Instant.parse("2026-10-04T16:20:00Z");
+
+        CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
+                postId, authorId, null, null, null, "Approved post",
+                null, null, 0,
+                0L, 0L, 0L, createdAt, publishedAt, null, publishedAt
+        );
+
+        when(authorProfilePort.findAuthorProfilesByIds(Set.of(authorId))).thenReturn(Map.of(
+                authorId, new CommunityAuthorProfileSummary(authorId, "author_test", "Author Test", "https://cdn.example.com/a.jpg")
+        ));
+
+        List<CommunityPostFeedItemDTO> enriched = enricher.enrich(List.of(item));
+
+        assertThat(enriched).hasSize(1);
+        assertThat(enriched.get(0).createdAt()).isEqualTo(createdAt);
+        assertThat(enriched.get(0).publishedAt()).isEqualTo(publishedAt);
+    }
 }

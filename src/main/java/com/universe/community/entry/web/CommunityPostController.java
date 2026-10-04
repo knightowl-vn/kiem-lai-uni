@@ -16,6 +16,7 @@ import com.universe.community.contracts.dto.EditCommunityPostCaptionRequestDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostHiddenDeleteForbiddenException;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
+import com.universe.community.domain.exception.CommunityPostPendingEditConflictException;
 import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.community.domain.exception.CommunityPostValidationException;
@@ -300,6 +301,12 @@ public class CommunityPostController {
     public ResponseEntity<Map<String, String>> handlePendingReportConflictException(CommunityPostPendingReportConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "Post has pending reports"));
+    }
+
+    @ExceptionHandler(CommunityPostPendingEditConflictException.class)
+    public ResponseEntity<Map<String, String>> handlePendingEditConflictException(CommunityPostPendingEditConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "Bản chỉnh sửa hiện tại đang chờ quản trị viên duyệt."));
     }
 
     @ExceptionHandler(IllegalStateException.class)

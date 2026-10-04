@@ -1,7 +1,9 @@
 package com.universe.community.infrastructure.persistence;
 
+import com.universe.community.application.command.ApproveCommunityPostCommand;
 import com.universe.community.application.command.EditCommunityPostCaptionCommand;
 import com.universe.community.application.port.out.CommunityPostRevisionRepositoryPort;
+import com.universe.community.application.usecase.ApproveCommunityPostUseCase;
 import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostStatus;
@@ -50,13 +52,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.flyway.enabled=true"
 })
 @Import({
+        CommunitySettingsPersistenceAdapter.class,
         CommunityPostPersistenceAdapter.class,
         CommunityPostRevisionPersistenceAdapter.class,
+        CommunityPostModerationEventPersistenceAdapter.class,
         CommunityPostPersistenceMapper.class,
         CommunityPostRevisionPersistenceMapper.class,
+        CommunityPostModerationEventPersistenceMapper.class,
         UuidGeneratorAdapter.class,
         SystemClockAdapter.class,
         EditCommunityPostCaptionUseCase.class,
+        ApproveCommunityPostUseCase.class,
         CommunityPostEditTransactionAtomicityIntegrationTest.TestConfig.class
 })
 @DisplayName("CommunityPost Edit Transaction Atomicity Integration Tests")
@@ -64,6 +70,7 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -127,6 +134,9 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
     @Autowired
     private EditCommunityPostCaptionUseCase useCase;
 
+    @Autowired
+    private ApproveCommunityPostUseCase approveUseCase;
+
     @BeforeEach
     void setUp() {
         failingRevisionPort.reset();
@@ -140,6 +150,7 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
     }
 
     private void cleanData() {
+        jdbcTemplate.execute("DELETE FROM community_post_moderation_events");
         jdbcTemplate.execute("DELETE FROM community_post_revisions");
         jdbcTemplate.execute("DELETE FROM community_posts");
     }
@@ -153,7 +164,7 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
         UUID authorId = UUID.randomUUID();
         Instant createdAt = Instant.now().minus(10, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, CommunityPostStatus.PUBLISHED, createdAt);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, CommunityPostStatus.PUBLISHED, createdAt, createdAt, null);
         postAdapter.save(post);
 
         EditCommunityPostCaptionCommand command = new EditCommunityPostCaptionCommand(
@@ -201,7 +212,7 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
         UUID authorId = UUID.randomUUID();
         Instant createdAt = Instant.now().minus(10, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, CommunityPostStatus.PUBLISHED, createdAt);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, CommunityPostStatus.PUBLISHED, createdAt, createdAt, null);
         postAdapter.save(post);
 
         EditCommunityPostCaptionCommand command = new EditCommunityPostCaptionCommand(
@@ -242,5 +253,103 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
                 postId.toString()
         );
         assertThat(revCount).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Should commit pending caption approval, promotion, and revision creation atomically under Spring @Transactional proxy")
+    void shouldCommitPendingCaptionApprovalAtomicallyOnSuccess() {
+        failingRevisionPort.setFailOnSave(false);
+
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+        Instant createdAt = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant editAt = Instant.now().minus(30, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
+
+        CommunityPost post = CommunityPost.rehydrate(
+                postId, authorId, "Original approved caption", "Approved candidate caption", null,
+                CommunityPostStatus.PUBLISHED, 0, createdAt, editAt, createdAt, editAt
+        );
+        postAdapter.save(post);
+
+        approveUseCase.execute(new ApproveCommunityPostCommand(postId, moderatorId, "Looks good"));
+
+        // Verify DB state outside transaction
+        Map<String, Object> postRow = jdbcTemplate.queryForMap(
+                "SELECT caption, pending_caption, review_requested_at, content_version, published_at FROM community_posts WHERE id = ?",
+                postId.toString()
+        );
+        assertThat(postRow.get("caption")).isEqualTo("Approved candidate caption");
+        assertThat(postRow.get("pending_caption")).isNull();
+        assertThat(postRow.get("review_requested_at")).isNull();
+        assertThat(((Number) postRow.get("content_version")).intValue()).isEqualTo(1);
+
+        int revCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_post_revisions WHERE post_id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(revCount).isEqualTo(1);
+
+        Map<String, Object> revRow = jdbcTemplate.queryForMap(
+                "SELECT previous_caption, caption, revision_number FROM community_post_revisions WHERE post_id = ?",
+                postId.toString()
+        );
+        assertThat(revRow.get("previous_caption")).isEqualTo("Original approved caption");
+        assertThat(revRow.get("caption")).isEqualTo("Approved candidate caption");
+        assertThat(((Number) revRow.get("revision_number")).intValue()).isEqualTo(1);
+
+        int eventCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_post_moderation_events WHERE post_id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(eventCount).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Should rollback approval when revision persistence fails under Spring @Transactional proxy")
+    void shouldRollbackApprovalWhenRevisionPersistenceFailsUnderTransactionalProxy() {
+        failingRevisionPort.setFailOnSave(true);
+
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+        Instant createdAt = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant editAt = Instant.now().minus(30, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
+
+        CommunityPost post = CommunityPost.rehydrate(
+                postId, authorId, "Original approved caption", "Approved candidate caption", null,
+                CommunityPostStatus.PUBLISHED, 0, createdAt, editAt, createdAt, editAt
+        );
+        postAdapter.save(post);
+
+        assertThatThrownBy(() -> approveUseCase.execute(new ApproveCommunityPostCommand(postId, moderatorId, "Failing approve")))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Simulated revision save database failure during transaction");
+
+        // Verify DB state outside transaction: post rolled back completely to initial pending edit state
+        Map<String, Object> postRow = jdbcTemplate.queryForMap(
+                "SELECT caption, pending_caption, review_requested_at, content_version FROM community_posts WHERE id = ?",
+                postId.toString()
+        );
+        assertThat(postRow.get("caption")).isEqualTo("Original approved caption");
+        assertThat(postRow.get("pending_caption")).isEqualTo("Approved candidate caption");
+        assertThat(postRow.get("review_requested_at")).isNotNull();
+        assertThat(((Number) postRow.get("content_version")).intValue()).isEqualTo(0);
+
+        int revCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_post_revisions WHERE post_id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(revCount).isEqualTo(0);
+
+        int eventCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_post_moderation_events WHERE post_id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(eventCount).isEqualTo(0);
     }
 }

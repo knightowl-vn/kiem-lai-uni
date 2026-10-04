@@ -230,8 +230,8 @@ class AdminCommunityPostViewRenderingTest {
                 .andExpect(content().string(containsString("href=\"/admin/community/reports\"")))
                 .andExpect(content().string(containsString("href=\"/admin/community/posts/pending\"")))
                 .andExpect(content().string(containsString("href=\"/admin/community/posts/hidden\"")))
-                // No speculative settings tab
-                .andExpect(content().string(not(containsString("/admin/community/settings"))))
+                // Community settings tab
+                .andExpect(content().string(containsString("href=\"/admin/community/settings\"")))
                 // Reason dropdown options
                 .andExpect(content().string(containsString("Spam")))
                 .andExpect(content().string(containsString("Quấy rối")))
@@ -562,12 +562,14 @@ class AdminCommunityPostViewRenderingTest {
         UUID authorId = UUID.randomUUID();
         UUID imageAssetId = UUID.randomUUID();
 
+        Instant now = Instant.now();
         AdminCommunityPostPendingItemDTO pendingItem = new AdminCommunityPostPendingItemDTO(
                 postId,
                 AdminCommunityPostUserDTO.resolved(authorId, "Charles Writer", "https://img/charles.png", "charles"),
                 "A draft post awaiting approval",
                 imageAssetId,
-                Instant.now(),
+                now,
+                now,
                 1
         );
 
@@ -587,38 +589,129 @@ class AdminCommunityPostViewRenderingTest {
                 // Exactly ONE canonical top header
                 .andExpect(content().string(not(containsString("community-workspace-heading"))))
                 .andExpect(content().string(not(containsString("<h2>Quản lý cộng đồng</h2>"))))
-                // No table primitive for moderation items; card layout used
-                .andExpect(content().string(not(containsString("<table class=\"admin-table\""))))
-                .andExpect(content().string(containsString("community-moderation-list")))
-                .andExpect(content().string(containsString("community-moderation-card")))
-                // Community workspace tabs
-                .andExpect(content().string(containsString("community-workspace-tabs")))
-                // No speculative settings tab
-                .andExpect(content().string(not(containsString("/admin/community/settings"))))
+                // Bounded and centered post-list container exists
+                .andExpect(content().string(containsString("admin-community-pending-feed")))
+                .andExpect(content().string(containsString("admin-community-post-feed")))
+                // Canonical post-card container exists
+                .andExpect(content().string(containsString("community-post-card")))
+                .andExpect(content().string(containsString("admin-community-post-card")))
+                // Avatar / header region exists
+                .andExpect(content().string(containsString("post-header")))
+                .andExpect(content().string(containsString("post-author-info")))
+                .andExpect(content().string(containsString("post-author-avatar")))
                 .andExpect(content().string(containsString("Charles Writer")))
+                .andExpect(content().string(containsString("@charles")))
+                .andExpect(content().string(containsString("post-time")))
+                .andExpect(content().string(containsString("Chờ duyệt")))
+                // Caption / body region exists
+                .andExpect(content().string(containsString("post-caption")))
                 .andExpect(content().string(containsString("A draft post awaiting approval")))
-                // Compact thumbnail and caption truncation contract
-                .andExpect(content().string(containsString("community-compact-thumb-sm")))
-                .andExpect(content().string(containsString("community-caption-truncate")))
-                // Approve form with CSRF and normalized admin-btn
+                // Image region supported (post preview size, not compact thumb)
+                .andExpect(content().string(containsString("post-image-container")))
+                .andExpect(content().string(containsString("post-image")))
+                .andExpect(content().string(containsString("/media/assets/" + imageAssetId + "/content")))
+                // Footer exists with Duyệt and Từ chối
+                .andExpect(content().string(containsString("post-footer")))
                 .andExpect(content().string(containsString("action=\"/admin/community/posts/" + postId + "/approve\"")))
                 .andExpect(content().string(containsString("class=\"admin-btn admin-btn-sm admin-btn-primary\"")))
                 .andExpect(content().string(containsString("Duyệt")))
-                // Reject form with CSRF and normalized admin-btn
                 .andExpect(content().string(containsString("action=\"/admin/community/posts/" + postId + "/reject\"")))
                 .andExpect(content().string(containsString("class=\"admin-btn admin-btn-sm admin-btn-danger\"")))
                 .andExpect(content().string(containsString("Từ chối")))
+                // NO reaction button or comment button
+                .andExpect(content().string(not(containsString("kl-reaction-widget"))))
+                .andExpect(content().string(not(containsString("post-metric--login-link"))))
+                .andExpect(content().string(not(containsString("post-comment-toggle-btn"))))
+                // NO generic moderation-table/row primitive
+                .andExpect(content().string(not(containsString("<table"))))
+                .andExpect(content().string(not(containsString("community-moderation-card"))))
+                .andExpect(content().string(not(containsString("community-compact-thumb-sm"))))
+                .andExpect(content().string(not(containsString("community-caption-truncate"))))
                 // CSRF token in forms
                 .andExpect(content().string(containsString("name=\"_csrf\"")))
                 // Prohibited actions
                 .andExpect(content().string(not(containsString("CONTENT_HIDDEN"))))
                 .andExpect(content().string(not(containsString("NO_ACTION"))))
                 .andExpect(content().string(not(containsString("RESTORE"))))
+                // Community workspace tabs
+                .andExpect(content().string(containsString("community-workspace-tabs")))
+                // Community settings tab
+                .andExpect(content().string(containsString("href=\"/admin/community/settings\"")))
                 // Consolidated single sidebar entry 'Cộng đồng' is active
                 .andExpect(content().string(containsString("href=\"/admin/community/reports\" class=\"sidebar-link  active\"")))
                 .andExpect(content().string(containsString("<span>Cộng đồng</span>")))
                 // Old separate sidebar links are absent
                 .andExpect(content().string(not(containsString("href=\"/admin/community/posts/pending\" class=\"sidebar-link"))));
+    }
+
+    @Test
+    @DisplayName("Renders pending review view for text-only post without image container")
+    void shouldRenderPendingReviewViewForTextOnlyPostWithoutImageContainer() throws Exception {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        AdminCommunityPostPendingItemDTO textOnlyItem = new AdminCommunityPostPendingItemDTO(
+                postId,
+                AdminCommunityPostUserDTO.resolved(authorId, "Diana Text", "https://img/diana.png", "diana"),
+                "Text-only draft post awaiting approval",
+                null,
+                now,
+                now,
+                1
+        );
+
+        when(reviewCoordinator.getPendingQueue(anyInt(), anyInt()))
+                .thenReturn(new AdminCommunityPostPendingPageDTO(List.of(textOnlyItem), 0, 20, 1L));
+
+        mockMvc.perform(get("/admin/community/posts/pending")
+                        .with(user(ADMIN_EMAIL).roles("ADMIN"))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/community/pending-posts"))
+                .andExpect(content().string(containsString("admin-community-pending-feed")))
+                .andExpect(content().string(containsString("admin-community-post-feed")))
+                .andExpect(content().string(containsString("community-post-card")))
+                .andExpect(content().string(containsString("Diana Text")))
+                .andExpect(content().string(containsString("Text-only draft post awaiting approval")))
+                .andExpect(content().string(containsString("post-footer")))
+                .andExpect(content().string(not(containsString("post-image-container"))))
+                .andExpect(content().string(not(containsString("post-image"))));
+    }
+
+    @Test
+    @DisplayName("Renders pending review view for pending caption edit with 'Chờ duyệt chỉnh sửa' badge and caption diff")
+    void shouldRenderPendingReviewViewForPendingCaptionEdit() throws Exception {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        AdminCommunityPostPendingItemDTO editItem = new AdminCommunityPostPendingItemDTO(
+                postId,
+                AdminCommunityPostUserDTO.resolved(authorId, "Eve Editor", "https://img/eve.png", "eve"),
+                "Current public caption",
+                "Proposed new caption awaiting moderation",
+                null,
+                now.minusSeconds(3600),
+                now,
+                now.minusSeconds(3600),
+                0
+        );
+
+        when(reviewCoordinator.getPendingQueue(anyInt(), anyInt()))
+                .thenReturn(new AdminCommunityPostPendingPageDTO(List.of(editItem), 0, 20, 1L));
+
+        mockMvc.perform(get("/admin/community/posts/pending")
+                        .with(user(ADMIN_EMAIL).roles("ADMIN"))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/community/pending-posts"))
+                .andExpect(content().string(containsString("Chờ duyệt chỉnh sửa")))
+                .andExpect(content().string(containsString("post-caption-diff")))
+                .andExpect(content().string(containsString("Nội dung đang hiển thị:")))
+                .andExpect(content().string(containsString("Current public caption")))
+                .andExpect(content().string(containsString("Nội dung chỉnh sửa mới:")))
+                .andExpect(content().string(containsString("Proposed new caption awaiting moderation")));
     }
 
     @Test
@@ -634,10 +727,25 @@ class AdminCommunityPostViewRenderingTest {
                 .andExpect(view().name("admin/community/pending-posts"))
                 .andExpect(content().string(containsString("Quản lý cộng đồng")))
                 .andExpect(content().string(not(containsString("community-workspace-heading"))))
+                .andExpect(content().string(containsString("admin-community-pending-feed")))
                 .andExpect(content().string(containsString("community-empty-card")))
                 .andExpect(content().string(containsString("Không có bài chờ duyệt")))
                 .andExpect(content().string(containsString("Hiện không có nội dung nào cần xử lý.")))
                 .andExpect(content().string(not(containsString("<table"))));
+    }
+
+    @Test
+    @DisplayName("Admin community CSS layout contract: pending feed is horizontally centered with max-width and margin-inline auto")
+    void shouldDefineCenteredPendingFeedLayoutInCss() throws Exception {
+        String css = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/main/resources/static/css/admin/comment-reports.css"),
+                java.nio.charset.StandardCharsets.UTF_8
+        );
+        org.assertj.core.api.Assertions.assertThat(css).contains(".admin-community-pending-feed");
+        org.assertj.core.api.Assertions.assertThat(css).contains("max-width: 720px;");
+        org.assertj.core.api.Assertions.assertThat(css).contains("width: 100%;");
+        org.assertj.core.api.Assertions.assertThat(css).contains("margin-left: auto;");
+        org.assertj.core.api.Assertions.assertThat(css).contains("margin-right: auto;");
     }
 
     // =========================================================================
@@ -695,8 +803,8 @@ class AdminCommunityPostViewRenderingTest {
                 .andExpect(content().string(containsString("community-moderation-card")))
                 // Community workspace tabs
                 .andExpect(content().string(containsString("community-workspace-tabs")))
-                // No speculative settings tab
-                .andExpect(content().string(not(containsString("/admin/community/settings"))))
+                // Community settings tab
+                .andExpect(content().string(containsString("href=\"/admin/community/settings\"")))
                 .andExpect(content().string(containsString("Dave User")))
                 .andExpect(content().string(containsString("This post was hidden by moderation")))
                 // Compact thumbnail and caption truncation contract

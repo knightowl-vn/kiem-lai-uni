@@ -1,14 +1,23 @@
 package com.universe.community.entry.web;
 
+import com.universe.community.application.usecase.GetAuthorPendingCommunityPostsUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.application.usecase.GetCommunitySettingsUseCase;
+import com.universe.community.contracts.dto.AuthorPendingCommunityPostDTO;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
+import com.universe.community.domain.CommunityPublicationMode;
+import com.universe.community.domain.CommunitySettings;
 import com.universe.configuration.SecurityBeanConfig;
 import com.universe.identity.contracts.currentuser.CurrentUserView;
 import com.universe.identity.application.ports.CurrentUserQueryPort;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.shared.security.AuthenticatedEmailResolver;
@@ -27,6 +36,7 @@ import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.Instant;
 import java.util.List;
@@ -82,6 +92,12 @@ class CommunityFeedPageControllerWebMvcTest {
     @MockBean
     private GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
 
+    @MockBean
+    private GetCommunitySettingsUseCase getCommunitySettingsUseCase;
+
+    @MockBean
+    private GetAuthorPendingCommunityPostsUseCase getAuthorPendingCommunityPostsUseCase;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -91,6 +107,11 @@ class CommunityFeedPageControllerWebMvcTest {
             chain.doFilter(request, response);
             return null;
         }).when(accountStatusFilter).doFilter(any(), any(), any());
+
+        when(getCommunitySettingsUseCase.execute())
+                .thenReturn(CommunitySettings.defaultSettings());
+        when(getAuthorPendingCommunityPostsUseCase.execute(any()))
+                .thenReturn(List.of());
     }
 
     @Test
@@ -376,5 +397,141 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(content().string(containsString("href=\"/register\" class=\"btn btn-outline-secondary btn-sm ms-2\">Đăng ký</a>")));
 
         verify(getCommunityNewestFeedUseCase).execute(null, 20);
+    }
+
+    private RequestPostProcessor authenticatedIdentity(UUID userId) {
+        AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
+                userId,
+                "author@universe.local",
+                "Tác giả",
+                "/author.png",
+                "tac_gia",
+                UserStatus.ACTIVE,
+                UserRole.USER
+        );
+        return request -> {
+            AuthenticatedRequestIdentityTestSupport.attach(request, identity);
+            return request;
+        };
+    }
+
+    @Test
+    @WithMockUser(username = "author@universe.local")
+    @DisplayName("GET /community as authenticated author with pending posts -> renders own-pending section with status chips and no permalink/reactions")
+    void shouldRenderAuthorOwnPendingPostsSectionWhenAuthenticatedUserHasPendingPosts() throws Exception {
+        UUID authorId = UUID.randomUUID();
+        UUID newPostId = UUID.randomUUID();
+        UUID reReviewPostId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-04T12:00:00Z");
+
+        AuthorPendingCommunityPostDTO pendingPost1 = new AuthorPendingCommunityPostDTO(
+                newPostId, authorId, "Tác giả", "tac_gia", "/author.png",
+                "Draft caption awaiting initial approval", null, null,
+                now, now, null, "PENDING_REVIEW", 0
+        );
+
+        AuthorPendingCommunityPostDTO pendingPost2 = new AuthorPendingCommunityPostDTO(
+                reReviewPostId, authorId, "Tác giả", "tac_gia", "/author.png",
+                "Old public caption", "Edited candidate caption awaiting moderation",
+                null, null,
+                now.minusSeconds(7200), now, now.minusSeconds(3600), "PUBLISHED", 1
+        );
+
+        when(getAuthorPendingCommunityPostsUseCase.execute(eq(authorId)))
+                .thenReturn(List.of(pendingPost1, pendingPost2));
+
+        CommunityNewestFeedResponseDTO newestFeed = new CommunityNewestFeedResponseDTO(
+                List.of(), null, 20, false
+        );
+        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20), eq(authorId))).thenReturn(newestFeed);
+
+        mockMvc.perform(get("/community").with(authenticatedIdentity(authorId)))
+                .andExpect(status().isOk())
+                .andExpect(view().name("community/index"))
+                .andExpect(model().attributeExists("ownPendingPosts"))
+                // Own pending section present
+                .andExpect(content().string(containsString("id=\"communityOwnPendingSection\"")))
+                .andExpect(content().string(containsString("Bài viết đang chờ duyệt")))
+                // Collapsible tray trigger and count badge (2 pending posts)
+                .andExpect(content().string(containsString("id=\"communityOwnPendingTrigger\"")))
+                .andExpect(content().string(containsString("aria-expanded=\"false\"")))
+                .andExpect(content().string(containsString("aria-controls=\"communityOwnPendingList\"")))
+                .andExpect(content().string(containsString("id=\"communityOwnPendingCount\"")))
+                .andExpect(content().string(containsString(">2</span>")))
+                .andExpect(content().string(containsString("id=\"communityOwnPendingList\" class=\"community-pending-list d-flex flex-column gap-3 mt-3\" hidden")))
+                // Both cards present
+                .andExpect(content().string(containsString("Draft caption awaiting initial approval")))
+                .andExpect(content().string(containsString("Edited candidate caption awaiting moderation")))
+                // Status in footer
+                .andExpect(content().string(containsString("post-footer")))
+                .andExpect(content().string(containsString("post-pending-status")))
+                .andExpect(content().string(containsString("⏳ Đang chờ duyệt")))
+                .andExpect(content().string(containsString("⏳ Đang chờ duyệt chỉnh sửa")))
+                .andExpect(content().string(not(containsString("post-pending-badge-group"))))
+                // No permalink anchor on pending caption
+                .andExpect(content().string(not(containsString("href=\"/community/posts/" + newPostId + "\""))))
+                .andExpect(content().string(not(containsString("href=\"/community/posts/" + reReviewPostId + "\""))))
+                // No reaction or comment controls for pending posts
+                .andExpect(content().string(not(containsString("data-reaction-target-id=\"" + newPostId + "\""))))
+                .andExpect(content().string(not(containsString("data-action=\"toggle-comments\" data-post-id=\"" + newPostId + "\""))));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /community as guest -> does NOT render own pending posts section")
+    void shouldNotRenderOwnPendingPostsSectionForAnonymousGuest() throws Exception {
+        CommunityNewestFeedResponseDTO newestFeed = new CommunityNewestFeedResponseDTO(
+                List.of(), null, 20, false
+        );
+        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20))).thenReturn(newestFeed);
+
+        mockMvc.perform(get("/community"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("id=\"communityOwnPendingSection\""))))
+                .andExpect(content().string(not(containsString("Bài viết đang chờ duyệt"))));
+    }
+
+    @Test
+    @WithMockUser(username = "author@universe.local")
+    @DisplayName("GET /community as authenticated author without pending posts -> does NOT render own pending posts section")
+    void shouldNotRenderOwnPendingPostsSectionWhenAuthorHasNoPendingPosts() throws Exception {
+        UUID authorId = UUID.randomUUID();
+        when(getAuthorPendingCommunityPostsUseCase.execute(eq(authorId))).thenReturn(List.of());
+
+        CommunityNewestFeedResponseDTO newestFeed = new CommunityNewestFeedResponseDTO(
+                List.of(), null, 20, false
+        );
+        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20), eq(authorId))).thenReturn(newestFeed);
+
+        mockMvc.perform(get("/community").with(authenticatedIdentity(authorId)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("id=\"communityOwnPendingSection\""))))
+                .andExpect(content().string(not(containsString("Bài viết đang chờ duyệt"))));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Public post card renders initial approval timestamp datetime, NOT submission createdAt")
+    void shouldRenderPublicPostCardWithInitialApprovalTimeNotSubmissionTime() throws Exception {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Instant submittedAt = Instant.parse("2026-10-04T15:00:00Z");
+        Instant approvedAt = Instant.parse("2026-10-04T16:20:00Z");
+
+        CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
+                postId, authorId, "Tác giả", "tac_gia", null, "Post approved after pending review",
+                null, null, 0,
+                0L, 0L, 0L, submittedAt, approvedAt, null, approvedAt
+        );
+        CommunityNewestFeedResponseDTO newestFeed = new CommunityNewestFeedResponseDTO(
+                List.of(item), null, 20, false
+        );
+
+        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20))).thenReturn(newestFeed);
+
+        mockMvc.perform(get("/community"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("datetime=\"2026-10-04T16:20:00Z\"")))
+                .andExpect(content().string(not(containsString("datetime=\"2026-10-04T15:00:00Z\""))));
     }
 }

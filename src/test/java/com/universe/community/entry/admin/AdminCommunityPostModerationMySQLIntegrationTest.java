@@ -2,6 +2,7 @@ package com.universe.community.entry.admin;
 
 import com.universe.community.application.command.ApproveCommunityPostCommand;
 import com.universe.community.application.command.HideCommunityPostCommand;
+import com.universe.community.application.command.EditCommunityPostCaptionCommand;
 import com.universe.community.application.command.RejectCommunityPostCommand;
 import com.universe.community.application.command.ResolveCommunityPostReportCommand;
 import com.universe.community.application.command.RestoreCommunityPostCommand;
@@ -10,6 +11,7 @@ import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort.CommunityPostPage;
 import com.universe.community.application.usecase.ApproveCommunityPostUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.HideCommunityPostUseCase;
 import com.universe.community.application.usecase.RejectCommunityPostUseCase;
 import com.universe.community.application.usecase.ResolveCommunityPostReportUseCase;
@@ -28,6 +30,7 @@ import com.universe.community.infrastructure.persistence.CommunityPostPersistenc
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceMapper;
 import com.universe.community.infrastructure.persistence.CommunityPostRevisionPersistenceAdapter;
 import com.universe.community.infrastructure.persistence.CommunityPostRevisionPersistenceMapper;
+import com.universe.community.infrastructure.persistence.CommunitySettingsPersistenceAdapter;
 import com.universe.interaction.application.mutation.CleanupCommunityPostInteractionsUseCase;
 import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
 import com.universe.interaction.application.ports.InteractionReportRepositoryPort.InteractionReportPage;
@@ -125,6 +128,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         HideCommunityPostUseCase.class,
         RestoreCommunityPostUseCase.class,
         DeleteCommunityPostUseCase.class,
+        EditCommunityPostCaptionUseCase.class,
+        CommunitySettingsPersistenceAdapter.class,
         UuidGeneratorAdapter.class,
         SystemClockAdapter.class,
         AdminCommunityPostModerationMySQLIntegrationTest.TestConfig.class
@@ -134,6 +139,7 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -171,6 +177,9 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
     @Autowired
     private DeleteCommunityPostUseCase deleteUseCase;
+
+    @Autowired
+    private EditCommunityPostCaptionUseCase editUseCase;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -266,7 +275,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
         // Seed PUBLISHED post
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "A post with offensive content", null,
-                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100)
+                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100),
+                now.minusSeconds(100), null
         );
         postRepositoryPort.save(post);
 
@@ -331,7 +341,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
         // Seed PUBLISHED post
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Completely fine post", null,
-                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100)
+                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100),
+                now.minusSeconds(100), null
         );
         postRepositoryPort.save(post);
 
@@ -390,7 +401,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Pending approval caption", null,
-                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60)
+                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60),
+                null, now.minusSeconds(60)
         );
         postRepositoryPort.save(post);
 
@@ -417,7 +429,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Pending rejection caption", null,
-                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60)
+                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60),
+                null, now.minusSeconds(60)
         );
         postRepositoryPort.save(post);
 
@@ -444,7 +457,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Hidden post caption", null,
-                CommunityPostStatus.HIDDEN, 1, now.minusSeconds(60), now.minusSeconds(60)
+                CommunityPostStatus.HIDDEN, 1, now.minusSeconds(60), now.minusSeconds(60),
+                now.minusSeconds(60), null
         );
         postRepositoryPort.save(post);
 
@@ -470,9 +484,9 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
         UUID p3 = UUID.randomUUID();
 
         // Save in random order
-        postRepositoryPort.save(CommunityPost.rehydrate(p2, UUID.randomUUID(), "Post 2", null, CommunityPostStatus.PENDING_REVIEW, 1, baseTime.plusSeconds(200), baseTime.plusSeconds(200)));
-        postRepositoryPort.save(CommunityPost.rehydrate(p1, UUID.randomUUID(), "Post 1", null, CommunityPostStatus.PENDING_REVIEW, 1, baseTime.plusSeconds(100), baseTime.plusSeconds(100)));
-        postRepositoryPort.save(CommunityPost.rehydrate(p3, UUID.randomUUID(), "Post 3", null, CommunityPostStatus.PENDING_REVIEW, 1, baseTime.plusSeconds(300), baseTime.plusSeconds(300)));
+        postRepositoryPort.save(CommunityPost.rehydrate(p2, UUID.randomUUID(), "Post 2", null, CommunityPostStatus.PENDING_REVIEW, 1, baseTime.plusSeconds(200), baseTime.plusSeconds(200), null, baseTime.plusSeconds(200)));
+        postRepositoryPort.save(CommunityPost.rehydrate(p1, UUID.randomUUID(), "Post 1", null, CommunityPostStatus.PENDING_REVIEW, 1, baseTime.plusSeconds(100), baseTime.plusSeconds(100), null, baseTime.plusSeconds(100)));
+        postRepositoryPort.save(CommunityPost.rehydrate(p3, UUID.randomUUID(), "Post 3", null, CommunityPostStatus.PENDING_REVIEW, 1, baseTime.plusSeconds(300), baseTime.plusSeconds(300), null, baseTime.plusSeconds(300)));
 
         CommunityPostPage page = postRepositoryPort.findPendingReviewPosts(0, 10);
         assertThat(page.totalElements()).isEqualTo(3);
@@ -491,9 +505,9 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
         UUID p3 = UUID.randomUUID();
 
         // Save in random order
-        postRepositoryPort.save(CommunityPost.rehydrate(p2, UUID.randomUUID(), "Post 2", null, CommunityPostStatus.HIDDEN, 1, baseTime, baseTime.plusSeconds(200)));
-        postRepositoryPort.save(CommunityPost.rehydrate(p1, UUID.randomUUID(), "Post 1", null, CommunityPostStatus.HIDDEN, 1, baseTime, baseTime.plusSeconds(100)));
-        postRepositoryPort.save(CommunityPost.rehydrate(p3, UUID.randomUUID(), "Post 3", null, CommunityPostStatus.HIDDEN, 1, baseTime, baseTime.plusSeconds(300)));
+        postRepositoryPort.save(CommunityPost.rehydrate(p2, UUID.randomUUID(), "Post 2", null, CommunityPostStatus.HIDDEN, 1, baseTime, baseTime.plusSeconds(200), baseTime, null));
+        postRepositoryPort.save(CommunityPost.rehydrate(p1, UUID.randomUUID(), "Post 1", null, CommunityPostStatus.HIDDEN, 1, baseTime, baseTime.plusSeconds(100), baseTime, null));
+        postRepositoryPort.save(CommunityPost.rehydrate(p3, UUID.randomUUID(), "Post 3", null, CommunityPostStatus.HIDDEN, 1, baseTime, baseTime.plusSeconds(300), baseTime, null));
 
         CommunityPostPage page = postRepositoryPort.findHiddenPosts(0, 10);
         assertThat(page.totalElements()).isEqualTo(3);
@@ -556,7 +570,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Concurrent test caption", null,
-                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100)
+                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100),
+                now.minusSeconds(100), null
         );
         postRepositoryPort.save(post);
 
@@ -636,7 +651,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
         // Seed PUBLISHED post
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Multi-report test caption", null,
-                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100)
+                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100),
+                now.minusSeconds(100), null
         );
         postRepositoryPort.save(post);
 
@@ -695,14 +711,16 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
         // Post in PENDING_REVIEW without reports
         CommunityPost pendingPost = CommunityPost.rehydrate(
                 pendingPostId, UUID.randomUUID(), "Pending review zero reports", null,
-                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(100), now.minusSeconds(100)
+                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(100), now.minusSeconds(100),
+                null, now.minusSeconds(100)
         );
         postRepositoryPort.save(pendingPost);
 
         // Post in HIDDEN without reports
         CommunityPost hiddenPost = CommunityPost.rehydrate(
                 hiddenPostId, UUID.randomUUID(), "Hidden post zero reports", null,
-                CommunityPostStatus.HIDDEN, 1, now.minusSeconds(50), now.minusSeconds(50)
+                CommunityPostStatus.HIDDEN, 1, now.minusSeconds(50), now.minusSeconds(50),
+                now.minusSeconds(50), null
         );
         postRepositoryPort.save(hiddenPost);
 
@@ -730,7 +748,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Pending approval race caption", null,
-                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60)
+                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60),
+                null, now.minusSeconds(60)
         );
         postRepositoryPort.save(post);
 
@@ -784,7 +803,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Pending approve vs reject race", null,
-                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60)
+                CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(60), now.minusSeconds(60),
+                null, now.minusSeconds(60)
         );
         postRepositoryPort.save(post);
 
@@ -833,6 +853,158 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
     }
 
     @Test
+    @DisplayName("Concurrent approve vs reject on PUBLISHED post with pendingCaption edit — exactly one succeeds")
+    void shouldHandleConcurrentApproveAndRejectForPendingCaptionEdit() throws Exception {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID mod1 = UUID.randomUUID();
+        UUID mod2 = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant t0 = now.minusSeconds(3600);
+        Instant t1 = now.minusSeconds(600);
+
+        CommunityPost post = CommunityPost.rehydrate(
+                postId, authorId, "Old approved caption", "New candidate caption", null,
+                CommunityPostStatus.PUBLISHED, 0, t0, t1, t0, t1
+        );
+        postRepositoryPort.save(post);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+
+        Future<Boolean> taskApprove = executor.submit(() -> {
+            startLatch.await();
+            try {
+                approveUseCase.execute(new ApproveCommunityPostCommand(postId, mod1, "Approve edit"));
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+
+        Future<Boolean> taskReject = executor.submit(() -> {
+            startLatch.await();
+            try {
+                rejectUseCase.execute(new RejectCommunityPostCommand(postId, mod2, "Reject edit"));
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+
+        startLatch.countDown();
+        boolean approveResult = taskApprove.get(10, TimeUnit.SECONDS);
+        boolean rejectResult = taskReject.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Exactly one succeeds
+        assertThat(approveResult ^ rejectResult).isTrue();
+
+        CommunityPost updated = postRepositoryPort.findById(postId).orElseThrow();
+        List<CommunityPostModerationEvent> events = moderationEventRepositoryPort.findByPostIdOrderByCreatedAtAsc(postId);
+        assertThat(events).hasSize(1);
+
+        // Common invariants in both outcomes
+        assertThat(updated.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+        assertThat(updated.getPendingCaption()).isNull();
+        assertThat(updated.getReviewRequestedAt()).isNull();
+        assertThat(updated.getPublishedAt()).isEqualTo(t0); // preserved!
+        assertThat(events.get(0).fromStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+        assertThat(events.get(0).toStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+
+        int revCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_post_revisions WHERE post_id = ?",
+                Integer.class,
+                postId.toString()
+        );
+
+        if (approveResult) {
+            assertThat(updated.getCaption()).isEqualTo("New candidate caption");
+            assertThat(updated.getContentVersion()).isEqualTo(1);
+            assertThat(events.get(0).action()).isEqualTo(CommunityPostModerationAction.APPROVE);
+            assertThat(revCount).isEqualTo(1);
+        } else {
+            assertThat(updated.getCaption()).isEqualTo("Old approved caption");
+            assertThat(updated.getContentVersion()).isEqualTo(0);
+            assertThat(events.get(0).action()).isEqualTo(CommunityPostModerationAction.REJECT);
+            assertThat(revCount).isEqualTo(0);
+        }
+    }
+
+    @Test
+    @DisplayName("Race: Admin approval of pendingCaption vs second author edit attempt")
+    void shouldHandleApprovalVsSecondAuthorEditConcurrency() throws Exception {
+        jdbcTemplate.update("UPDATE community_settings SET publication_mode = 'PRE_MODERATION' WHERE id = 'DEFAULT'");
+
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID modId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant t0 = now.minusSeconds(3600);
+        Instant t1 = now.minusSeconds(600);
+
+        CommunityPost post = CommunityPost.rehydrate(
+                postId, authorId, "Old approved caption", "Candidate 1", null,
+                CommunityPostStatus.PUBLISHED, 0, t0, t1, t0, t1
+        );
+        postRepositoryPort.save(post);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+
+        Future<Boolean> taskApprove = executor.submit(() -> {
+            startLatch.await();
+            try {
+                approveUseCase.execute(new ApproveCommunityPostCommand(postId, modId, "Admin approves Candidate 1"));
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+
+        Future<Boolean> taskEdit = executor.submit(() -> {
+            startLatch.await();
+            try {
+                editUseCase.execute(new EditCommunityPostCaptionCommand(postId, authorId, "Candidate 2"));
+                return true;
+            } catch (com.universe.community.domain.exception.CommunityPostPendingEditConflictException e) {
+                // Expected conflict if edit observed existing pendingCaption
+                return false;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+
+        startLatch.countDown();
+        boolean approveResult = taskApprove.get(10, TimeUnit.SECONDS);
+        boolean editResult = taskEdit.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Admin approve must always succeed because it either runs before the edit, or runs after the rejected edit
+        assertThat(approveResult).isTrue();
+
+        CommunityPost updated = postRepositoryPort.findById(postId).orElseThrow();
+        assertThat(updated.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+        assertThat(updated.getPublishedAt()).isEqualTo(t0);
+
+        if (editResult) {
+            // Approval won first: Candidate 1 became approved caption (contentVersion=1).
+            // Then edit ran: observed pendingCaption == null, set Candidate 2 as new pendingCaption!
+            assertThat(updated.getCaption()).isEqualTo("Candidate 1");
+            assertThat(updated.getPendingCaption()).isEqualTo("Candidate 2");
+            assertThat(updated.getReviewRequestedAt()).isNotNull();
+            assertThat(updated.getContentVersion()).isEqualTo(1);
+        } else {
+            // Edit observed Candidate 1 still pending: rejected by single-candidate barrier (409 Conflict).
+            // Then approval promoted Candidate 1.
+            assertThat(updated.getCaption()).isEqualTo("Candidate 1");
+            assertThat(updated.getPendingCaption()).isNull();
+            assertThat(updated.getReviewRequestedAt()).isNull();
+            assertThat(updated.getContentVersion()).isEqualTo(1);
+        }
+    }
+
+    @Test
     @DisplayName("Section 9 Proof C: Two admins concurrently restore same hidden post — exactly one succeeds")
     void shouldHandleConcurrentRestoreUnderLock() throws Exception {
         UUID postId = UUID.randomUUID();
@@ -843,7 +1015,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Hidden restore race caption", null,
-                CommunityPostStatus.HIDDEN, 1, now.minusSeconds(60), now.minusSeconds(60)
+                CommunityPostStatus.HIDDEN, 1, now.minusSeconds(60), now.minusSeconds(60),
+                now.minusSeconds(60), null
         );
         postRepositoryPort.save(post);
 
@@ -896,7 +1069,8 @@ class AdminCommunityPostModerationMySQLIntegrationTest {
 
         CommunityPost post = CommunityPost.rehydrate(
                 postId, authorId, "Hide vs delete race caption", null,
-                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100)
+                CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(100),
+                now.minusSeconds(100), null
         );
         postRepositoryPort.save(post);
 

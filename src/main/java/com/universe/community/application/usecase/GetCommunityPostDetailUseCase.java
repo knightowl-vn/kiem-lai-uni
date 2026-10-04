@@ -80,7 +80,8 @@ public class GetCommunityPostDetailUseCase {
                 engagementScore,
                 post.createdAt(),
                 post.updatedAt(),
-                metrics.currentUserReaction()
+                metrics.currentUserReaction(),
+                post.publishedAt()
         );
 
         List<CommunityPostFeedItemDTO> enrichedList = authorEnricher.enrich(List.of(rawItem));

@@ -45,7 +45,7 @@ class CreateCommunityPostWithImageUseCaseTest {
         Instant now = Instant.now();
         UUID postId = UUID.randomUUID();
 
-        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, null, CommunityPostStatus.PUBLISHED, now, now, null);
         when(createCommunityPostUseCase.execute(any(CreateCommunityPostCommand.class))).thenReturn(expectedPost);
 
         CommunityPost actualPost = orchestrator.execute(
@@ -82,7 +82,7 @@ class CreateCommunityPostWithImageUseCaseTest {
         when(imageUploadUseCase.uploadImage(any(InputStream.class), eq((long) imageData.length), eq("image/jpeg"), eq("test.jpg")))
                 .thenReturn(assetId);
 
-        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, assetId, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, assetId, CommunityPostStatus.PUBLISHED, now, now, null);
         when(createCommunityPostUseCase.execute(any(CreateCommunityPostCommand.class))).thenReturn(expectedPost);
 
         CommunityPost actualPost = orchestrator.execute(
@@ -245,5 +245,31 @@ class CreateCommunityPostWithImageUseCaseTest {
                 .hasMessageContaining("does not match declared raster MIME type");
 
         verify(createCommunityPostUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Should fail closed and compensate image upload when publication settings are missing/unconfigured")
+    void shouldCompensateImageAndFailClosedWhenPublicationSettingsMissing() {
+        UUID actorUserId = UUID.randomUUID();
+        String caption = "Image post fails closed";
+        UUID assetId = UUID.randomUUID();
+        byte[] imageData = "valid-jpeg-bytes".getBytes();
+        IllegalStateException settingsEx = new IllegalStateException("Community publication settings are not configured.");
+
+        when(imageUploadUseCase.uploadImage(any(), any(Long.class), any(), any())).thenReturn(assetId);
+        when(createCommunityPostUseCase.execute(any(CreateCommunityPostCommand.class))).thenThrow(settingsEx);
+
+        assertThatThrownBy(() -> orchestrator.execute(
+                actorUserId,
+                caption,
+                new ByteArrayInputStream(imageData),
+                imageData.length,
+                "image/jpeg",
+                "test.jpg"
+        ))
+                .isSameAs(settingsEx)
+                .hasMessageContaining("Community publication settings are not configured.");
+
+        verify(imageUploadUseCase).compensateUpload(assetId, settingsEx);
     }
 }

@@ -7,11 +7,14 @@ import com.universe.community.application.command.ResolveCommunityPostReportComm
 import com.universe.community.application.command.RestoreCommunityPostCommand;
 import com.universe.community.application.port.out.CommunityPostModerationEventRepositoryPort;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
+import com.universe.community.application.port.out.CommunityPostRevisionRepositoryPort;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostRevision;
 import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.moderation.CommunityPostModerationAction;
 import com.universe.community.domain.moderation.CommunityPostModerationEvent;
+import com.universe.shared.id.IdGeneratorPort;
 import com.universe.interaction.application.exceptions.InteractionReportNotFoundException;
 import com.universe.interaction.application.exceptions.ReportAlreadyResolvedException;
 import com.universe.interaction.application.exceptions.UnsupportedReportModerationActionException;
@@ -59,6 +62,12 @@ class CommunityPostModerationUseCaseTest {
     @Mock
     private ClockPort clockPort;
 
+    @Mock
+    private CommunityPostRevisionRepositoryPort revisionRepositoryPort;
+
+    @Mock
+    private IdGeneratorPort idGeneratorPort;
+
     private final Instant now = Instant.parse("2026-10-03T12:00:00Z");
     private final UUID postId = UUID.randomUUID();
     private final UUID authorUserId = UUID.randomUUID();
@@ -68,6 +77,7 @@ class CommunityPostModerationUseCaseTest {
     @BeforeEach
     void setUp() {
         lenient().when(clockPort.now()).thenReturn(now);
+        lenient().when(idGeneratorPort.generate()).thenReturn(UUID.randomUUID());
     }
 
     @Nested
@@ -78,7 +88,13 @@ class CommunityPostModerationUseCaseTest {
 
         @BeforeEach
         void init() {
-            approveUseCase = new ApproveCommunityPostUseCase(postRepositoryPort, moderationEventRepositoryPort, clockPort);
+            approveUseCase = new ApproveCommunityPostUseCase(
+                    postRepositoryPort,
+                    moderationEventRepositoryPort,
+                    revisionRepositoryPort,
+                    idGeneratorPort,
+                    clockPort
+            );
         }
 
         @Test
@@ -86,7 +102,8 @@ class CommunityPostModerationUseCaseTest {
         void shouldApprovePendingPost() {
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Caption", null,
-                    CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(100), now.minusSeconds(50)
+                    CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(100), now.minusSeconds(50),
+                    null, now.minusSeconds(100)
             );
             when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
 
@@ -121,13 +138,116 @@ class CommunityPostModerationUseCaseTest {
         void shouldFailIfNotPendingReview() {
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Caption", null,
-                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(50)
+                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(50),
+                    now.minusSeconds(100), null
             );
             when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
 
             assertThatThrownBy(() -> approveUseCase.execute(new ApproveCommunityPostCommand(postId, moderatorUserId, null)))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Cannot approve post with status: PUBLISHED");
+        }
+
+        @Test
+        @DisplayName("Browser-relevant lifecycle contract: initial approval sets publishedAt, edit under PRE_MODERATION requires re-review and preserves publishedAt, re-approval does not bump publishedAt")
+        void shouldHandleFullApprovalEditReReviewLifecycleWithPreservedTimestamps() {
+            Instant submittedAt = Instant.parse("2026-10-04T15:00:00Z");
+            Instant approvedAt = Instant.parse("2026-10-04T16:20:00Z");
+
+            // A. Initial pending submission at 15:00
+            CommunityPost post = CommunityPost.create(
+                    postId, authorUserId, "Original post", null,
+                    CommunityPostStatus.PENDING_REVIEW, submittedAt, null, submittedAt
+            );
+            when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
+            when(clockPort.now()).thenReturn(approvedAt);
+
+            // B. Admin approves at 16:20
+            approveUseCase.execute(new ApproveCommunityPostCommand(postId, moderatorUserId, "First approval"));
+
+            // Assert after initial approval:
+            assertThat(post.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+            assertThat(post.getCreatedAt()).isEqualTo(submittedAt); // 15:00
+            assertThat(post.getPublishedAt()).isEqualTo(approvedAt); // 16:20
+            assertThat(post.getReviewRequestedAt()).isNull();
+
+            // C. Public DTO mapping uses approvedAt (16:20), NOT submittedAt (15:00)
+            com.universe.community.contracts.dto.CommunityPostPublicDTO publicDto =
+                    com.universe.community.application.mapper.CommunityPostDTOMapper.toPublicDTO(post);
+            assertThat(publicDto.createdAt()).isEqualTo(submittedAt);
+            assertThat(publicDto.publishedAt()).isEqualTo(approvedAt);
+
+            // D. Effective edit under PRE_MODERATION at 16:40
+            Instant editAt = Instant.parse("2026-10-04T16:40:00Z");
+            boolean changed = post.editCaption(authorUserId, "Updated post caption", editAt, com.universe.community.domain.CommunityPublicationMode.PRE_MODERATION);
+            assertThat(changed).isTrue();
+
+            // Assert status after edit = PUBLISHED, caption = "Original post", pendingCaption = "Updated post caption", reviewRequestedAt = 16:40, publishedAt = 16:20
+            assertThat(post.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+            assertThat(post.getCaption()).isEqualTo("Original post");
+            assertThat(post.getPendingCaption()).isEqualTo("Updated post caption");
+            assertThat(post.getReviewRequestedAt()).isEqualTo(editAt);
+            assertThat(post.getPublishedAt()).isEqualTo(approvedAt); // strictly preserved!
+
+            // E. Admin approves pending edit at 16:45
+            Instant reApproveAt = Instant.parse("2026-10-04T16:45:00Z");
+            when(clockPort.now()).thenReturn(reApproveAt);
+            when(idGeneratorPort.generate()).thenReturn(UUID.randomUUID());
+
+            approveUseCase.execute(new ApproveCommunityPostCommand(postId, moderatorUserId, "Approval after edit"));
+
+            // Assert after edit approval: status = PUBLISHED, caption = "Updated post caption", pendingCaption = null, reviewRequestedAt = null, publishedAt remains 16:20
+            assertThat(post.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+            assertThat(post.getCaption()).isEqualTo("Updated post caption");
+            assertThat(post.getPendingCaption()).isNull();
+            assertThat(post.getReviewRequestedAt()).isNull();
+            assertThat(post.getPublishedAt()).isEqualTo(approvedAt); // STILL 16:20, NOT bumped to 16:45!
+            assertThat(post.getContentVersion()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Successfully approves pending caption edit on PUBLISHED post and archives revision")
+        void shouldApprovePendingCaptionEditAndArchiveRevision() {
+            Instant publishedAt = now.minusSeconds(1000);
+            Instant editAt = now.minusSeconds(200);
+            UUID revisionId = UUID.randomUUID();
+
+            CommunityPost post = CommunityPost.rehydrate(
+                    postId, authorUserId, "Approved caption", "Proposed new caption",
+                    null, CommunityPostStatus.PUBLISHED, 0, publishedAt, editAt,
+                    publishedAt, editAt
+            );
+            when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
+            when(idGeneratorPort.generate()).thenReturn(revisionId);
+
+            approveUseCase.execute(new ApproveCommunityPostCommand(postId, moderatorUserId, "Edit looks great"));
+
+            assertThat(post.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+            assertThat(post.getCaption()).isEqualTo("Proposed new caption");
+            assertThat(post.getPendingCaption()).isNull();
+            assertThat(post.getContentVersion()).isEqualTo(1);
+            assertThat(post.getPublishedAt()).isEqualTo(publishedAt);
+            assertThat(post.getReviewRequestedAt()).isNull();
+
+            verify(postRepositoryPort).save(post);
+
+            ArgumentCaptor<CommunityPostRevision> revCaptor = ArgumentCaptor.forClass(CommunityPostRevision.class);
+            verify(revisionRepositoryPort).save(revCaptor.capture());
+            CommunityPostRevision revision = revCaptor.getValue();
+            assertThat(revision.id()).isEqualTo(revisionId);
+            assertThat(revision.postId()).isEqualTo(postId);
+            assertThat(revision.revisionNumber()).isEqualTo(1);
+            assertThat(revision.editorUserId()).isEqualTo(authorUserId);
+            assertThat(revision.previousCaption()).isEqualTo("Approved caption");
+            assertThat(revision.caption()).isEqualTo("Proposed new caption");
+            assertThat(revision.editedAt()).isEqualTo(now);
+
+            ArgumentCaptor<CommunityPostModerationEvent> eventCaptor = ArgumentCaptor.forClass(CommunityPostModerationEvent.class);
+            verify(moderationEventRepositoryPort).save(eventCaptor.capture());
+            CommunityPostModerationEvent event = eventCaptor.getValue();
+            assertThat(event.action()).isEqualTo(CommunityPostModerationAction.APPROVE);
+            assertThat(event.fromStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+            assertThat(event.toStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
         }
     }
 
@@ -147,7 +267,8 @@ class CommunityPostModerationUseCaseTest {
         void shouldRejectPendingPost() {
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Caption", null,
-                    CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(100), now.minusSeconds(50)
+                    CommunityPostStatus.PENDING_REVIEW, 1, now.minusSeconds(100), now.minusSeconds(50),
+                    null, now.minusSeconds(100)
             );
             when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
 
@@ -165,6 +286,38 @@ class CommunityPostModerationUseCaseTest {
             assertThat(event.toStatus()).isEqualTo(CommunityPostStatus.REJECTED);
             assertThat(event.moderatorUserId()).isEqualTo(moderatorUserId);
             assertThat(event.reason()).isEqualTo("Inappropriate content");
+        }
+
+        @Test
+        @DisplayName("Successfully rejects pending caption edit on PUBLISHED post: discards candidate, keeps original caption and PUBLISHED status")
+        void shouldRejectPendingCaptionEditAndPreserveOriginalCaption() {
+            Instant publishedAt = now.minusSeconds(1000);
+            Instant editAt = now.minusSeconds(200);
+
+            CommunityPost post = CommunityPost.rehydrate(
+                    postId, authorUserId, "Approved caption", "Bad proposed caption",
+                    null, CommunityPostStatus.PUBLISHED, 0, publishedAt, editAt,
+                    publishedAt, editAt
+            );
+            when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
+
+            rejectUseCase.execute(new RejectCommunityPostCommand(postId, moderatorUserId, "Rejected edit"));
+
+            assertThat(post.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+            assertThat(post.getCaption()).isEqualTo("Approved caption");
+            assertThat(post.getPendingCaption()).isNull();
+            assertThat(post.getContentVersion()).isEqualTo(0);
+            assertThat(post.getPublishedAt()).isEqualTo(publishedAt);
+            assertThat(post.getReviewRequestedAt()).isNull();
+
+            verify(postRepositoryPort).save(post);
+
+            ArgumentCaptor<CommunityPostModerationEvent> eventCaptor = ArgumentCaptor.forClass(CommunityPostModerationEvent.class);
+            verify(moderationEventRepositoryPort).save(eventCaptor.capture());
+            CommunityPostModerationEvent event = eventCaptor.getValue();
+            assertThat(event.action()).isEqualTo(CommunityPostModerationAction.REJECT);
+            assertThat(event.fromStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+            assertThat(event.toStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
         }
     }
 
@@ -184,7 +337,8 @@ class CommunityPostModerationUseCaseTest {
         void shouldHidePublishedPost() {
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Caption", null,
-                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(50)
+                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(100), now.minusSeconds(50),
+                    now.minusSeconds(100), null
             );
             when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
 
@@ -200,6 +354,30 @@ class CommunityPostModerationUseCaseTest {
             assertThat(event.action()).isEqualTo(CommunityPostModerationAction.HIDE);
             assertThat(event.fromStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
             assertThat(event.toStatus()).isEqualTo(CommunityPostStatus.HIDDEN);
+        }
+
+        @Test
+        @DisplayName("Hide safety: hiding published post with pending caption edit clears candidate caption")
+        void shouldHidePublishedPostWithPendingCaptionEditClearingCandidate() {
+            Instant publishedAt = now.minusSeconds(1000);
+            Instant editAt = now.minusSeconds(200);
+
+            CommunityPost post = CommunityPost.rehydrate(
+                    postId, authorUserId, "Approved caption", "Candidate to be cleared",
+                    null, CommunityPostStatus.PUBLISHED, 0, publishedAt, editAt,
+                    publishedAt, editAt
+            );
+            when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
+
+            hideUseCase.execute(new HideCommunityPostCommand(postId, moderatorUserId, "Toxicity"));
+
+            assertThat(post.getStatus()).isEqualTo(CommunityPostStatus.HIDDEN);
+            assertThat(post.getCaption()).isEqualTo("Approved caption");
+            assertThat(post.getPendingCaption()).isNull();
+            assertThat(post.getReviewRequestedAt()).isNull();
+            assertThat(post.getPublishedAt()).isEqualTo(publishedAt);
+
+            verify(postRepositoryPort).save(post);
         }
     }
 
@@ -219,7 +397,8 @@ class CommunityPostModerationUseCaseTest {
         void shouldRestoreHiddenPost() {
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Caption", null,
-                    CommunityPostStatus.HIDDEN, 1, now.minusSeconds(100), now.minusSeconds(50)
+                    CommunityPostStatus.HIDDEN, 1, now.minusSeconds(100), now.minusSeconds(50),
+                    now.minusSeconds(100), null
             );
             when(postRepositoryPort.findByIdForUpdate(postId)).thenReturn(Optional.of(post));
 
@@ -284,7 +463,8 @@ class CommunityPostModerationUseCaseTest {
             );
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Violating caption", null,
-                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(120), now.minusSeconds(60)
+                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(120), now.minusSeconds(60),
+                    now.minusSeconds(120), null
             );
 
             when(reportRepositoryPort.findTargetMetadataById(reportId)).thenReturn(
@@ -328,7 +508,8 @@ class CommunityPostModerationUseCaseTest {
             );
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Violating caption", null,
-                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(120), now.minusSeconds(60)
+                    CommunityPostStatus.PUBLISHED, 1, now.minusSeconds(120), now.minusSeconds(60),
+                    now.minusSeconds(120), null
             );
 
             when(reportRepositoryPort.findTargetMetadataById(reportId)).thenReturn(
@@ -347,7 +528,8 @@ class CommunityPostModerationUseCaseTest {
         void shouldRejectIfPostNotPublished() {
             CommunityPost post = CommunityPost.rehydrate(
                     postId, authorUserId, "Violating caption", null,
-                    CommunityPostStatus.HIDDEN, 1, now.minusSeconds(120), now.minusSeconds(60)
+                    CommunityPostStatus.HIDDEN, 1, now.minusSeconds(120), now.minusSeconds(60),
+                    now.minusSeconds(120), null
             );
 
             when(reportRepositoryPort.findTargetMetadataById(reportId)).thenReturn(

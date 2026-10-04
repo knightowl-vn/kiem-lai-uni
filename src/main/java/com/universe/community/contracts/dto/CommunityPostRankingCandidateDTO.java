@@ -9,10 +9,10 @@ import java.util.UUID;
  */
 public record CommunityPostRankingCandidateDTO(
         UUID postId,
-        Instant createdAt
+        Instant publishedAt
 ) {
     public CommunityPostRankingCandidateDTO {
         Objects.requireNonNull(postId, "Post ID cannot be null.");
-        Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
+        Objects.requireNonNull(publishedAt, "PublishedAt timestamp cannot be null.");
     }
 }

@@ -168,10 +168,10 @@
         // Timestamp (Never exposes raw ISO text)
         const timeEl = document.createElement('time');
         timeEl.className = 'post-time';
-        timeEl.setAttribute('datetime', item.createdAt);
+        timeEl.setAttribute('datetime', item.publishedAt);
         timeEl.setAttribute('data-relative-time', '');
         if (typeof window !== 'undefined' && window.RelativeTime && typeof window.RelativeTime.format === 'function') {
-            timeEl.textContent = window.RelativeTime.format(item.createdAt);
+            timeEl.textContent = window.RelativeTime.format(item.publishedAt);
         } else {
             timeEl.textContent = 'Vừa xong';
         }
@@ -651,6 +651,9 @@
         const submittedSessionId = currentEditSessionId;
         const submittedPostId = activePostId;
         const submittedCardEl = activeCardEl;
+        const originalCaption = (typeof activeOriginalCaption === 'string' && activeOriginalCaption)
+            ? activeOriginalCaption
+            : ((submittedCardEl && submittedCardEl.querySelector('.post-caption')) ? submittedCardEl.querySelector('.post-caption').textContent : '');
 
         const textarea = modal.querySelector('#communityEditCaptionInput');
         const alertDiv = modal.querySelector('#communityEditModalAlert');
@@ -808,6 +811,29 @@
                             } else {
                                 postMeta.appendChild(editedBtn);
                             }
+                        }
+                    }
+
+                    const isModerationPending = Boolean(updatedPost.pendingCaption) || (
+                        newCaption.trim().length > 0 &&
+                        originalCaption.trim().length > 0 &&
+                        newCaption.trim() !== originalCaption.trim() &&
+                        updatedPost.caption === originalCaption
+                    );
+
+                    if (isModerationPending) {
+                        const composerModule = (typeof window !== 'undefined' && window.CommunityComposer)
+                            ? window.CommunityComposer
+                            : ((typeof globalThis !== 'undefined' && globalThis.CommunityComposer) ? globalThis.CommunityComposer : null);
+
+                        if (composerModule && typeof composerModule.renderOwnPendingPost === 'function') {
+                            composerModule.renderOwnPendingPost({
+                                id: submittedPostId,
+                                authorUserId: submittedCardEl.getAttribute('data-author-id'),
+                                caption: updatedPost.caption,
+                                pendingCaption: newCaption.trim(),
+                                publishedAt: updatedPost.publishedAt || true
+                            }, doc);
                         }
                     }
                 }

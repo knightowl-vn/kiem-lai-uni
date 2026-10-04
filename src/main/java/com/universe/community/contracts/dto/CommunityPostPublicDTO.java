@@ -17,7 +17,9 @@ public record CommunityPostPublicDTO(
         String imageUrl,
         int contentVersion,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Instant publishedAt,
+        String status
 ) {
 
     public CommunityPostPublicDTO {
@@ -29,8 +31,62 @@ public record CommunityPostPublicDTO(
     }
 
     /**
-     * Backward-compatible 7-parameter constructor that derives {@code imageUrl} automatically
-     * from {@code imageMediaAssetId} via {@link MediaDeliveryUrlSupport#contentUrl(UUID)}.
+     * Canonical constructor without explicit imageUrl that derives imageUrl automatically.
+     */
+    public CommunityPostPublicDTO(
+            UUID id,
+            UUID authorUserId,
+            String caption,
+            UUID imageMediaAssetId,
+            int contentVersion,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant publishedAt,
+            String status
+    ) {
+        this(
+                id,
+                authorUserId,
+                caption,
+                imageMediaAssetId,
+                imageMediaAssetId != null ? MediaDeliveryUrlSupport.contentUrl(imageMediaAssetId) : null,
+                contentVersion,
+                createdAt,
+                updatedAt,
+                publishedAt,
+                status
+        );
+    }
+
+    /**
+     * Backward-compatible 8-parameter constructor defaulting publishedAt to createdAt and status to PUBLISHED.
+     */
+    public CommunityPostPublicDTO(
+            UUID id,
+            UUID authorUserId,
+            String caption,
+            UUID imageMediaAssetId,
+            String imageUrl,
+            int contentVersion,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(
+                id,
+                authorUserId,
+                caption,
+                imageMediaAssetId,
+                imageUrl,
+                contentVersion,
+                createdAt,
+                updatedAt,
+                createdAt,
+                "PUBLISHED"
+        );
+    }
+
+    /**
+     * Backward-compatible 7-parameter constructor defaulting publishedAt to createdAt and status to PUBLISHED.
      */
     public CommunityPostPublicDTO(
             UUID id,
@@ -46,10 +102,11 @@ public record CommunityPostPublicDTO(
                 authorUserId,
                 caption,
                 imageMediaAssetId,
-                imageMediaAssetId != null ? MediaDeliveryUrlSupport.contentUrl(imageMediaAssetId) : null,
                 contentVersion,
                 createdAt,
-                updatedAt
+                updatedAt,
+                createdAt,
+                "PUBLISHED"
         );
     }
 }

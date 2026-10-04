@@ -301,7 +301,7 @@ class CommunityPostInteractionCleanupConcurrencyIntegrationTest {
     private UUID createCommunityPost(UUID authorId, String caption) {
         UUID postId = UUID.randomUUID();
         Instant now = Instant.now();
-        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, CommunityPostStatus.PUBLISHED, now, now, null);
         tx.executeWithoutResult(s -> postRepositoryPort.save(post));
         return postId;
     }

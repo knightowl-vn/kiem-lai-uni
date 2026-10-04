@@ -393,7 +393,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Owner post caption',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, {
@@ -420,7 +420,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OTHER_USER_ID,
             caption: 'Other user post',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, {
@@ -442,7 +442,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Guest viewing post',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, {
@@ -461,7 +461,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Dynamic card test',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         // Context with data-current-user-id on feed list
@@ -486,7 +486,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Menu toggle test',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID });
@@ -521,7 +521,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Initial post caption',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID });
@@ -544,7 +544,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: initialCaption,
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID });
@@ -567,7 +567,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Hello',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID });
@@ -610,7 +610,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Original caption',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
 
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID });
@@ -648,7 +648,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             };
         };
 
-        const item = { id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Caption', createdAt: '2026-09-30T10:00:00Z' };
+        const item = { id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' };
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
@@ -675,7 +675,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             });
         };
 
-        const item = { id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Caption', createdAt: '2026-09-30T10:00:00Z' };
+        const item = { id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' };
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
@@ -722,8 +722,8 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A initial', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
-        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B initial', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A initial', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B initial', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
         mockDoc.body.appendChild(cardB);
 
@@ -759,7 +759,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Old caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Old caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -785,7 +785,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original untouched caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original untouched caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -812,7 +812,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
     });
 
     test('16. modal can be cancelled cleanly without mutation', () => {
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Safe caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Safe caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -842,8 +842,8 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Old', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
-        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Old', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Old', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Old', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
         mockDoc.body.appendChild(cardB);
 
@@ -871,7 +871,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             json: async () => { throw new SyntaxError('Unexpected token <'); }
         });
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Caption Untouched', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Caption Untouched', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -907,7 +907,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             json: async () => { throw new SyntaxError('Unexpected token <'); }
         });
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Caption Untouched', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Caption Untouched', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -943,7 +943,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             json: async () => { throw new SyntaxError('Unexpected token < in JSON at position 0'); }
         });
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Caption Untouched', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Caption Untouched', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -987,8 +987,8 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             };
         };
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Initial', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
-        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Initial', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Initial', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Initial', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
         mockDoc.body.appendChild(cardB);
 
@@ -1043,7 +1043,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
 
         global.fetch = async () => session1Promise;
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Base Caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Base Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         // Session 1: Open and submit
@@ -1095,7 +1095,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Before Edit', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Before Edit', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -1122,7 +1122,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Stays Intact', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Stays Intact', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(card);
 
         CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
@@ -1151,7 +1151,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
 
         global.fetch = async () => fetchAPromise;
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
 
         CommunityPostCard.openEditModal(POST_A_ID, cardA, mockDoc);
@@ -1203,7 +1203,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
 
         global.fetch = async () => fetchAPromise;
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
 
         CommunityPostCard.openEditModal(POST_A_ID, cardA, mockDoc);
@@ -1242,7 +1242,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
 
         global.fetch = async () => fetchAPromise;
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
 
         CommunityPostCard.openEditModal(POST_A_ID, cardA, mockDoc);
@@ -1281,7 +1281,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
 
         global.fetch = async () => fetchAPromise;
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
 
         CommunityPostCard.openEditModal(POST_A_ID, cardA, mockDoc);
@@ -1328,8 +1328,8 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             };
         };
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
-        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Original', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Original', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Original', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
         mockDoc.body.appendChild(cardB);
 
@@ -1379,7 +1379,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Old Caption Before Save', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Old Caption Before Save', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
 
         CommunityPostCard.openEditModal(POST_A_ID, cardA, mockDoc);
@@ -1407,8 +1407,8 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Initial', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
-        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Initial', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A Initial', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B Initial', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
         mockDoc.body.appendChild(cardB);
 
@@ -1455,7 +1455,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Post A Caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Post A Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
 
         CommunityPostCard.openEditModal(POST_A_ID, cardA, mockDoc);
@@ -1490,7 +1490,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             })
         });
 
-        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Post A Caption', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Original Post A Caption', publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z' }, { isAuthenticated: true, currentUserId: OWNER_ID });
         mockDoc.body.appendChild(cardA);
 
         CommunityPostCard.openEditModal(POST_A_ID, cardA, mockDoc);
@@ -1518,7 +1518,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: 'post-with-like-1',
             authorUserId: 'author-1',
             caption: 'Post with Like',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             reactionCount: 1,
             currentUserReaction: 'LIKE'
         };
@@ -1536,7 +1536,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: 'post-no-reaction-2',
             authorUserId: 'author-2',
             caption: 'Post without reaction',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             reactionCount: 0,
             currentUserReaction: null
         };
@@ -1552,7 +1552,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: 'post-guest-3',
             authorUserId: 'author-3',
             caption: 'Guest post',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             reactionCount: 3,
             currentUserReaction: null
         };
@@ -1570,7 +1570,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
             id: 'post-hydrate-4',
             authorUserId: 'author-4',
             caption: 'Post to hydrate',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             reactionCount: 1,
             currentUserReaction: 'LIKE'
         };
@@ -1641,7 +1641,7 @@ describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Owner post caption',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
         const card = CommunityPostCard.create(item, {
             isAuthenticated: true,
@@ -1664,7 +1664,7 @@ describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Other user post',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
         const card = CommunityPostCard.create(item, {
             isAuthenticated: true,
@@ -1683,7 +1683,7 @@ describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Guest viewed post',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
         const card = CommunityPostCard.create(item, {
             isAuthenticated: false
@@ -1700,7 +1700,7 @@ describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Post A',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
         mockDoc.body.appendChild(card);
@@ -2261,7 +2261,7 @@ describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Original post caption',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             contentVersion: 0
         };
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
@@ -2274,7 +2274,7 @@ describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Edited post caption',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             contentVersion: 1
         };
         const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
@@ -2292,7 +2292,7 @@ describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Public edited post',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             contentVersion: 2
         };
         // Guest viewer
@@ -2325,7 +2325,7 @@ describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Original unedited caption',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             contentVersion: 0
         }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
         mockDoc.body.appendChild(card);
@@ -2365,7 +2365,7 @@ describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'First edit caption',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             contentVersion: 1
         }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
         mockDoc.body.appendChild(card);
@@ -2391,7 +2391,7 @@ describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Edited post',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             contentVersion: 1
         }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
         mockDoc.body.appendChild(card);
@@ -2419,7 +2419,7 @@ describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () =
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Edited post',
-            createdAt: '2026-09-30T10:00:00Z',
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z',
             contentVersion: 1
         }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
         mockDoc.body.appendChild(card);
@@ -3101,7 +3101,8 @@ describe('CommunityPostCard Permalink & Timestamp Parity Matrix (MS-07B8.3.4)', 
             authorDisplayName: 'Tiêu Viêm',
             authorPublicHandle: 'tieu_viem',
             caption: 'Đấu khí đại lục',
-            createdAt: '2026-10-02T10:00:00Z',
+            publishedAt: '2026-10-02T10:00:00Z',
+            createdAt: '2026-10-01T08:00:00Z',
             contentVersion: 0
         }, { isAuthenticated: false }, mockDoc);
 
@@ -3277,7 +3278,8 @@ describe('CommunityPostCard Permalink & Timestamp Parity Matrix (MS-07B8.3.4)', 
             authorDisplayName: 'Tiêu Viêm',
             authorPublicHandle: 'tieu_viem',
             caption: initialCaption,
-            createdAt: '2026-10-02T10:00:00Z',
+            publishedAt: '2026-10-02T10:00:00Z',
+            createdAt: '2026-10-01T08:00:00Z',
             contentVersion: 0
         }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
         mockDoc.body.appendChild(card);
@@ -3318,6 +3320,49 @@ describe('CommunityPostCard Permalink & Timestamp Parity Matrix (MS-07B8.3.4)', 
         assert.strictEqual(postEditCaptionEl.getAttribute('href') || postEditCaptionEl.href, '/community/posts/' + POST_A_ID, 'Anchor href must be strictly preserved');
         assert.strictEqual(postEditCaptionEl.textContent, updatedCaption, 'Caption text must be updated');
     });
+
+    test('8. When both publishedAt and createdAt exist and differ, displayed time is based on publishedAt', () => {
+        let formattedArg = null;
+        global.window = {
+            RelativeTime: {
+                format: (d) => {
+                    formattedArg = d;
+                    return 'Formatted ' + d;
+                }
+            }
+        };
+
+        const postPublishedTime = '2026-10-04T12:00:00Z';
+        const postCreatedTime = '2026-09-01T08:00:00Z';
+
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Different timestamps test',
+            publishedAt: postPublishedTime,
+            createdAt: postCreatedTime,
+            contentVersion: 0
+        }, { isAuthenticated: false }, mockDoc);
+
+        const timeEl = card.querySelector('.post-time');
+        assert.ok(timeEl, 'Time element must exist');
+        assert.strictEqual(timeEl.getAttribute('datetime'), postPublishedTime, 'datetime attribute must strictly match publishedAt');
+        assert.strictEqual(formattedArg, postPublishedTime, 'RelativeTime.format must receive publishedAt, NOT createdAt');
+        assert.strictEqual(timeEl.textContent, 'Formatted ' + postPublishedTime);
+    });
+
+    test('9. No source expression equivalent to publishedAt || createdAt or publishedAt ?? createdAt for post timestamp rendering', () => {
+        const fs = require('fs');
+        const scriptPath = path.join(__dirname, '../../../main/resources/static/js/community/community-post-card.js');
+        const source = fs.readFileSync(scriptPath, 'utf8');
+
+        assert.strictEqual(/publishedAt\s*\|\|\s*createdAt/.test(source), false, 'Must not contain publishedAt || createdAt');
+        assert.strictEqual(/publishedAt\s*\?\?\s*createdAt/.test(source), false, 'Must not contain publishedAt ?? createdAt');
+        assert.strictEqual(/publishedAt\s*\|\|\s*item\.createdAt/.test(source), false, 'Must not contain publishedAt || item.createdAt');
+        assert.strictEqual(/publishedAt\s*\?\?\s*item\.createdAt/.test(source), false, 'Must not contain publishedAt ?? item.createdAt');
+        assert.strictEqual(source.includes('item.publishedAt || item.createdAt'), false, 'Must not contain item.publishedAt || item.createdAt');
+        assert.strictEqual(source.includes('item.publishedAt ?? item.createdAt'), false, 'Must not contain item.publishedAt ?? item.createdAt');
+    });
 });
 
 describe('CommunityPostCard Post Report UX Test Matrix (MS-07B8.5.1)', () => {
@@ -3352,7 +3397,7 @@ describe('CommunityPostCard Post Report UX Test Matrix (MS-07B8.5.1)', () => {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Reportable post',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
         const card = CommunityPostCard.create(item, {
             isAuthenticated: true,
@@ -3386,7 +3431,7 @@ describe('CommunityPostCard Post Report UX Test Matrix (MS-07B8.5.1)', () => {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Reportable post',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
         const card = CommunityPostCard.create(item, {
             isAuthenticated: true,
@@ -3407,7 +3452,7 @@ describe('CommunityPostCard Post Report UX Test Matrix (MS-07B8.5.1)', () => {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
             caption: 'Reportable post',
-            createdAt: '2026-09-30T10:00:00Z'
+            publishedAt: '2026-09-30T10:00:00Z', createdAt: '2026-09-30T10:00:00Z'
         };
         const card = CommunityPostCard.create(item, {
             isAuthenticated: true,

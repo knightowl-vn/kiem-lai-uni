@@ -34,8 +34,8 @@
 					</div>
 					<time class="post-time"
 						data-relative-time
-						th:datetime="${item.createdAt}"
-						th:text="${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
+						th:datetime="${item.publishedAt}"
+						th:text="${#temporals.format(item.publishedAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
 					<button th:if="${item.contentVersion > 0}"
 						type="button"
 						class="post-edited-indicator"
@@ -60,8 +60,8 @@
 					</div>
 					<time class="post-time"
 						data-relative-time
-						th:datetime="${item.createdAt}"
-						th:text="${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
+						th:datetime="${item.publishedAt}"
+						th:text="${#temporals.format(item.publishedAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
 					<button th:if="${item.contentVersion > 0}"
 						type="button"
 						class="post-edited-indicator"

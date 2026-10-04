@@ -31,6 +31,7 @@
 
     let injectedFetch = null;
     let previewGeneration = 0;
+    let activeDoc = null;
 
     function getHeaderValue(headers, name) {
         if (!headers) return '';
@@ -99,20 +100,87 @@
         throw new Error('Đã xảy ra lỗi khi đăng bài. Vui lòng thử lại.');
     }
 
+    function setupPendingTray(trigger, list) {
+        if (!trigger || !list || trigger.__pendingTrayBound) return;
+        trigger.__pendingTrayBound = true;
+
+        function toggleTray() {
+            const isExpanded = trigger.getAttribute('aria-expanded') === 'true';
+            if (isExpanded) {
+                trigger.setAttribute('aria-expanded', 'false');
+                list.setAttribute('hidden', '');
+            } else {
+                trigger.setAttribute('aria-expanded', 'true');
+                list.removeAttribute('hidden');
+            }
+        }
+
+        trigger.addEventListener('click', function () {
+            toggleTray();
+        });
+
+        trigger.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ' || e.keyCode === 13 || e.keyCode === 32) {
+                if (typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+                toggleTray();
+            }
+        });
+    }
+
     function initComposer(options) {
         const opts = options || {};
         const doc = opts.document || (typeof document !== 'undefined' ? document : null);
         if (!doc) return;
+        activeDoc = doc;
 
         if (opts.fetch) {
             injectedFetch = opts.fetch;
         }
 
-        const form = doc.getElementById('communityComposerForm');
-        if (!form) {
-            return; // Guest user or composer not present
+        const pendingTrigger = doc.getElementById('communityOwnPendingTrigger');
+        const pendingList = doc.getElementById('communityOwnPendingList');
+        if (pendingTrigger && pendingList) {
+            setupPendingTray(pendingTrigger, pendingList);
         }
 
+        const form = doc.getElementById('communityComposerForm');
+        if (!form) {
+            return {
+                togglePendingTray: function (expand) {
+                    const trigger = doc.getElementById('communityOwnPendingTrigger');
+                    const list = doc.getElementById('communityOwnPendingList');
+                    if (trigger && list) {
+                        const current = trigger.getAttribute('aria-expanded') === 'true';
+                        const target = typeof expand === 'boolean' ? expand : !current;
+                        trigger.setAttribute('aria-expanded', target ? 'true' : 'false');
+                        if (target) {
+                            list.removeAttribute('hidden');
+                        } else {
+                            list.setAttribute('hidden', '');
+                        }
+                    }
+                },
+                isPendingTrayExpanded: function () {
+                    const trigger = doc.getElementById('communityOwnPendingTrigger');
+                    return trigger ? trigger.getAttribute('aria-expanded') === 'true' : false;
+                },
+                getPendingCount: function () {
+                    const badge = doc.getElementById('communityOwnPendingCount');
+                    if (badge && badge.textContent) {
+                        const parsed = parseInt(badge.textContent.trim(), 10);
+                        return isNaN(parsed) ? 0 : parsed;
+                    }
+                    const list = doc.getElementById('communityOwnPendingList');
+                    return list ? list.querySelectorAll('.community-post-card--pending').length : 0;
+                }
+            };
+        }
+
+        const composerTrigger = doc.getElementById('communityComposerTrigger');
+        const composerPanel = doc.getElementById('communityComposerPanel');
+        const collapseBtn = doc.getElementById('composerCollapseBtn');
         const captionInput = doc.getElementById('composerCaption');
         const charCountEl = doc.getElementById('composerCharCount');
         const imageInput = doc.getElementById('composerImageInput');
@@ -123,12 +191,80 @@
         const submitBtn = doc.getElementById('composerSubmitBtn');
         const submitSpinner = doc.getElementById('composerSubmitSpinner');
         const errorAlert = doc.getElementById('composerError');
+        const successAlert = doc.getElementById('composerSuccess');
 
         let isSubmitting = false;
+
+        function expandComposer(options) {
+            const o = options || {};
+            if (composerTrigger) {
+                composerTrigger.setAttribute('aria-expanded', 'true');
+                composerTrigger.setAttribute('hidden', '');
+            }
+            if (composerPanel) {
+                composerPanel.removeAttribute('hidden');
+            }
+            hideSuccess();
+            hideError();
+            if (o.focusInput !== false && captionInput && typeof captionInput.focus === 'function') {
+                captionInput.focus();
+            }
+        }
+
+        function collapseComposer(options) {
+            const o = options || {};
+            if (composerPanel) {
+                composerPanel.setAttribute('hidden', '');
+            }
+            if (composerTrigger) {
+                composerTrigger.removeAttribute('hidden');
+                composerTrigger.setAttribute('aria-expanded', 'false');
+                if (o.focusTrigger && typeof composerTrigger.focus === 'function') {
+                    composerTrigger.focus();
+                }
+            }
+        }
+
+        if (composerTrigger) {
+            composerTrigger.setAttribute('aria-expanded', 'false');
+            composerTrigger.removeAttribute('hidden');
+            if (composerPanel) {
+                composerPanel.setAttribute('hidden', '');
+            }
+
+            composerTrigger.addEventListener('click', function () {
+                expandComposer();
+            });
+
+            composerTrigger.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ' || e.keyCode === 13 || e.keyCode === 32) {
+                    if (typeof e.preventDefault === 'function') {
+                        e.preventDefault();
+                    }
+                    expandComposer();
+                }
+            });
+        }
+
+        if (collapseBtn) {
+            collapseBtn.addEventListener('click', function () {
+                collapseComposer({ focusTrigger: true });
+            });
+        }
+
+        if (composerPanel) {
+            composerPanel.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' || e.keyCode === 27) {
+                    collapseComposer({ focusTrigger: true });
+                }
+            });
+        }
 
         // Caption character count
         if (captionInput && charCountEl) {
             captionInput.addEventListener('input', function () {
+                hideSuccess();
+                hideError();
                 const len = captionInput.value.length;
                 charCountEl.textContent = len + '/' + MAX_CAPTION_LENGTH;
                 if (len > MAX_CAPTION_LENGTH) {
@@ -202,6 +338,7 @@
             }
 
             hideError();
+            hideSuccess();
 
             const caption = captionInput ? captionInput.value.trim() : '';
             if (!caption) {
@@ -268,6 +405,19 @@
                     } catch (resetErr) {
                         console.error('Composer reset error:', resetErr);
                     }
+
+                    if (createdPost && createdPost.status === 'PENDING_REVIEW') {
+                        showSuccess('Bài viết đã được gửi và đang chờ quản trị viên duyệt.');
+                        try {
+                            renderOwnPendingPost(createdPost);
+                        } catch (renderPendingErr) {
+                            console.error('Pending post render error:', renderPendingErr);
+                        }
+                        collapseComposer({ focusTrigger: false });
+                        return;
+                    }
+
+                    collapseComposer({ focusTrigger: false });
 
                     // Refresh feed on NEWEST tab as an independent post-success concern
                     try {
@@ -340,6 +490,20 @@
             }
         }
 
+        function showSuccess(msg) {
+            if (successAlert) {
+                successAlert.textContent = msg;
+                successAlert.removeAttribute('hidden');
+            }
+        }
+
+        function hideSuccess() {
+            if (successAlert) {
+                successAlert.textContent = '';
+                successAlert.setAttribute('hidden', '');
+            }
+        }
+
         function clearImageInput() {
             if (imageInput) {
                 imageInput.value = '';
@@ -360,6 +524,191 @@
             }
         }
 
+        function renderOwnPendingPost(createdPost, targetDoc) {
+            const d = targetDoc || doc;
+            if (!createdPost || !d) return;
+
+            let pendingSection = d.getElementById('communityOwnPendingSection');
+            let pendingList = d.getElementById('communityOwnPendingList');
+            let pendingTrigger = d.getElementById('communityOwnPendingTrigger');
+
+            if (!pendingSection || !pendingList) {
+                pendingSection = d.createElement('section');
+                pendingSection.id = 'communityOwnPendingSection';
+                pendingSection.className = 'community-own-pending-section mb-4';
+                pendingSection.setAttribute('aria-label', 'Bài viết đang chờ duyệt');
+
+                const noscript = d.createElement('noscript');
+                noscript.innerHTML = '<style>#communityOwnPendingTrigger { display: none !important; } #communityOwnPendingList { display: flex !important; }</style>';
+                pendingSection.appendChild(noscript);
+
+                pendingTrigger = d.createElement('button');
+                pendingTrigger.type = 'button';
+                pendingTrigger.id = 'communityOwnPendingTrigger';
+                pendingTrigger.className = 'community-pending-tray-trigger';
+                pendingTrigger.setAttribute('aria-expanded', 'false');
+                pendingTrigger.setAttribute('aria-controls', 'communityOwnPendingList');
+
+                const leftDiv = d.createElement('div');
+                leftDiv.className = 'pending-tray-left';
+                const icon = d.createElement('i');
+                icon.className = 'fa-solid fa-clock-rotate-left pending-tray-icon';
+                icon.setAttribute('aria-hidden', 'true');
+                const title = d.createElement('span');
+                title.className = 'pending-tray-title';
+                title.textContent = 'Bài viết đang chờ duyệt';
+                leftDiv.appendChild(icon);
+                leftDiv.appendChild(title);
+
+                const rightDiv = d.createElement('div');
+                rightDiv.className = 'pending-tray-right';
+                const countBadge = d.createElement('span');
+                countBadge.id = 'communityOwnPendingCount';
+                countBadge.className = 'pending-tray-count-badge';
+                countBadge.textContent = '1';
+                countBadge.setAttribute('aria-label', '1 bài viết đang chờ duyệt');
+                const chevron = d.createElement('i');
+                chevron.className = 'fa-solid fa-chevron-right pending-tray-chevron';
+                chevron.setAttribute('aria-hidden', 'true');
+                rightDiv.appendChild(countBadge);
+                rightDiv.appendChild(chevron);
+
+                pendingTrigger.appendChild(leftDiv);
+                pendingTrigger.appendChild(rightDiv);
+                pendingSection.appendChild(pendingTrigger);
+
+                pendingList = d.createElement('div');
+                pendingList.id = 'communityOwnPendingList';
+                pendingList.className = 'community-pending-list d-flex flex-column gap-3 mt-3';
+                pendingList.setAttribute('hidden', '');
+                pendingSection.appendChild(pendingList);
+
+                setupPendingTray(pendingTrigger, pendingList);
+
+                const sortDropdown = d.getElementById('communityFeedSortDropdown');
+                const feedContainer = d.querySelector ? d.querySelector('.community-feed-container') : null;
+                const ref = sortDropdown || feedContainer;
+                const parent = (ref && ref.parentNode) || d.body;
+                if (parent) {
+                    if (typeof parent.insertBefore === 'function' && ref) {
+                        parent.insertBefore(pendingSection, ref);
+                    } else if (typeof parent.appendChild === 'function') {
+                        parent.appendChild(pendingSection);
+                    }
+                }
+            } else if (pendingTrigger && !pendingTrigger.__pendingTrayBound) {
+                setupPendingTray(pendingTrigger, pendingList);
+            }
+
+            const composerAvatarImg = d.querySelector('.composer-avatar');
+            const composerNameEl = d.querySelector('.composer-author-name');
+            const avatarSrc = (composerAvatarImg && composerAvatarImg.getAttribute('src')) || '/images/default_avatar.jpg';
+            const authorName = (composerNameEl && composerNameEl.textContent && composerNameEl.textContent.trim()) || 'Người dùng';
+
+            // Check if existing card for this postId is already in pendingList
+            const existingCard = createdPost.id
+                ? pendingList.querySelector('.community-post-card--pending[data-post-id="' + createdPost.id + '"]')
+                : null;
+
+            const card = existingCard || d.createElement('article');
+            card.className = 'community-post-card community-post-card--pending';
+            if (createdPost.id) {
+                card.setAttribute('data-post-id', String(createdPost.id));
+            }
+            if (createdPost.authorUserId) {
+                card.setAttribute('data-author-id', String(createdPost.authorUserId));
+            }
+            if (existingCard) {
+                while (card.firstChild) {
+                    card.removeChild(card.firstChild);
+                }
+            }
+
+            const header = d.createElement('header');
+            header.className = 'post-header';
+
+            const authorInfo = d.createElement('div');
+            authorInfo.className = 'post-author-info';
+
+            const avatar = d.createElement('img');
+            avatar.src = avatarSrc;
+            avatar.alt = 'Ảnh đại diện';
+            avatar.className = 'post-author-avatar';
+            authorInfo.appendChild(avatar);
+
+            const meta = d.createElement('div');
+            meta.className = 'post-meta';
+
+            const authorRow = d.createElement('div');
+            authorRow.className = 'post-author-row';
+            const nameSpan = d.createElement('span');
+            nameSpan.className = 'post-author-name';
+            nameSpan.textContent = authorName;
+            authorRow.appendChild(nameSpan);
+            meta.appendChild(authorRow);
+
+            const timeEl = d.createElement('time');
+            timeEl.className = 'post-time';
+            timeEl.setAttribute('data-relative-time', '');
+            const timeVal = createdPost.reviewRequestedAt || createdPost.createdAt || new Date().toISOString();
+            timeEl.setAttribute('datetime', timeVal);
+            timeEl.textContent = 'Vừa xong';
+            meta.appendChild(timeEl);
+            authorInfo.appendChild(meta);
+            header.appendChild(authorInfo);
+            card.appendChild(header);
+
+            const captionP = d.createElement('p');
+            captionP.className = 'post-caption';
+            captionP.textContent = createdPost.pendingCaption || createdPost.caption || '';
+            card.appendChild(captionP);
+
+            const imageUrl = createdPost.imageUrl || (createdPost.imageMediaAssetId ? ('/media/assets/' + encodeURIComponent(createdPost.imageMediaAssetId) + '/content') : null);
+            if (imageUrl) {
+                const imgContainer = d.createElement('div');
+                imgContainer.className = 'post-image-container';
+                const img = d.createElement('img');
+                img.src = imageUrl;
+                img.alt = 'Ảnh đính kèm';
+                img.className = 'post-image';
+                img.loading = 'lazy';
+                imgContainer.appendChild(img);
+                card.appendChild(imgContainer);
+            }
+
+            const footer = d.createElement('footer');
+            footer.className = 'post-footer';
+            const statusDiv = d.createElement('div');
+            statusDiv.className = 'post-pending-status';
+            const isEditPending = Boolean(createdPost.pendingCaption);
+            const isReReview = Boolean(createdPost.publishedAt);
+            if (isEditPending) {
+                statusDiv.textContent = '⏳ Đang chờ duyệt chỉnh sửa';
+            } else if (isReReview) {
+                statusDiv.textContent = '⏳ Đang chờ duyệt lại';
+            } else {
+                statusDiv.textContent = '⏳ Đang chờ duyệt';
+            }
+            footer.appendChild(statusDiv);
+            card.appendChild(footer);
+
+            if (!existingCard) {
+                if (typeof pendingList.insertBefore === 'function' && pendingList.firstChild) {
+                    pendingList.insertBefore(card, pendingList.firstChild);
+                } else if (typeof pendingList.appendChild === 'function') {
+                    pendingList.appendChild(card);
+                }
+            }
+
+            // Update count badge
+            const countBadge = d.getElementById('communityOwnPendingCount');
+            if (countBadge) {
+                const count = pendingList.querySelectorAll('.community-post-card--pending').length;
+                countBadge.textContent = String(count);
+                countBadge.setAttribute('aria-label', count + ' bài viết đang chờ duyệt');
+            }
+        }
+
         function resetComposer() {
             previewGeneration++;
             if (captionInput) {
@@ -377,7 +726,42 @@
 
         return {
             resetComposer: resetComposer,
-            setSubmitting: setSubmitting
+            setSubmitting: setSubmitting,
+            expandComposer: expandComposer,
+            collapseComposer: collapseComposer,
+            isExpanded: function () {
+                if (composerTrigger) {
+                    return composerTrigger.getAttribute('aria-expanded') === 'true';
+                }
+                return composerPanel ? !composerPanel.hasAttribute('hidden') : true;
+            },
+            togglePendingTray: function (expand) {
+                const trigger = doc.getElementById('communityOwnPendingTrigger');
+                const list = doc.getElementById('communityOwnPendingList');
+                if (trigger && list) {
+                    const current = trigger.getAttribute('aria-expanded') === 'true';
+                    const target = typeof expand === 'boolean' ? expand : !current;
+                    trigger.setAttribute('aria-expanded', target ? 'true' : 'false');
+                    if (target) {
+                        list.removeAttribute('hidden');
+                    } else {
+                        list.setAttribute('hidden', '');
+                    }
+                }
+            },
+            isPendingTrayExpanded: function () {
+                const trigger = doc.getElementById('communityOwnPendingTrigger');
+                return trigger ? trigger.getAttribute('aria-expanded') === 'true' : false;
+            },
+            getPendingCount: function () {
+                const badge = doc.getElementById('communityOwnPendingCount');
+                if (badge && badge.textContent) {
+                    const parsed = parseInt(badge.textContent.trim(), 10);
+                    return isNaN(parsed) ? 0 : parsed;
+                }
+                const list = doc.getElementById('communityOwnPendingList');
+                return list ? list.querySelectorAll('.community-post-card--pending').length : 0;
+            }
         };
     }
 
@@ -391,6 +775,10 @@
         init: initComposer,
         initComposer: initComposer,
         parseComposerResponse: parseComposerResponse,
+        renderOwnPendingPost: function (post, customDoc) {
+            return renderOwnPendingPost(post, customDoc || activeDoc);
+        },
+        setupPendingTray: setupPendingTray,
         getPreviewGeneration: function () { return previewGeneration; }
     };
 });

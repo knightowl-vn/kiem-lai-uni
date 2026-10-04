@@ -1,7 +1,10 @@
 package com.universe.community.entry.web;
 
+import com.universe.community.application.usecase.GetAuthorPendingCommunityPostsUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.application.usecase.GetCommunitySettingsUseCase;
+import com.universe.community.contracts.dto.AuthorPendingCommunityPostDTO;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
@@ -14,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -25,10 +29,14 @@ public class CommunityFeedPageController {
 
     private final GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
     private final GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
+    private final GetCommunitySettingsUseCase getCommunitySettingsUseCase;
+    private final GetAuthorPendingCommunityPostsUseCase getAuthorPendingCommunityPostsUseCase;
 
     public CommunityFeedPageController(
             GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase,
-            GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase
+            GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase,
+            GetCommunitySettingsUseCase getCommunitySettingsUseCase,
+            GetAuthorPendingCommunityPostsUseCase getAuthorPendingCommunityPostsUseCase
     ) {
         this.getCommunityNewestFeedUseCase = Objects.requireNonNull(
                 getCommunityNewestFeedUseCase,
@@ -37,6 +45,14 @@ public class CommunityFeedPageController {
         this.getCommunityFeaturedFeedUseCase = Objects.requireNonNull(
                 getCommunityFeaturedFeedUseCase,
                 "GetCommunityFeaturedFeedUseCase cannot be null."
+        );
+        this.getCommunitySettingsUseCase = Objects.requireNonNull(
+                getCommunitySettingsUseCase,
+                "GetCommunitySettingsUseCase cannot be null."
+        );
+        this.getAuthorPendingCommunityPostsUseCase = Objects.requireNonNull(
+                getAuthorPendingCommunityPostsUseCase,
+                "GetAuthorPendingCommunityPostsUseCase cannot be null."
         );
     }
 
@@ -54,6 +70,13 @@ public class CommunityFeedPageController {
         UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
                 .map(AuthenticatedRequestIdentity::userId)
                 .orElse(null);
+
+        model.addAttribute("publicationMode", getCommunitySettingsUseCase.execute().getPublicationMode().name());
+
+        List<AuthorPendingCommunityPostDTO> ownPendingPosts = (viewerUserId != null)
+                ? getAuthorPendingCommunityPostsUseCase.execute(viewerUserId)
+                : List.of();
+        model.addAttribute("ownPendingPosts", ownPendingPosts);
 
         if ("NEWEST".equalsIgnoreCase(normalizedFeed)) {
             if (page != null) {

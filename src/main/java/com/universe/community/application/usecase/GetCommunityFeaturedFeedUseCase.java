@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
  * <p>
  * Evaluates global engagement score (active reactions + active comments/replies) across all live Community posts,
  * sorts globally in memory, slices the requested page window, and bulk-hydrates & enriches only winning posts.
+ * Tie-break uses canonical publication chronology (publishedAt DESC, id DESC).
  */
 @Service
 @Transactional(readOnly = true)
@@ -40,7 +41,7 @@ public class GetCommunityFeaturedFeedUseCase {
 
     private static final Comparator<ScoredCandidate> RANKING_COMPARATOR = Comparator
             .comparingLong(ScoredCandidate::engagementScore).reversed()
-            .thenComparing(ScoredCandidate::createdAt, Comparator.reverseOrder())
+            .thenComparing(ScoredCandidate::publishedAt, Comparator.reverseOrder())
             .thenComparing(c -> c.postId().toString(), Comparator.reverseOrder());
 
     private final CommunityPostQueryPort postQueryPort;
@@ -100,7 +101,7 @@ public class GetCommunityFeaturedFeedUseCase {
 
             scoredCandidates.add(new ScoredCandidate(
                     candidate.postId(),
-                    candidate.createdAt(),
+                    candidate.publishedAt(),
                     reactionCount,
                     commentCount,
                     engagementScore
@@ -159,7 +160,8 @@ public class GetCommunityFeaturedFeedUseCase {
                         candidate.engagementScore(),
                         post.createdAt(),
                         post.updatedAt(),
-                        userReaction
+                        userReaction,
+                        post.publishedAt()
                 ));
             }
         }
@@ -171,7 +173,7 @@ public class GetCommunityFeaturedFeedUseCase {
 
     private record ScoredCandidate(
             UUID postId,
-            Instant createdAt,
+            Instant publishedAt,
             long reactionCount,
             long commentCount,
             long engagementScore

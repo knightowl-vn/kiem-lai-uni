@@ -75,8 +75,11 @@ public class AdminCommunityPostReviewCoordinator {
                     post.getId(),
                     author,
                     post.getCaption(),
+                    post.getPendingCaption(),
                     post.getImageMediaAssetId(),
                     post.getCreatedAt(),
+                    post.getReviewRequestedAt(),
+                    post.getPublishedAt(),
                     post.getContentVersion()
             ));
         }

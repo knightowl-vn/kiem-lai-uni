@@ -2,6 +2,7 @@ package com.universe.community.infrastructure.persistence;
 
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostStatus;
+import com.universe.community.domain.CommunityPublicationMode;
 import com.universe.test.TestDatabaseSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -92,7 +93,9 @@ class CommunityPostPersistenceAdapterMySQLTest {
                 "Caption with media",
                 mediaAssetId,
                 CommunityPostStatus.PUBLISHED,
-                now
+                now,
+                now,
+                null
         );
 
         CommunityPost saved = adapter.save(post);
@@ -105,10 +108,12 @@ class CommunityPostPersistenceAdapterMySQLTest {
         assertThat(saved.getContentVersion()).isEqualTo(0);
         assertThat(saved.getCreatedAt()).isEqualTo(now);
         assertThat(saved.getUpdatedAt()).isEqualTo(now);
+        assertThat(saved.getPublishedAt()).isEqualTo(now);
+        assertThat(saved.getReviewRequestedAt()).isNull();
 
         // Verify DB row directly
         Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT id, author_user_id, caption, image_media_asset_id, status, content_version, created_at, updated_at FROM community_posts WHERE id = ?",
+                "SELECT id, author_user_id, caption, image_media_asset_id, status, content_version, created_at, updated_at, published_at, review_requested_at FROM community_posts WHERE id = ?",
                 postId.toString()
         );
         assertThat(row.get("id")).isEqualTo(postId.toString());
@@ -117,6 +122,8 @@ class CommunityPostPersistenceAdapterMySQLTest {
         assertThat(row.get("image_media_asset_id")).isEqualTo(mediaAssetId.toString());
         assertThat(row.get("status")).isEqualTo("PUBLISHED");
         assertThat(((Number) row.get("content_version")).intValue()).isEqualTo(0);
+        assertThat(row.get("published_at")).isNotNull();
+        assertThat(row.get("review_requested_at")).isNull();
 
         // Find by ID through adapter
         Optional<CommunityPost> foundOpt = adapter.findById(postId);
@@ -128,6 +135,8 @@ class CommunityPostPersistenceAdapterMySQLTest {
         assertThat(found.getImageMediaAssetId()).isEqualTo(mediaAssetId);
         assertThat(found.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
         assertThat(found.getContentVersion()).isEqualTo(0);
+        assertThat(found.getPublishedAt()).isEqualTo(now);
+        assertThat(found.getReviewRequestedAt()).isNull();
     }
 
     @Test
@@ -143,7 +152,9 @@ class CommunityPostPersistenceAdapterMySQLTest {
                 "Text only caption",
                 null,
                 CommunityPostStatus.PUBLISHED,
-                now
+                now,
+                now,
+                null
         );
 
         adapter.save(post);
@@ -169,13 +180,18 @@ class CommunityPostPersistenceAdapterMySQLTest {
             UUID authorId = UUID.randomUUID();
             Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
+            Instant publishedAt = (status == CommunityPostStatus.PUBLISHED || status == CommunityPostStatus.HIDDEN) ? now : null;
+            Instant reviewRequestedAt = (status == CommunityPostStatus.PENDING_REVIEW) ? now : null;
+
             CommunityPost post = CommunityPost.create(
                     postId,
                     authorId,
                     "Post with status " + status,
                     null,
                     status,
-                    now
+                    now,
+                    publishedAt,
+                    reviewRequestedAt
             );
             adapter.save(post);
 
@@ -200,10 +216,10 @@ class CommunityPostPersistenceAdapterMySQLTest {
         Instant createdAt = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
         Instant editedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, CommunityPostStatus.PUBLISHED, createdAt);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, CommunityPostStatus.PUBLISHED, createdAt, createdAt, null);
         adapter.save(post);
 
-        post.editCaption(authorId, "Updated text", editedAt);
+        post.editCaption(authorId, "Updated text", editedAt, CommunityPublicationMode.AUTO_PUBLISH);
         CommunityPost updated = adapter.save(post);
 
         assertThat(updated.getContentVersion()).isEqualTo(1);
@@ -223,7 +239,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Lock test", null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Lock test", null, CommunityPostStatus.PUBLISHED, now, now, null);
         adapter.save(post);
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -258,7 +274,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Locked view test", null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Locked view test", null, CommunityPostStatus.PUBLISHED, now, now, null);
         adapter.save(post);
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -284,7 +300,10 @@ class CommunityPostPersistenceAdapterMySQLTest {
             UUID authorId = UUID.randomUUID();
             Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-            CommunityPost post = CommunityPost.create(postId, authorId, "Non published: " + status, null, status, now);
+            Instant publishedAt = (status == CommunityPostStatus.HIDDEN) ? now : null;
+            Instant reviewRequestedAt = (status == CommunityPostStatus.PENDING_REVIEW) ? now : null;
+
+            CommunityPost post = CommunityPost.create(postId, authorId, "Non published: " + status, null, status, now, publishedAt, reviewRequestedAt);
             adapter.save(post);
 
             transactionTemplate.executeWithoutResult(s -> {
@@ -303,7 +322,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
 
         assertThat(adapter.existsById(postId)).isFalse();
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "To be deleted", null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "To be deleted", null, CommunityPostStatus.PUBLISHED, now, now, null);
         adapter.save(post);
 
         assertThat(adapter.existsById(postId)).isTrue();

@@ -43,6 +43,12 @@ public class CommunityPostJpaEntity {
     private String caption;
 
     @Column(
+            name = "pending_caption",
+            columnDefinition = "TEXT"
+    )
+    private String pendingCaption;
+
+    @Column(
             name = "image_media_asset_id",
             length = 36,
             columnDefinition = "CHAR(36)"
@@ -75,6 +81,16 @@ public class CommunityPostJpaEntity {
     )
     private Instant updatedAt;
 
+    @Column(
+            name = "published_at"
+    )
+    private Instant publishedAt;
+
+    @Column(
+            name = "review_requested_at"
+    )
+    private Instant reviewRequestedAt;
+
     protected CommunityPostJpaEntity() {
     }
 
@@ -86,16 +102,37 @@ public class CommunityPostJpaEntity {
             String status,
             int contentVersion,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            Instant publishedAt,
+            Instant reviewRequestedAt
+    ) {
+        this(id, authorUserId, caption, null, imageMediaAssetId, status, contentVersion, createdAt, updatedAt, publishedAt, reviewRequestedAt);
+    }
+
+    public CommunityPostJpaEntity(
+            String id,
+            String authorUserId,
+            String caption,
+            String pendingCaption,
+            String imageMediaAssetId,
+            String status,
+            int contentVersion,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant publishedAt,
+            Instant reviewRequestedAt
     ) {
         this.id = id;
         this.authorUserId = authorUserId;
         this.caption = caption;
+        this.pendingCaption = pendingCaption;
         this.imageMediaAssetId = imageMediaAssetId;
         this.status = status;
         this.contentVersion = contentVersion;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.publishedAt = publishedAt;
+        this.reviewRequestedAt = reviewRequestedAt;
     }
 
     public String getId() {
@@ -120,6 +157,14 @@ public class CommunityPostJpaEntity {
 
     public void setCaption(String caption) {
         this.caption = caption;
+    }
+
+    public String getPendingCaption() {
+        return pendingCaption;
+    }
+
+    public void setPendingCaption(String pendingCaption) {
+        this.pendingCaption = pendingCaption;
     }
 
     public String getImageMediaAssetId() {
@@ -162,6 +207,22 @@ public class CommunityPostJpaEntity {
         this.updatedAt = updatedAt;
     }
 
+    public Instant getPublishedAt() {
+        return publishedAt;
+    }
+
+    public void setPublishedAt(Instant publishedAt) {
+        this.publishedAt = publishedAt;
+    }
+
+    public Instant getReviewRequestedAt() {
+        return reviewRequestedAt;
+    }
+
+    public void setReviewRequestedAt(Instant reviewRequestedAt) {
+        this.reviewRequestedAt = reviewRequestedAt;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -181,11 +242,14 @@ public class CommunityPostJpaEntity {
                 "id='" + id + '\'' +
                 ", authorUserId='" + authorUserId + '\'' +
                 ", caption='" + (caption != null && caption.length() > 30 ? caption.substring(0, 30) + "..." : caption) + '\'' +
+                ", pendingCaption='" + (pendingCaption != null && pendingCaption.length() > 30 ? pendingCaption.substring(0, 30) + "..." : pendingCaption) + '\'' +
                 ", imageMediaAssetId='" + imageMediaAssetId + '\'' +
                 ", status='" + status + '\'' +
                 ", contentVersion=" + contentVersion +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
+                ", publishedAt=" + publishedAt +
+                ", reviewRequestedAt=" + reviewRequestedAt +
                 '}';
     }
 }

@@ -27,11 +27,14 @@ public class CommunityPostPersistenceMapper {
                 domain.getId().toString(),
                 domain.getAuthorUserId().toString(),
                 domain.getCaption(),
+                domain.getPendingCaption(),
                 domain.getImageMediaAssetId() != null ? domain.getImageMediaAssetId().toString() : null,
                 domain.getStatus().name(),
                 domain.getContentVersion(),
                 domain.getCreatedAt(),
-                domain.getUpdatedAt()
+                domain.getUpdatedAt(),
+                domain.getPublishedAt(),
+                domain.getReviewRequestedAt()
         );
     }
 
@@ -54,11 +57,14 @@ public class CommunityPostPersistenceMapper {
                 id,
                 authorUserId,
                 entity.getCaption(),
+                entity.getPendingCaption(),
                 imageMediaAssetId,
                 status,
                 entity.getContentVersion(),
                 entity.getCreatedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                entity.getPublishedAt(),
+                entity.getReviewRequestedAt()
         );
     }
 
@@ -83,7 +89,9 @@ public class CommunityPostPersistenceMapper {
                 imageMediaAssetId,
                 entity.getContentVersion(),
                 entity.getCreatedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                entity.getPublishedAt(),
+                entity.getStatus()
         );
     }
 
@@ -102,7 +110,9 @@ public class CommunityPostPersistenceMapper {
                 domain.getImageMediaAssetId(),
                 domain.getContentVersion(),
                 domain.getCreatedAt(),
-                domain.getUpdatedAt()
+                domain.getUpdatedAt(),
+                domain.getPublishedAt(),
+                domain.getStatus().name()
         );
     }
 

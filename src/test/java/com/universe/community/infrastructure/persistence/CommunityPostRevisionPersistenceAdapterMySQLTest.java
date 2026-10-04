@@ -78,7 +78,7 @@ class CommunityPostRevisionPersistenceAdapterMySQLTest {
         Instant t2 = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
         // 1. Create base post
-        CommunityPost post = CommunityPost.create(postId, authorId, "Initial v0", null, CommunityPostStatus.PUBLISHED, t0);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Initial v0", null, CommunityPostStatus.PUBLISHED, t0, t0, null);
         postAdapter.save(post);
 
         assertThat(revisionAdapter.findByPostIdOrderByRevisionNumberAsc(postId)).isEmpty();
@@ -130,7 +130,7 @@ class CommunityPostRevisionPersistenceAdapterMySQLTest {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, CommunityPostStatus.PUBLISHED, now, now, null);
         postAdapter.save(post);
 
         CommunityPostRevision rev1 = new CommunityPostRevision(
@@ -167,7 +167,7 @@ class CommunityPostRevisionPersistenceAdapterMySQLTest {
         Instant t1 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
         Instant t2 = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, CommunityPostStatus.PUBLISHED, t0);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, CommunityPostStatus.PUBLISHED, t0, t0, null);
         postAdapter.save(post);
 
         CommunityPostRevision rev1 = new CommunityPostRevision(

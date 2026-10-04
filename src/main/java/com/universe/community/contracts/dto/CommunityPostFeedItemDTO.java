@@ -22,7 +22,8 @@ public record CommunityPostFeedItemDTO(
         long engagementScore,
         Instant createdAt,
         Instant updatedAt,
-        String currentUserReaction
+        String currentUserReaction,
+        Instant publishedAt
 ) {
     public CommunityPostFeedItemDTO {
         Objects.requireNonNull(id, "Post ID cannot be null.");
@@ -55,10 +56,32 @@ public record CommunityPostFeedItemDTO(
             long commentCount,
             long engagementScore,
             Instant createdAt,
+            Instant updatedAt,
+            String currentUserReaction
+    ) {
+        this(id, authorUserId, authorDisplayName, authorPublicHandle, authorAvatarUrl, caption,
+                imageMediaAssetId, imageUrl, contentVersion, reactionCount, commentCount, engagementScore,
+                createdAt, updatedAt, currentUserReaction, createdAt);
+    }
+
+    public CommunityPostFeedItemDTO(
+            UUID id,
+            UUID authorUserId,
+            String authorDisplayName,
+            String authorPublicHandle,
+            String authorAvatarUrl,
+            String caption,
+            UUID imageMediaAssetId,
+            String imageUrl,
+            int contentVersion,
+            long reactionCount,
+            long commentCount,
+            long engagementScore,
+            Instant createdAt,
             Instant updatedAt
     ) {
         this(id, authorUserId, authorDisplayName, authorPublicHandle, authorAvatarUrl, caption,
                 imageMediaAssetId, imageUrl, contentVersion, reactionCount, commentCount, engagementScore,
-                createdAt, updatedAt, null);
+                createdAt, updatedAt, null, createdAt);
     }
 }

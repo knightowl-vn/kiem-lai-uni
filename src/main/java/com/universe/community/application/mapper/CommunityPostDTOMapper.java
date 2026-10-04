@@ -28,7 +28,9 @@ public final class CommunityPostDTOMapper {
                 post.getImageMediaAssetId(),
                 post.getContentVersion(),
                 post.getCreatedAt(),
-                post.getUpdatedAt()
+                post.getUpdatedAt(),
+                post.getPublishedAt(),
+                post.getStatus() != null ? post.getStatus().name() : null
         );
     }
 }

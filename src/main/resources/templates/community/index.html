@@ -37,64 +37,109 @@
 			<p class="community-subtitle">Không gian giao lưu, chia sẻ cảm nhận và thảo luận về vũ trụ Kiếm Lai.</p>
 		</header>
 
-		<!-- Authenticated Composer -->
-		<section sec:authorize="isAuthenticated()" class="community-composer-card" aria-label="Tạo bài viết mới">
-			<form id="communityComposerForm" class="composer-form">
-				<div class="composer-header">
-					<img th:if="${currentUser != null and currentUser.avatarUrl != null and !currentUser.avatarUrl.isBlank()}"
-						th:src="${currentUser.avatarUrl}"
-						src="/images/default_avatar.jpg"
-						alt="Ảnh đại diện"
-						class="composer-avatar"
-						onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
-					<img th:unless="${currentUser != null and currentUser.avatarUrl != null and !currentUser.avatarUrl.isBlank()}"
-						th:src="@{/images/default_avatar.jpg}"
-						src="/images/default_avatar.jpg"
-						alt="Ảnh đại diện"
-						class="composer-avatar">
-					<span class="composer-author-name"
-						th:text="${currentUser != null and currentUser.displayName != null and !currentUser.displayName.isBlank() ? currentUser.displayName : 'Người dùng'}">
-						Người dùng
-					</span>
-				</div>
+		<!-- Authenticated Composer Section (Collapsed by default) -->
+		<section sec:authorize="isAuthenticated()" class="community-composer-section mb-4" aria-label="Tạo bài viết mới">
+			<noscript>
+				<style>
+					#communityComposerTrigger { display: none !important; }
+					#communityComposerPanel { display: block !important; }
+				</style>
+			</noscript>
 
-				<div class="composer-body">
-					<label for="composerCaption" class="visually-hidden">Nội dung bài viết</label>
-					<textarea id="composerCaption" name="caption" class="composer-textarea"
-						maxlength="2000" rows="3"
-						placeholder="Chia sẻ suy nghĩ, cảm nhận của bạn về Kiếm Lai..."></textarea>
-				</div>
+			<!-- Success / Pending Notice (visible after submission even when composer collapses) -->
+			<div id="composerSuccess" class="composer-success alert alert-success mb-3" role="alert" hidden></div>
 
-				<!-- Image Preview -->
-				<div id="composerImagePreview" class="composer-image-preview" hidden>
-					<img id="composerImagePreviewImg" src="" alt="Xem trước ảnh đính kèm" class="preview-img">
-					<button type="button" id="composerRemoveImageBtn" class="btn-remove-image" aria-label="Xóa ảnh đính kèm">
-						<i class="fa-solid fa-xmark"></i>
-					</button>
-				</div>
+			<!-- Compact Post-Creation Trigger (Collapsed by default) -->
+			<button type="button"
+				id="communityComposerTrigger"
+				class="community-composer-trigger"
+				aria-expanded="false"
+				aria-controls="communityComposerPanel">
+				<img th:if="${currentUser != null and currentUser.avatarUrl != null and !currentUser.avatarUrl.isBlank()}"
+					th:src="${currentUser.avatarUrl}"
+					src="/images/default_avatar.jpg"
+					alt="Ảnh đại diện"
+					class="composer-trigger-avatar"
+					onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+				<img th:unless="${currentUser != null and currentUser.avatarUrl != null and !currentUser.avatarUrl.isBlank()}"
+					th:src="@{/images/default_avatar.jpg}"
+					src="/images/default_avatar.jpg"
+					alt="Ảnh đại diện"
+					class="composer-trigger-avatar">
+				<span class="composer-trigger-prompt">Chia sẻ suy nghĩ của bạn về Kiếm Lai...</span>
+				<i class="fa-solid fa-pen-to-square composer-trigger-icon" aria-hidden="true"></i>
+			</button>
 
-				<!-- Error Alert -->
-				<div id="composerError" class="composer-error alert alert-danger" role="alert" hidden></div>
+			<!-- Full Composer Panel (Expanded in-place) -->
+			<div id="communityComposerPanel" class="community-composer-card" hidden>
+				<form id="communityComposerForm" class="composer-form">
+					<!-- Pre-moderation notification (shown only when expanded) -->
+					<div th:if="${publicationMode == 'PRE_MODERATION'}" class="alert alert-info py-2 px-3 mb-3 small d-flex align-items-center gap-2">
+						<i class="fa-solid fa-circle-info"></i>
+						<span>Chế độ kiểm duyệt trước đang bật. Bài viết và chỉnh sửa sẽ được gửi tới quản trị viên duyệt trước khi hiển thị công khai.</span>
+					</div>
 
-				<!-- Composer Toolbar -->
-				<div class="composer-toolbar">
-					<div class="composer-actions">
-						<input type="file" id="composerImageInput" name="image"
-							accept="image/jpeg,image/png,image/webp" hidden>
-						<button type="button" id="composerAddImageBtn" class="btn btn-sm btn-outline-secondary composer-btn-attach">
-							<i class="fa-regular fa-image me-1"></i> Đính kèm ảnh
+					<div class="composer-header d-flex align-items-center justify-content-between">
+						<div class="composer-header-user d-flex align-items-center gap-2">
+							<img th:if="${currentUser != null and currentUser.avatarUrl != null and !currentUser.avatarUrl.isBlank()}"
+								th:src="${currentUser.avatarUrl}"
+								src="/images/default_avatar.jpg"
+								alt="Ảnh đại diện"
+								class="composer-avatar"
+								onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+							<img th:unless="${currentUser != null and currentUser.avatarUrl != null and !currentUser.avatarUrl.isBlank()}"
+								th:src="@{/images/default_avatar.jpg}"
+								src="/images/default_avatar.jpg"
+								alt="Ảnh đại diện"
+								class="composer-avatar">
+							<span class="composer-author-name"
+								th:text="${currentUser != null and currentUser.displayName != null and !currentUser.displayName.isBlank() ? currentUser.displayName : 'Người dùng'}">
+								Người dùng
+							</span>
+						</div>
+						<button type="button" id="composerCollapseBtn" class="composer-collapse-btn" aria-label="Thu gọn trình đăng bài" title="Thu gọn trình đăng bài">
+							<i class="fa-solid fa-xmark" aria-hidden="true"></i>
 						</button>
 					</div>
 
-					<div class="composer-submit-group">
-						<span id="composerCharCount" class="composer-char-count">0/2000</span>
-						<button type="submit" id="composerSubmitBtn" class="btn btn-primary composer-submit-btn">
-							<span id="composerSubmitText">Đăng bài</span>
-							<span id="composerSubmitSpinner" class="spinner-border spinner-border-sm ms-1" role="status" hidden></span>
+					<div class="composer-body">
+						<label for="composerCaption" class="visually-hidden">Nội dung bài viết</label>
+						<textarea id="composerCaption" name="caption" class="composer-textarea"
+							maxlength="2000" rows="3"
+							placeholder="Chia sẻ suy nghĩ, cảm nhận của bạn về Kiếm Lai..."></textarea>
+					</div>
+
+					<!-- Image Preview -->
+					<div id="composerImagePreview" class="composer-image-preview" hidden>
+						<img id="composerImagePreviewImg" src="" alt="Xem trước ảnh đính kèm" class="preview-img">
+						<button type="button" id="composerRemoveImageBtn" class="btn-remove-image" aria-label="Xóa ảnh đính kèm">
+							<i class="fa-solid fa-xmark"></i>
 						</button>
 					</div>
-				</div>
-			</form>
+
+					<!-- Error Alert -->
+					<div id="composerError" class="composer-error alert alert-danger" role="alert" hidden></div>
+
+					<!-- Composer Toolbar -->
+					<div class="composer-toolbar">
+						<div class="composer-actions">
+							<input type="file" id="composerImageInput" name="image"
+								accept="image/jpeg,image/png,image/webp" hidden>
+							<button type="button" id="composerAddImageBtn" class="btn btn-sm btn-outline-secondary composer-btn-attach">
+								<i class="fa-regular fa-image me-1"></i> Đính kèm ảnh
+							</button>
+						</div>
+
+						<div class="composer-submit-group">
+							<span id="composerCharCount" class="composer-char-count">0/2000</span>
+							<button type="submit" id="composerSubmitBtn" class="btn btn-primary composer-submit-btn">
+								<span id="composerSubmitText">Đăng bài</span>
+								<span id="composerSubmitSpinner" class="spinner-border spinner-border-sm ms-1" role="status" hidden></span>
+							</button>
+						</div>
+					</div>
+				</form>
+			</div>
 		</section>
 
 		<!-- Guest Sign-in CTA -->
@@ -105,6 +150,91 @@
 					<a th:href="@{/login(returnTo=${returnTo != null and !#strings.isEmpty(returnTo) ? returnTo : '/community'})}" class="btn btn-primary btn-sm">Đăng nhập</a>
 					<a th:href="@{/register}" class="btn btn-outline-secondary btn-sm ms-2">Đăng ký</a>
 				</div>
+			</div>
+		</section>
+
+		<!-- Author Private Pending Posts Section (Collapsed by default tray) -->
+		<section sec:authorize="isAuthenticated()"
+				th:if="${ownPendingPosts != null and !ownPendingPosts.isEmpty()}"
+				id="communityOwnPendingSection"
+				class="community-own-pending-section mb-4"
+				aria-label="Bài viết đang chờ duyệt">
+			<noscript>
+				<style>
+					#communityOwnPendingTrigger { display: none !important; }
+					#communityOwnPendingList { display: flex !important; }
+				</style>
+			</noscript>
+
+			<!-- Compact Pending Tray Trigger (Collapsed by default) -->
+			<button type="button"
+				id="communityOwnPendingTrigger"
+				class="community-pending-tray-trigger"
+				aria-expanded="false"
+				aria-controls="communityOwnPendingList">
+				<div class="pending-tray-left">
+					<i class="fa-solid fa-clock-rotate-left pending-tray-icon" aria-hidden="true"></i>
+					<span class="pending-tray-title">Bài viết đang chờ duyệt</span>
+				</div>
+				<div class="pending-tray-right">
+					<span id="communityOwnPendingCount" class="pending-tray-count-badge"
+						th:text="${#lists.size(ownPendingPosts)}"
+						th:attr="aria-label=${#lists.size(ownPendingPosts)} + ' bài viết đang chờ duyệt'">1</span>
+					<i class="fa-solid fa-chevron-right pending-tray-chevron" aria-hidden="true"></i>
+				</div>
+			</button>
+
+			<div id="communityOwnPendingList" class="community-pending-list d-flex flex-column gap-3 mt-3" hidden>
+				<article th:each="pendingItem : ${ownPendingPosts}"
+						class="community-post-card community-post-card--pending"
+						th:attr="data-post-id=${pendingItem.id},data-author-id=${pendingItem.authorUserId}">
+					<header class="post-header">
+						<div class="post-author-info">
+							<img th:if="${pendingItem.authorAvatarUrl != null and !pendingItem.authorAvatarUrl.isBlank()}"
+								th:src="${pendingItem.authorAvatarUrl}"
+								src="/images/default_avatar.jpg"
+								alt="Ảnh đại diện"
+								class="post-author-avatar"
+								onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+							<img th:unless="${pendingItem.authorAvatarUrl != null and !pendingItem.authorAvatarUrl.isBlank()}"
+								th:src="@{/images/default_avatar.jpg}"
+								src="/images/default_avatar.jpg"
+								alt="Ảnh đại diện"
+								class="post-author-avatar">
+							<div class="post-meta">
+								<div class="post-author-row">
+									<span class="post-author-name"
+										th:text="${pendingItem.authorDisplayName != null and !pendingItem.authorDisplayName.isBlank() ? pendingItem.authorDisplayName : 'Người dùng'}">
+										Người dùng
+									</span>
+									<span th:if="${pendingItem.authorPublicHandle != null and !pendingItem.authorPublicHandle.isBlank()}"
+										class="post-author-handle"
+										th:text="'@' + ${pendingItem.authorPublicHandle}">@handle</span>
+								</div>
+								<time class="post-time"
+									data-relative-time
+									th:datetime="${pendingItem.reviewRequestedAt != null ? pendingItem.reviewRequestedAt : pendingItem.createdAt}"
+									th:text="${#temporals.format(pendingItem.reviewRequestedAt != null ? pendingItem.reviewRequestedAt : pendingItem.createdAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
+							</div>
+						</div>
+					</header>
+
+					<!-- Post Caption (Plain text, NOT an anchor tag for permalink) -->
+					<p class="post-caption" th:text="${pendingItem.displayCaption}">Nội dung bài viết</p>
+
+					<!-- Attached Image -->
+					<div th:if="${pendingItem.imageUrl != null and !pendingItem.imageUrl.isBlank()}" class="post-image-container">
+						<img th:src="${pendingItem.imageUrl}" alt="Ảnh đính kèm" class="post-image" loading="lazy">
+					</div>
+
+					<!-- Post Footer: Contextual Pending Status -->
+					<footer class="post-footer">
+						<div class="post-pending-status">
+							<span th:if="${pendingItem.pendingCaption != null}">⏳ Đang chờ duyệt chỉnh sửa</span>
+							<span th:unless="${pendingItem.pendingCaption != null}">⏳ Đang chờ duyệt</span>
+						</div>
+					</footer>
+				</article>
 			</div>
 		</section>
 

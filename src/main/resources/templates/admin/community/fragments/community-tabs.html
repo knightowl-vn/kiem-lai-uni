@@ -18,6 +18,11 @@
        th:classappend="${activeTab == 'hidden'} ? ' active' : ''">
         <span>Đã ẩn</span>
     </a>
+    <a th:href="@{/admin/community/settings}"
+       class="community-workspace-tab"
+       th:classappend="${activeTab == 'settings'} ? ' active' : ''">
+        <span>Cài đặt</span>
+    </a>
 </nav>
 
 </body>

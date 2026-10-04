@@ -128,7 +128,7 @@ class CommunityPostControllerTest {
         String caption = "This is a caption-only post";
         UUID postId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt);
+        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt, createdAt, null);
 
         when(createCommunityPostWithImageUseCase.execute(
                 eq(USER_ID),
@@ -161,7 +161,7 @@ class CommunityPostControllerTest {
         UUID postId = UUID.randomUUID();
         UUID imageAssetId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, imageAssetId, CommunityPostStatus.PUBLISHED, createdAt);
+        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, imageAssetId, CommunityPostStatus.PUBLISHED, createdAt, createdAt, null);
 
         MockMultipartFile imagePart = new MockMultipartFile(
                 "image",
@@ -468,7 +468,7 @@ class CommunityPostControllerTest {
         String newCaption = "Updated post caption text";
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
         Instant updatedAt = Instant.parse("2026-09-30T11:00:00Z");
-        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, CommunityPostStatus.PUBLISHED, 1, createdAt, updatedAt);
+        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, CommunityPostStatus.PUBLISHED, 1, createdAt, updatedAt, createdAt, null);
 
         when(editCommunityPostCaptionUseCase.execute(eq(new EditCommunityPostCaptionCommand(POST_ID, USER_ID, newCaption))))
                 .thenReturn(post);
@@ -496,7 +496,7 @@ class CommunityPostControllerTest {
     void shouldReturnOkOnNoOpEdit() throws Exception {
         String caption = "Same caption unchanged";
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt);
+        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt, createdAt, null);
 
         when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
                 .thenReturn(post);

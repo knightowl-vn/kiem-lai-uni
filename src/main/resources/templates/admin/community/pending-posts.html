@@ -35,8 +35,8 @@
                     Thông báo lỗi
                 </div>
 
-                <!-- Moderation List (Cards) -->
-                <section class="community-moderation-list-section">
+                <!-- Centered Moderation Feed Section -->
+                <section class="admin-community-pending-feed admin-community-post-feed">
                     <!-- Empty State -->
                     <div th:if="${posts.isEmpty()}" class="community-empty-card">
                         <div class="community-empty-icon">✓</div>
@@ -45,56 +45,61 @@
                     </div>
 
                     <!-- Cards -->
-                    <div th:unless="${posts.isEmpty()}" class="community-moderation-list">
-                        <article th:each="post : ${posts}" class="community-moderation-card">
-                            <!-- 1. Identity + Time & 2. Status -->
-                            <div class="community-card-header">
-                                <div class="community-card-identity">
-                                    <img th:if="${post.author.avatarUrl != null}"
+                    <th:block th:unless="${posts.isEmpty()}">
+                        <article th:each="post : ${posts}"
+                                 class="community-post-card admin-community-post-card"
+                                 th:attr="data-post-id=${post.postId}">
+                            <!-- Header: Avatar, Name, Handle, Time & Status Chip -->
+                            <header class="post-header">
+                                <div class="post-author-info">
+                                    <img th:if="${post.author.avatarUrl != null and !post.author.avatarUrl.isBlank()}"
                                          th:src="${post.author.avatarUrl}"
-                                         alt="Avatar" class="community-card-avatar">
-                                    <div th:unless="${post.author.avatarUrl != null}"
-                                         class="community-card-avatar-placeholder"
-                                         th:text="${post.author.displayName != null and !post.author.displayName.isEmpty() ? post.author.displayName.substring(0, 1) : '?'}">?</div>
-                                    <div class="community-card-user-meta">
-                                        <span class="community-card-user-name" th:text="${post.author.displayName}">Tác giả</span>
-                                        <div class="community-card-sub-meta">
-                                            <span th:if="${post.author.publicHandle != null}" th:text="'@' + ${post.author.publicHandle}">@handle</span>
-                                            <span>·</span>
-                                            <time th:text="${#temporals.format(post.createdAt(), 'dd/MM/yyyy HH:mm')}">01/01/2026 12:00</time>
+                                         src="/images/default_avatar.jpg"
+                                         alt="Avatar" class="post-author-avatar"
+                                         onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+                                    <img th:unless="${post.author.avatarUrl != null and !post.author.avatarUrl.isBlank()}"
+                                         th:src="@{/images/default_avatar.jpg}"
+                                         src="/images/default_avatar.jpg"
+                                         alt="Avatar" class="post-author-avatar">
+                                    <div class="post-meta">
+                                        <div class="post-author-row">
+                                            <span class="post-author-name" th:text="${post.author.displayName}">Tác giả</span>
+                                            <span th:if="${post.author.publicHandle != null and !post.author.publicHandle.isBlank()}"
+                                                  class="post-author-handle" th:text="'@' + ${post.author.publicHandle}">@handle</span>
                                         </div>
+                                        <time class="post-time"
+                                              th:datetime="${post.reviewRequestedAt != null ? post.reviewRequestedAt : post.createdAt}"
+                                              th:text="${#temporals.format(post.reviewRequestedAt != null ? post.reviewRequestedAt : post.createdAt, 'dd/MM/yyyy HH:mm')}">01/01/2026 12:00</time>
                                     </div>
                                 </div>
-                                <div class="community-card-status-group">
-                                    <span class="admin-badge-pill status-pending">Chờ duyệt</span>
+                                <div class="post-status-badge">
+                                    <span th:if="${post.pendingCaption == null}" class="admin-badge-pill status-pending">Chờ duyệt</span>
+                                    <span th:unless="${post.pendingCaption == null}" class="admin-badge-pill status-pending">Chờ duyệt chỉnh sửa</span>
+                                </div>
+                            </header>
+
+                            <!-- Post Body: Caption -->
+                            <div th:if="${post.pendingCaption != null}" class="post-caption-diff mb-3">
+                                <div class="post-caption-block current-caption mb-2">
+                                    <span class="text-muted small fw-semibold d-block">Nội dung đang hiển thị:</span>
+                                    <p class="post-caption m-0" th:text="${post.caption}">Nội dung hiện tại</p>
+                                </div>
+                                <div class="post-caption-block pending-caption">
+                                    <span class="text-primary small fw-semibold d-block">Nội dung chỉnh sửa mới:</span>
+                                    <p class="post-caption m-0 fw-medium" th:text="${post.pendingCaption}">Nội dung đề xuất</p>
                                 </div>
                             </div>
+                            <p th:if="${post.pendingCaption == null}" class="post-caption" th:text="${post.caption}">Caption bài viết</p>
 
-                            <!-- 3. Content preview & Thumbnails -->
-                            <div class="community-card-body">
-                                <div class="community-card-content">
-                                    <p class="community-caption-truncate" th:text="${post.caption}">Caption bài viết</p>
-                                </div>
-                                <div th:if="${post.imageMediaAssetId != null}" class="community-card-thumbs-column">
-                                    <div class="community-compact-thumb-wrap">
-                                        <img th:src="@{/media/assets/{id}/content(id=${post.imageMediaAssetId})}"
-                                             alt="Ảnh đính kèm" class="community-compact-thumb-sm">
-                                        <span class="community-thumb-tag">Ảnh bài viết</span>
-                                    </div>
-                                </div>
+                            <!-- Attached Image (Normal Post Preview Size, NOT 56px thumbnail) -->
+                            <div th:if="${post.imageMediaAssetId != null}" class="post-image-container">
+                                <img th:src="@{/media/assets/{id}/content(id=${post.imageMediaAssetId})}"
+                                     alt="Ảnh đính kèm" class="post-image" loading="lazy">
                             </div>
 
-                            <!-- 4. Action Area -->
-                            <div class="community-card-footer">
-                                <div class="community-card-actions">
-                                    <!-- Form Duyệt -->
-                                    <form method="post" th:action="@{/admin/community/posts/{id}/approve(id=${post.postId})}">
-                                        <button type="submit" class="admin-btn admin-btn-sm admin-btn-primary"
-                                                onclick="return confirm('Xác nhận duyệt xuất bản bài viết này?');">
-                                            Duyệt
-                                        </button>
-                                    </form>
-
+                            <!-- Footer: Từ chối, Duyệt -->
+                            <footer class="post-footer admin-post-footer">
+                                <div class="admin-post-actions">
                                     <!-- Form Từ chối -->
                                     <form method="post" th:action="@{/admin/community/posts/{id}/reject(id=${post.postId})}">
                                         <button type="submit" class="admin-btn admin-btn-sm admin-btn-danger"
@@ -102,13 +107,21 @@
                                             Từ chối
                                         </button>
                                     </form>
+
+                                    <!-- Form Duyệt -->
+                                    <form method="post" th:action="@{/admin/community/posts/{id}/approve(id=${post.postId})}">
+                                        <button type="submit" class="admin-btn admin-btn-sm admin-btn-primary"
+                                                onclick="return confirm('Xác nhận duyệt xuất bản bài viết này?');">
+                                            Duyệt
+                                        </button>
+                                    </form>
                                 </div>
-                            </div>
+                            </footer>
                         </article>
-                    </div>
+                    </th:block>
 
                     <!-- Pagination -->
-                    <div th:if="${postPage.totalPages() > 1}" class="admin-pagination" style="margin-top: 20px;">
+                    <div th:if="${postPage.totalPages() > 1}" class="admin-pagination admin-community-pagination" style="margin-top: 20px;">
                         <a th:if="${postPage.hasPrevious()}"
                            th:href="@{/admin/community/posts/pending(page=${page - 1}, size=${pageSize})}"
                            class="admin-pagination-link">« Trước</a>

@@ -129,7 +129,7 @@ class GetCommunityNewestFeedUseCaseTest {
         // nextCursor must be derived from last returned item (p2)
         CommunityPostKeysetCursor decodedCursor = cursorCodec.decode(response.nextCursor());
         assertThat(decodedCursor).isNotNull();
-        assertThat(decodedCursor.createdAt()).isEqualTo(t2);
+        assertThat(decodedCursor.publishedAt()).isEqualTo(t2);
         assertThat(decodedCursor.postId()).isEqualTo(p2Id);
     }
 

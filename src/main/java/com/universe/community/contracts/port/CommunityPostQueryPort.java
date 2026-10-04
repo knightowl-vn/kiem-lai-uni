@@ -32,39 +32,38 @@ public interface CommunityPostQueryPort {
     List<CommunityPostRevisionPublicDTO> findPublicRevisionHistory(UUID postId);
 
     /**
-     * Finds a keyset slice of public Community posts ordered by {@code (created_at DESC, id DESC)}.
+     * Finds a keyset slice of public Community posts ordered by {@code (published_at DESC, id DESC)}.
      *
-     * @param cursorCreatedAt timestamp of the last seen post (null for the first page)
+     * @param cursorPublishedAt published timestamp of the last seen post (null for the first page)
      * @param cursorPostId UUID of the last seen post (null for the first page)
      * @param limit maximum number of posts to fetch (must be greater than 0)
      * @return list of public post projection DTOs
      */
     List<CommunityPostPublicDTO> findNewestPostsKeyset(
-            Instant cursorCreatedAt,
+            Instant cursorPublishedAt,
             UUID cursorPostId,
             int limit
     );
 
     /**
      * Finds a keyset slice of public Community posts authored by a specific user,
-     * ordered by {@code (created_at DESC, id DESC)}.
+     * ordered by {@code (published_at DESC, id DESC)}.
      *
      * @param authorUserId the author user UUID
-     * @param cursorCreatedAt timestamp of the last seen post (null for the first page)
+     * @param cursorPublishedAt published timestamp of the last seen post (null for the first page)
      * @param cursorPostId UUID of the last seen post (null for the first page)
      * @param limit maximum number of posts to fetch (must be greater than 0)
      * @return list of public post projection DTOs
      */
     List<CommunityPostPublicDTO> findAuthoredPostsKeyset(
             UUID authorUserId,
-            Instant cursorCreatedAt,
+            Instant cursorPublishedAt,
             UUID cursorPostId,
             int limit
     );
 
-
     /**
-     * Finds lightweight ranking candidates (postId, createdAt) for all live Community posts.
+     * Finds lightweight ranking candidates (postId, publishedAt) for all live Community posts.
      *
      * @return list of ranking candidate DTOs
      */

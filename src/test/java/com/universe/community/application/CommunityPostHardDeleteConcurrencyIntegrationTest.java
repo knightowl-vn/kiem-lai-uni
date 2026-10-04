@@ -17,6 +17,7 @@ import com.universe.community.infrastructure.persistence.CommunityPostPersistenc
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceMapper;
 import com.universe.community.infrastructure.persistence.CommunityPostRevisionPersistenceAdapter;
 import com.universe.community.infrastructure.persistence.CommunityPostRevisionPersistenceMapper;
+import com.universe.community.infrastructure.persistence.CommunitySettingsPersistenceAdapter;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
 import com.universe.interaction.application.mutation.CleanupCommunityPostInteractionsUseCase;
 import com.universe.interaction.application.mutation.CreateRootCommentCommand;
@@ -141,6 +142,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         InteractionCommunityPostReportQueryAdapter.class,
         DeleteCommunityPostUseCase.class,
         EditCommunityPostCaptionUseCase.class,
+        CommunitySettingsPersistenceAdapter.class,
         CreateRootCommentUseCase.class,
         SubmitInteractionReportUseCase.class,
         UuidGeneratorAdapter.class,
@@ -387,7 +389,7 @@ class CommunityPostHardDeleteConcurrencyIntegrationTest {
     private UUID createCommunityPost(UUID authorId, String caption) {
         UUID postId = UUID.randomUUID();
         Instant now = Instant.now();
-        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, CommunityPostStatus.PUBLISHED, now, now, null);
         tx.executeWithoutResult(s -> postAdapter.save(post));
         return postId;
     }

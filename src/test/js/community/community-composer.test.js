@@ -39,9 +39,15 @@ class FakeElement {
         this.src = '';
         this.listeners = {};
 
+        this.focused = false;
+
         for (const [k, v] of Object.entries(attrs)) {
             this.setAttribute(k, v);
         }
+    }
+
+    focus() {
+        this.focused = true;
     }
 
     get hidden() {
@@ -61,7 +67,18 @@ class FakeElement {
         else delete this.attributes['id'];
     }
 
-    get textContent() { return this._textContent; }
+    get className() { return this.getAttribute('class') || ''; }
+    set className(val) {
+        if (val) this.setAttribute('class', String(val));
+        else this.removeAttribute('class');
+    }
+
+    get textContent() {
+        if (this.childNodes.length > 0) {
+            return this.childNodes.map(c => c.textContent).join('');
+        }
+        return this._textContent;
+    }
     set textContent(val) { this._textContent = String(val); }
 
     setAttribute(name, value) {
@@ -84,11 +101,27 @@ class FakeElement {
         if (name === 'class') this.classList.classes.clear();
     }
 
+    get firstChild() {
+        return this.childNodes[0] || null;
+    }
+
     appendChild(child) {
         if (!child) return child;
         child.parentNode = this;
         this.childNodes.push(child);
         return child;
+    }
+
+    insertBefore(newChild, refChild) {
+        if (!newChild) return newChild;
+        newChild.parentNode = this;
+        const idx = this.childNodes.indexOf(refChild);
+        if (idx !== -1) {
+            this.childNodes.splice(idx, 0, newChild);
+        } else {
+            this.childNodes.push(newChild);
+        }
+        return newChild;
     }
 
     addEventListener(event, fn) {
@@ -190,6 +223,10 @@ class FakeDocument {
 describe('CommunityComposer Module Tests (MS-07B8.1 / MS-07B8-RETRO-CORRECTIVE)', () => {
     let doc;
     let form;
+    let composerTrigger;
+    let composerPanel;
+    let collapseBtn;
+    let preModNotice;
     let captionInput;
     let charCountEl;
     let imageInput;
@@ -200,6 +237,7 @@ describe('CommunityComposer Module Tests (MS-07B8.1 / MS-07B8-RETRO-CORRECTIVE)'
     let submitBtn;
     let submitSpinner;
     let errorAlert;
+    let successAlert;
     let refreshedFeedType = null;
     let createdReaders = [];
 
@@ -230,6 +268,49 @@ describe('CommunityComposer Module Tests (MS-07B8.1 / MS-07B8-RETRO-CORRECTIVE)'
         csrfHeaderMeta.setAttribute('name', '_csrf_header');
         csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
         doc.head.appendChild(csrfHeaderMeta);
+
+        // Composer Trigger (Collapsed state)
+        composerTrigger = doc.createElement('button');
+        composerTrigger.id = 'communityComposerTrigger';
+        composerTrigger.className = 'community-composer-trigger';
+        composerTrigger.setAttribute('type', 'button');
+        composerTrigger.setAttribute('aria-expanded', 'false');
+        composerTrigger.setAttribute('aria-controls', 'communityComposerPanel');
+
+        const triggerAvatar = doc.createElement('img');
+        triggerAvatar.className = 'composer-trigger-avatar';
+        triggerAvatar.src = '/images/default_avatar.jpg';
+        composerTrigger.appendChild(triggerAvatar);
+
+        const triggerPrompt = doc.createElement('span');
+        triggerPrompt.className = 'composer-trigger-prompt';
+        triggerPrompt.textContent = 'Chia sẻ suy nghĩ của bạn về Kiếm Lai...';
+        composerTrigger.appendChild(triggerPrompt);
+
+        const triggerIcon = doc.createElement('i');
+        triggerIcon.className = 'fa-solid fa-pen-to-square composer-trigger-icon';
+        composerTrigger.appendChild(triggerIcon);
+
+        doc.body.appendChild(composerTrigger);
+
+        // Composer Panel (Expanded in place)
+        composerPanel = doc.createElement('div');
+        composerPanel.id = 'communityComposerPanel';
+        composerPanel.className = 'community-composer-card';
+        composerPanel.hidden = true;
+        composerPanel.setAttribute('hidden', '');
+
+        preModNotice = doc.createElement('div');
+        preModNotice.className = 'alert alert-info';
+        preModNotice.textContent = 'Chế độ kiểm duyệt trước đang bật.';
+        composerPanel.appendChild(preModNotice);
+
+        collapseBtn = doc.createElement('button');
+        collapseBtn.id = 'composerCollapseBtn';
+        collapseBtn.className = 'composer-collapse-btn';
+        collapseBtn.setAttribute('type', 'button');
+        collapseBtn.setAttribute('aria-label', 'Thu gọn trình đăng bài');
+        composerPanel.appendChild(collapseBtn);
 
         // Composer Form
         form = doc.createElement('form');
@@ -285,7 +366,16 @@ describe('CommunityComposer Module Tests (MS-07B8.1 / MS-07B8-RETRO-CORRECTIVE)'
         submitSpinner.setAttribute('hidden', '');
         form.appendChild(submitSpinner);
 
-        doc.body.appendChild(form);
+        composerPanel.appendChild(form);
+
+        // Success Alert outside panel so it remains visible when collapsed
+        successAlert = doc.createElement('div');
+        successAlert.id = 'composerSuccess';
+        successAlert.hidden = true;
+        successAlert.setAttribute('hidden', '');
+        doc.body.appendChild(successAlert);
+
+        doc.body.appendChild(composerPanel);
 
         globalThis.document = doc;
         globalThis.FileReader = MockFileReader;
@@ -810,5 +900,524 @@ describe('CommunityComposer Module Tests (MS-07B8.1 / MS-07B8-RETRO-CORRECTIVE)'
         assert.strictEqual(errorAlert.textContent, '', 'Error alert text cleared');
         assert.strictEqual(captionInput.value, '', 'Draft cleared on attempt 2 success');
         assert.strictEqual(refreshedFeedType, 'NEWEST', 'Feed refreshed on attempt 2 success');
+    });
+
+    test('18. PENDING_REVIEW create success resets composer, shows pending feedback, and skips feed refresh', async () => {
+        let fetchCalled = false;
+        const mockFetch = async (url, options) => {
+            fetchCalled = true;
+            return {
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    id: 'post-pending-1',
+                    status: 'PENDING_REVIEW',
+                    caption: 'Draft awaiting moderation'
+                })
+            };
+        };
+
+        globalThis.CommunityFeed = {
+            refreshFeed: async (feedType) => {
+                refreshedFeedType = feedType;
+                return true;
+            }
+        };
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+        captionInput.value = 'Draft awaiting moderation';
+
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(fetchCalled, true, 'Fetch was called');
+        assert.strictEqual(captionInput.value, '', 'Composer was reset');
+        assert.strictEqual(successAlert.hidden, false, 'Success alert is shown');
+        assert.ok(successAlert.textContent.includes('Bài viết đã được gửi và đang chờ quản trị viên duyệt.'));
+        assert.strictEqual(refreshedFeedType, null, 'Feed refresh was NOT called for pending review post');
+
+        // Verify own-pending section and pending card rendered in DOM
+        const pendingSection = doc.getElementById('communityOwnPendingSection');
+        assert.ok(pendingSection, 'Pending section was rendered in DOM');
+        const pendingList = doc.getElementById('communityOwnPendingList');
+        assert.ok(pendingList, 'Pending list exists');
+        const pendingCard = pendingList.querySelector('.community-post-card--pending');
+        assert.ok(pendingCard, 'Pending card is present in pending list');
+        assert.strictEqual(pendingCard.querySelector('.post-caption').textContent, 'Draft awaiting moderation');
+        assert.ok(pendingCard.querySelector('.post-footer').textContent.includes('Đang chờ duyệt'));
+        assert.strictEqual(pendingCard.querySelector('.post-pending-badge-group'), null, 'No duplicate badge in header');
+        assert.strictEqual(pendingCard.querySelector('.post-metric'), null, 'Pending card has no reaction or comment controls');
+        assert.strictEqual(pendingCard.querySelector('a.post-caption'), null, 'Pending card caption is not a permalink anchor');
+    });
+
+    test('19. PENDING_REVIEW create with image renders attached image in pending card', async () => {
+        const mockFetch = async () => ({
+            status: 201,
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                id: 'post-pending-img-1',
+                status: 'PENDING_REVIEW',
+                caption: 'Draft with image',
+                imageUrl: '/media/assets/img-123/content'
+            })
+        });
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+        captionInput.value = 'Draft with image';
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        const pendingCard = doc.querySelector('.community-post-card--pending');
+        assert.ok(pendingCard, 'Pending card is rendered');
+        const img = pendingCard.querySelector('.post-image');
+        assert.ok(img, 'Image is rendered in pending card');
+        assert.strictEqual(img.src, '/media/assets/img-123/content');
+    });
+
+    test('20. PENDING_REVIEW with publishedAt renders Đang chờ duyệt lại in post footer', async () => {
+        const mockFetch = async () => ({
+            status: 201,
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                id: 'post-pending-re-review',
+                status: 'PENDING_REVIEW',
+                caption: 'Edited draft awaiting re-review',
+                publishedAt: '2026-10-01T10:00:00Z'
+            })
+        });
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+        captionInput.value = 'Edited draft awaiting re-review';
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        const pendingCard = doc.querySelector('.community-post-card--pending');
+        assert.ok(pendingCard, 'Pending card is rendered');
+        assert.ok(pendingCard.querySelector('.post-footer').textContent.includes('Đang chờ duyệt lại'));
+        assert.strictEqual(pendingCard.querySelector('.post-pending-badge-group'), null, 'No duplicate badge in header');
+    });
+
+    describe('CommunityComposer Collapsible UX Test Matrix (MS-07B8.5.4)', () => {
+        test('1. Initial state: compact trigger is visible, composer starts collapsed, aria-expanded=false, pre-mod notice hidden', () => {
+            const composer = CommunityComposer.init({ document: doc });
+
+            assert.strictEqual(composerTrigger.hidden, false, 'Trigger is visible initially');
+            assert.strictEqual(composerTrigger.getAttribute('aria-expanded'), 'false', 'aria-expanded is false initially');
+            assert.strictEqual(composerTrigger.getAttribute('aria-controls'), 'communityComposerPanel');
+            assert.strictEqual(composerPanel.hidden, true, 'Composer panel is collapsed/hidden initially');
+            assert.strictEqual(composer.isExpanded(), false, 'isExpanded reports false');
+            // Pre-mod notice is inside the collapsed composerPanel, so it is not visible to user
+            assert.strictEqual(preModNotice.parentNode, composerPanel);
+        });
+
+        test('2. Expand: clicking trigger expands composer panel, hides trigger, sets aria-expanded=true, focuses caption', () => {
+            const composer = CommunityComposer.init({ document: doc });
+
+            composerTrigger.click();
+
+            assert.strictEqual(composerTrigger.hidden, true, 'Trigger is hidden when expanded');
+            assert.strictEqual(composerTrigger.getAttribute('aria-expanded'), 'true', 'aria-expanded is true when expanded');
+            assert.strictEqual(composerPanel.hidden, false, 'Composer panel is visible when expanded');
+            assert.strictEqual(composer.isExpanded(), true, 'isExpanded reports true');
+            assert.strictEqual(captionInput.focused, true, 'Caption input received focus');
+            assert.strictEqual(preModNotice.parentNode, composerPanel, 'Pre-mod notice is visible inside expanded panel');
+        });
+
+        test('3. Keyboard expand: Enter key on trigger expands composer', () => {
+            const composer = CommunityComposer.init({ document: doc });
+
+            composerTrigger.dispatchEvent({ type: 'keydown', key: 'Enter', keyCode: 13, defaultPrevented: false });
+
+            assert.strictEqual(composerTrigger.hidden, true);
+            assert.strictEqual(composerTrigger.getAttribute('aria-expanded'), 'true');
+            assert.strictEqual(composerPanel.hidden, false);
+            assert.strictEqual(composer.isExpanded(), true);
+        });
+
+        test('4. Keyboard expand: Space key on trigger expands composer', () => {
+            const composer = CommunityComposer.init({ document: doc });
+
+            composerTrigger.dispatchEvent({ type: 'keydown', key: ' ', keyCode: 32, defaultPrevented: false });
+
+            assert.strictEqual(composerTrigger.hidden, true);
+            assert.strictEqual(composerTrigger.getAttribute('aria-expanded'), 'true');
+            assert.strictEqual(composerPanel.hidden, false);
+            assert.strictEqual(composer.isExpanded(), true);
+        });
+
+        test('5. Manual collapse: clicking collapse button collapses panel, unhides trigger, sets aria-expanded=false, focuses trigger', () => {
+            const composer = CommunityComposer.init({ document: doc });
+
+            composerTrigger.click();
+            assert.strictEqual(composer.isExpanded(), true);
+
+            collapseBtn.click();
+
+            assert.strictEqual(composerPanel.hidden, true, 'Panel is collapsed');
+            assert.strictEqual(composerTrigger.hidden, false, 'Trigger is unhidden');
+            assert.strictEqual(composerTrigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(composer.isExpanded(), false);
+            assert.strictEqual(composerTrigger.focused, true, 'Focus returned to trigger');
+        });
+
+        test('6. Manual collapse: Escape key inside composer panel collapses composer', () => {
+            const composer = CommunityComposer.init({ document: doc });
+
+            composerTrigger.click();
+            assert.strictEqual(composer.isExpanded(), true);
+
+            composerPanel.dispatchEvent({ type: 'keydown', key: 'Escape', keyCode: 27 });
+
+            assert.strictEqual(composerPanel.hidden, true);
+            assert.strictEqual(composerTrigger.hidden, false);
+            assert.strictEqual(composerTrigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(composer.isExpanded(), false);
+        });
+
+        test('7. Manual collapse strictly preserves entered caption draft and image selection on reopen', () => {
+            const composer = CommunityComposer.init({ document: doc });
+
+            // 1. Expand
+            composerTrigger.click();
+
+            // 2. Author types draft caption
+            captionInput.value = 'Unfinished thoughts about Kiếm Lai...';
+            captionInput.dispatchEvent('input');
+
+            // 3. Author attaches image
+            const mockFile = { name: 'draft.jpg', type: 'image/jpeg', size: 1024 };
+            imageInput.files = [mockFile];
+            imageInput.dispatchEvent('change');
+            if (createdReaders.length > 0 && createdReaders[createdReaders.length - 1].onload) {
+                createdReaders[createdReaders.length - 1].onload({ target: { result: 'data:image/jpeg;base64,draft' } });
+            }
+            assert.strictEqual(imagePreviewContainer.hidden, false, 'Image preview is visible');
+
+            // 4. Author manually collapses
+            collapseBtn.click();
+            assert.strictEqual(composer.isExpanded(), false);
+
+            // 5. Verify draft is NOT cleared
+            assert.strictEqual(captionInput.value, 'Unfinished thoughts about Kiếm Lai...', 'Draft caption preserved while collapsed');
+            assert.strictEqual(imagePreviewImg.src, 'data:image/jpeg;base64,draft', 'Image preview preserved while collapsed');
+
+            // 6. Author reopens
+            composerTrigger.click();
+            assert.strictEqual(composer.isExpanded(), true);
+            assert.strictEqual(captionInput.value, 'Unfinished thoughts about Kiếm Lai...', 'Draft caption restored on reopen');
+            assert.strictEqual(imagePreviewContainer.hidden, false, 'Image preview still active on reopen');
+            assert.strictEqual(imagePreviewImg.src, 'data:image/jpeg;base64,draft');
+        });
+
+        test('8. Successful create under AUTO_PUBLISH clears draft and collapses composer', async () => {
+            const mockFetch = async () => ({
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    id: 'post-auto-1',
+                    status: 'PUBLISHED',
+                    caption: 'Auto publish caption'
+                })
+            });
+
+            const composer = CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+            composerTrigger.click();
+            assert.strictEqual(composer.isExpanded(), true);
+
+            captionInput.value = 'Auto publish caption';
+            form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+            await new Promise(r => setTimeout(r, 20));
+
+            // Must clear draft and collapse
+            assert.strictEqual(captionInput.value, '', 'Caption cleared');
+            assert.strictEqual(composer.isExpanded(), false, 'Composer collapsed after auto-publish');
+            assert.strictEqual(composerTrigger.hidden, false, 'Trigger visible after auto-publish');
+            assert.strictEqual(composerPanel.hidden, true, 'Panel hidden after auto-publish');
+        });
+
+        test('9. Successful create under PRE_MODERATION clears draft, collapses composer, and renders pending card', async () => {
+            const mockFetch = async () => ({
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    id: 'post-pending-1',
+                    status: 'PENDING_REVIEW',
+                    caption: 'Pending review caption'
+                })
+            });
+
+            const composer = CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+            composerTrigger.click();
+            assert.strictEqual(composer.isExpanded(), true);
+
+            captionInput.value = 'Pending review caption';
+            form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+            await new Promise(r => setTimeout(r, 20));
+
+            // Must clear draft and collapse
+            assert.strictEqual(captionInput.value, '', 'Caption cleared');
+            assert.strictEqual(composer.isExpanded(), false, 'Composer collapsed after pre-moderation submit');
+            assert.strictEqual(composerTrigger.hidden, false, 'Trigger visible');
+            assert.strictEqual(composerPanel.hidden, true, 'Panel hidden');
+
+            // Success notice visible outside collapsed composer
+            assert.strictEqual(successAlert.hidden, false, 'Success alert is visible');
+            assert.ok(successAlert.textContent.includes('Bài viết đã được gửi và đang chờ quản trị viên duyệt.'));
+
+            // Pending card rendered
+            const pendingCard = doc.querySelector('.community-post-card--pending');
+            assert.ok(pendingCard, 'Pending card rendered in DOM');
+        });
+
+        test('10. Failed create keeps composer expanded, preserves caption and selected image, and displays error alert', async () => {
+            const mockFetch = async () => ({
+                status: 400,
+                ok: false,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ message: 'Nội dung không hợp lệ.' })
+            });
+
+            const composer = CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+            composerTrigger.click();
+            assert.strictEqual(composer.isExpanded(), true);
+
+            captionInput.value = 'Invalid content causing error';
+            form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+            await new Promise(r => setTimeout(r, 20));
+
+            // Composer must REMAIN EXPANDED
+            assert.strictEqual(composer.isExpanded(), true, 'Composer remains expanded on error');
+            assert.strictEqual(composerPanel.hidden, false, 'Panel remains visible on error');
+            assert.strictEqual(composerTrigger.hidden, true, 'Trigger remains hidden on error');
+
+            // Input must be preserved
+            assert.strictEqual(captionInput.value, 'Invalid content causing error', 'Caption preserved on error');
+
+            // Error must be visible
+            assert.strictEqual(errorAlert.hidden, false, 'Error alert visible');
+            assert.strictEqual(errorAlert.textContent, 'Nội dung không hợp lệ.');
+
+            // No pending card fabricated
+            assert.strictEqual(doc.querySelector('.community-post-card--pending'), null, 'No fake pending card rendered');
+        });
+
+        test('11. Repeated open/close cycles do not attach duplicate submit handlers (submits exactly once)', async () => {
+            let fetchCount = 0;
+            const mockFetch = async () => {
+                fetchCount++;
+                return {
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ id: 'post-single-submit', status: 'PUBLISHED', caption: 'Single' })
+                };
+            };
+
+            const composer = CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+            // Cycle 1: open -> close
+            composerTrigger.click();
+            collapseBtn.click();
+
+            // Cycle 2: open -> close
+            composerTrigger.click();
+            collapseBtn.click();
+
+            // Cycle 3: open and submit
+            composerTrigger.click();
+            captionInput.value = 'Single submit test';
+            form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(fetchCount, 1, 'Submit handler executed exactly once despite multiple open/close cycles');
+        });
+    });
+
+    describe('CommunityComposer Pending Tray UX Matrix (MS-07B8.5.4)', () => {
+        function setupPendingTrayDOM(count = 2) {
+            const section = doc.createElement('section');
+            section.id = 'communityOwnPendingSection';
+            section.className = 'community-own-pending-section mb-4';
+
+            const trigger = doc.createElement('button');
+            trigger.type = 'button';
+            trigger.id = 'communityOwnPendingTrigger';
+            trigger.className = 'community-pending-tray-trigger';
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.setAttribute('aria-controls', 'communityOwnPendingList');
+
+            const leftDiv = doc.createElement('div');
+            leftDiv.className = 'pending-tray-left';
+            const title = doc.createElement('span');
+            title.className = 'pending-tray-title';
+            title.textContent = 'Bài viết đang chờ duyệt';
+            leftDiv.appendChild(title);
+
+            const rightDiv = doc.createElement('div');
+            rightDiv.className = 'pending-tray-right';
+            const countBadge = doc.createElement('span');
+            countBadge.id = 'communityOwnPendingCount';
+            countBadge.className = 'pending-tray-count-badge';
+            countBadge.textContent = String(count);
+            rightDiv.appendChild(countBadge);
+
+            trigger.appendChild(leftDiv);
+            trigger.appendChild(rightDiv);
+            section.appendChild(trigger);
+
+            const list = doc.createElement('div');
+            list.id = 'communityOwnPendingList';
+            list.className = 'community-pending-list d-flex flex-column gap-3 mt-3';
+            list.setAttribute('hidden', '');
+
+            for (let i = 1; i <= count; i++) {
+                const card = doc.createElement('article');
+                card.className = 'community-post-card community-post-card--pending';
+                card.setAttribute('data-post-id', 'pending-' + i);
+                const p = doc.createElement('p');
+                p.className = 'post-caption';
+                p.textContent = 'Pending post caption ' + i;
+                card.appendChild(p);
+
+                const footer = doc.createElement('footer');
+                footer.className = 'post-footer';
+                const statusDiv = doc.createElement('div');
+                statusDiv.className = 'post-pending-status';
+                statusDiv.textContent = i === 1 ? '⏳ Đang chờ duyệt' : '⏳ Đang chờ duyệt chỉnh sửa';
+                footer.appendChild(statusDiv);
+                card.appendChild(footer);
+
+                list.appendChild(card);
+            }
+
+            section.appendChild(list);
+            doc.body.appendChild(section);
+            return { section, trigger, list, countBadge };
+        }
+
+        test('1. ZERO PENDING: tray is absent on initial load (not rendered in DOM)', () => {
+            const composer = CommunityComposer.init({ document: doc });
+            const section = doc.getElementById('communityOwnPendingSection');
+            assert.strictEqual(section, null, 'Pending tray section is absent when zero pending');
+            assert.strictEqual(composer.isPendingTrayExpanded(), false);
+        });
+
+        test('2. ONE OR MORE PENDING: tray summary rendered, correct count, collapsed by default, aria-expanded=false', () => {
+            const { trigger, list, countBadge } = setupPendingTrayDOM(3);
+            const composer = CommunityComposer.init({ document: doc });
+
+            assert.ok(trigger, 'Trigger is rendered');
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false', 'aria-expanded is false initially');
+            assert.strictEqual(trigger.getAttribute('aria-controls'), 'communityOwnPendingList');
+            assert.strictEqual(countBadge.textContent, '3', 'Count badge displays correct pending count');
+            assert.strictEqual(list.hidden, true, 'Cards list is hidden initially');
+            assert.strictEqual(composer.isPendingTrayExpanded(), false);
+            assert.strictEqual(composer.getPendingCount(), 3);
+        });
+
+        test('3. EXPAND: clicking trigger expands cards in place, sets aria-expanded=true, unhides cards list', () => {
+            const { trigger, list } = setupPendingTrayDOM(2);
+            const composer = CommunityComposer.init({ document: doc });
+
+            trigger.click();
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+            assert.strictEqual(list.hidden, false);
+            assert.strictEqual(composer.isPendingTrayExpanded(), true);
+        });
+
+        test('4. KEYBOARD EXPAND: pressing Enter or Space on trigger expands tray', () => {
+            const { trigger, list } = setupPendingTrayDOM(2);
+            CommunityComposer.init({ document: doc });
+
+            trigger.dispatchEvent({ type: 'keydown', key: 'Enter', keyCode: 13, defaultPrevented: false });
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+            assert.strictEqual(list.hidden, false);
+
+            trigger.dispatchEvent({ type: 'keydown', key: ' ', keyCode: 32, defaultPrevented: false });
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(list.hidden, true);
+        });
+
+        test('5. COLLAPSE: clicking trigger when expanded collapses cards in place, sets aria-expanded=false, hides cards list', () => {
+            const { trigger, list } = setupPendingTrayDOM(2);
+            const composer = CommunityComposer.init({ document: doc });
+
+            trigger.click(); // Expand
+            assert.strictEqual(list.hidden, false);
+
+            trigger.click(); // Collapse
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(list.hidden, true);
+            assert.strictEqual(composer.isPendingTrayExpanded(), false);
+        });
+
+        test('6. SEMANTICS: new pending card shows "Đang chờ duyệt", pending edit shows "Đang chờ duyệt chỉnh sửa"', () => {
+            const { list } = setupPendingTrayDOM(2);
+            CommunityComposer.init({ document: doc });
+
+            const cards = list.querySelectorAll('.community-post-card--pending');
+            assert.strictEqual(cards.length, 2);
+            assert.ok(cards[0].querySelector('.post-pending-status').textContent.includes('Đang chờ duyệt'));
+            assert.ok(cards[1].querySelector('.post-pending-status').textContent.includes('Đang chờ duyệt chỉnh sửa'));
+        });
+
+        test('7. CREATE: successful PRE_MODERATION create increments pending count, adds card, keeps tray collapsed', async () => {
+            const { trigger, list, countBadge } = setupPendingTrayDOM(1);
+            const mockFetch = async () => ({
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    id: 'new-pending-post',
+                    status: 'PENDING_REVIEW',
+                    caption: 'New pending submission'
+                })
+            });
+
+            const composer = CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+            captionInput.value = 'New pending submission';
+            form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+            await new Promise(r => setTimeout(r, 20));
+
+            // Count incremented to 2
+            assert.strictEqual(countBadge.textContent, '2', 'Count updated from 1 to 2');
+            assert.strictEqual(composer.getPendingCount(), 2);
+
+            // Tray remains collapsed
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false', 'Tray remains collapsed');
+            assert.strictEqual(list.hidden, true, 'Cards list remains hidden');
+
+            // Card added to list
+            const cards = list.querySelectorAll('.community-post-card--pending');
+            assert.strictEqual(cards.length, 2);
+            assert.strictEqual(cards[0].querySelector('.post-caption').textContent, 'New pending submission');
+            assert.ok(cards[0].querySelector('.post-pending-status').textContent.includes('Đang chờ duyệt'));
+        });
+
+        test('8. STABILITY: repeated toggles do not duplicate handlers or re-trigger actions', () => {
+            const { trigger, list } = setupPendingTrayDOM(2);
+            CommunityComposer.init({ document: doc });
+
+            // Toggle multiple times
+            trigger.click(); // expanded
+            trigger.click(); // collapsed
+            trigger.click(); // expanded
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+            assert.strictEqual(list.hidden, false);
+
+            trigger.click(); // collapsed
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(list.hidden, true);
+        });
     });
 });

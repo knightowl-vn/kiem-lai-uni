@@ -22,7 +22,7 @@ class CommunityPostDTOMapperTest {
         UUID imageId = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         Instant now = Instant.now();
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post caption", imageId, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post caption", imageId, CommunityPostStatus.PUBLISHED, now, now, null);
         CommunityPostPublicDTO dto = CommunityPostDTOMapper.toPublicDTO(post);
 
         assertThat(dto.id()).isEqualTo(postId);
@@ -33,6 +33,8 @@ class CommunityPostDTOMapperTest {
         assertThat(dto.contentVersion()).isEqualTo(0);
         assertThat(dto.createdAt()).isEqualTo(now);
         assertThat(dto.updatedAt()).isEqualTo(now);
+        assertThat(dto.publishedAt()).isEqualTo(now);
+        assertThat(dto.status()).isEqualTo("PUBLISHED");
     }
 
     @Test
@@ -42,7 +44,7 @@ class CommunityPostDTOMapperTest {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now();
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post without image", null, CommunityPostStatus.PUBLISHED, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post without image", null, CommunityPostStatus.PUBLISHED, now, now, null);
         CommunityPostPublicDTO dto = CommunityPostDTOMapper.toPublicDTO(post);
 
         assertThat(dto.id()).isEqualTo(postId);
@@ -53,6 +55,8 @@ class CommunityPostDTOMapperTest {
         assertThat(dto.contentVersion()).isEqualTo(0);
         assertThat(dto.createdAt()).isEqualTo(now);
         assertThat(dto.updatedAt()).isEqualTo(now);
+        assertThat(dto.publishedAt()).isEqualTo(now);
+        assertThat(dto.status()).isEqualTo("PUBLISHED");
     }
 
     @Test

@@ -77,7 +77,8 @@ public class CommunityPostFeedAuthorEnricher {
                     item.engagementScore(),
                     item.createdAt(),
                     item.updatedAt(),
-                    item.currentUserReaction()
+                    item.currentUserReaction(),
+                    item.publishedAt()
             ));
         }
 

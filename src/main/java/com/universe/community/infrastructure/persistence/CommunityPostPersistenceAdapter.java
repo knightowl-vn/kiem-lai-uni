@@ -125,6 +125,16 @@ public class CommunityPostPersistenceAdapter implements CommunityPostRepositoryP
     }
 
     @Override
+    public List<CommunityPost> findPendingReviewPostsByAuthor(UUID authorUserId) {
+        if (authorUserId == null) {
+            return List.of();
+        }
+        return postRepository.findPendingReviewPostsByAuthor(authorUserId.toString()).stream()
+                .map(postMapper::toDomain)
+                .toList();
+    }
+
+    @Override
     public CommunityPostPage findHiddenPosts(int page, int size) {
         PageRequest pageRequest = PageRequest.of(page, size);
         org.springframework.data.domain.Page<CommunityPostJpaEntity> entityPage =

@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Use case orchestrating admin rejection of a pending Community Post.
+ * Use case orchestrating admin rejection of a pending Community Post or pending caption edit.
  */
 @Service
 public class RejectCommunityPostUseCase {
@@ -43,7 +43,8 @@ public class RejectCommunityPostUseCase {
         CommunityPost post = postRepositoryPort.findByIdForUpdate(command.postId())
                 .orElseThrow(() -> new CommunityPostNotFoundException(command.postId()));
 
-        if (post.getStatus() != CommunityPostStatus.PENDING_REVIEW) {
+        boolean isPendingEdit = post.isPendingCaptionEdit();
+        if (post.getStatus() != CommunityPostStatus.PENDING_REVIEW && !isPendingEdit) {
             throw new IllegalStateException("Cannot reject post with status: " + post.getStatus());
         }
 
@@ -51,12 +52,15 @@ public class RejectCommunityPostUseCase {
         post.reject(now);
         postRepositoryPort.save(post);
 
+        CommunityPostStatus fromStatus = isPendingEdit ? CommunityPostStatus.PUBLISHED : CommunityPostStatus.PENDING_REVIEW;
+        CommunityPostStatus toStatus = isPendingEdit ? CommunityPostStatus.PUBLISHED : CommunityPostStatus.REJECTED;
+
         CommunityPostModerationEvent event = new CommunityPostModerationEvent(
                 UUID.randomUUID(),
                 command.postId(),
                 CommunityPostModerationAction.REJECT,
-                CommunityPostStatus.PENDING_REVIEW,
-                CommunityPostStatus.REJECTED,
+                fromStatus,
+                toStatus,
                 command.moderatorUserId(),
                 command.reason(),
                 now
