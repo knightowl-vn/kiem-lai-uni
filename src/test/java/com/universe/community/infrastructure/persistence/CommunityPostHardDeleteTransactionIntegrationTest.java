@@ -90,6 +90,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -370,6 +371,21 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
                         throw new RuntimeException("Simulated Community delete failure during transaction");
                     }
                     realAdapter.deleteById(postId);
+                }
+
+                @Override
+                public List<CommunityPost> findByIdIn(Collection<UUID> postIds) {
+                    return realAdapter.findByIdIn(postIds);
+                }
+
+                @Override
+                public CommunityPostPage findPendingReviewPosts(int page, int size) {
+                    return realAdapter.findPendingReviewPosts(page, size);
+                }
+
+                @Override
+                public CommunityPostPage findHiddenPosts(int page, int size) {
+                    return realAdapter.findHiddenPosts(page, size);
                 }
             };
         }

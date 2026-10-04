@@ -1,6 +1,7 @@
 package com.universe.community.infrastructure.persistence;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -120,4 +121,24 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
      * Fetches Community posts by a collection of IDs and canonical status.
      */
     List<CommunityPostJpaEntity> findByIdInAndStatus(Collection<String> ids, String status);
+
+    /**
+     * Fetches a page of Community posts with PENDING_REVIEW status ordered oldest first (created_at ASC, id ASC).
+     */
+    @Query("""
+            SELECT p FROM CommunityPostJpaEntity p
+            WHERE p.status = 'PENDING_REVIEW'
+            ORDER BY p.createdAt ASC, p.id ASC
+            """)
+    Page<CommunityPostJpaEntity> findPendingReviewPosts(Pageable pageable);
+
+    /**
+     * Fetches a page of Community posts with HIDDEN status ordered newest first (updated_at DESC, id DESC).
+     */
+    @Query("""
+            SELECT p FROM CommunityPostJpaEntity p
+            WHERE p.status = 'HIDDEN'
+            ORDER BY p.updatedAt DESC, p.id DESC
+            """)
+    Page<CommunityPostJpaEntity> findHiddenPosts(Pageable pageable);
 }

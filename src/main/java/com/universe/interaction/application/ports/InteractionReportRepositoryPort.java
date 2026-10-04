@@ -1,10 +1,13 @@
 package com.universe.interaction.application.ports;
 
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportReason;
+import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.domain.report.ReportTargetType;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -128,4 +131,25 @@ public interface InteractionReportRepositoryPort {
      * @return count of unstamped reports
      */
     long countUnstampedReportsByTargets(ReportTargetType targetType, Collection<UUID> targetIds);
+
+    /**
+     * Immutable page projection for interaction reports.
+     */
+    record InteractionReportPage(
+            List<InteractionReport> items,
+            int page,
+            int size,
+            long totalElements
+    ) {}
+
+    /**
+     * Finds a paginated page of community post reports matching the specified filter criteria.
+     */
+    InteractionReportPage findCommunityPostReports(
+            ReportStatus status,
+            ReportReason reason,
+            boolean oldestFirst,
+            int page,
+            int size
+    );
 }

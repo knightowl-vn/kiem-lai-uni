@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý cộng đồng | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/admin/comment-reports.css}">
+</head>
+
+<body>
+
+    <div class="admin-layout">
+
+        <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+        <main class="admin-main">
+
+            <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+            <section class="dashboard-content">
+
+                <!-- Shared Community Workspace Tabs -->
+                <div th:replace="~{admin/community/fragments/community-tabs :: tabs('pending')}"></div>
+
+                <!-- Flash Success Message -->
+                <div th:if="${successMessage != null}" class="admin-form-success alert-success" role="alert" th:text="${successMessage}">
+                    Thông báo thành công
+                </div>
+
+                <!-- Flash Error Message -->
+                <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
+                    Thông báo lỗi
+                </div>
+
+                <!-- Moderation List (Cards) -->
+                <section class="community-moderation-list-section">
+                    <!-- Empty State -->
+                    <div th:if="${posts.isEmpty()}" class="community-empty-card">
+                        <div class="community-empty-icon">✓</div>
+                        <h3>Không có bài chờ duyệt</h3>
+                        <p>Hiện không có nội dung nào cần xử lý.</p>
+                    </div>
+
+                    <!-- Cards -->
+                    <div th:unless="${posts.isEmpty()}" class="community-moderation-list">
+                        <article th:each="post : ${posts}" class="community-moderation-card">
+                            <!-- 1. Identity + Time & 2. Status -->
+                            <div class="community-card-header">
+                                <div class="community-card-identity">
+                                    <img th:if="${post.author.avatarUrl != null}"
+                                         th:src="${post.author.avatarUrl}"
+                                         alt="Avatar" class="community-card-avatar">
+                                    <div th:unless="${post.author.avatarUrl != null}"
+                                         class="community-card-avatar-placeholder"
+                                         th:text="${post.author.displayName != null and !post.author.displayName.isEmpty() ? post.author.displayName.substring(0, 1) : '?'}">?</div>
+                                    <div class="community-card-user-meta">
+                                        <span class="community-card-user-name" th:text="${post.author.displayName}">Tác giả</span>
+                                        <div class="community-card-sub-meta">
+                                            <span th:if="${post.author.publicHandle != null}" th:text="'@' + ${post.author.publicHandle}">@handle</span>
+                                            <span>·</span>
+                                            <time th:text="${#temporals.format(post.createdAt(), 'dd/MM/yyyy HH:mm')}">01/01/2026 12:00</time>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="community-card-status-group">
+                                    <span class="admin-badge-pill status-pending">Chờ duyệt</span>
+                                </div>
+                            </div>
+
+                            <!-- 3. Content preview & Thumbnails -->
+                            <div class="community-card-body">
+                                <div class="community-card-content">
+                                    <p class="community-caption-truncate" th:text="${post.caption}">Caption bài viết</p>
+                                </div>
+                                <div th:if="${post.imageMediaAssetId != null}" class="community-card-thumbs-column">
+                                    <div class="community-compact-thumb-wrap">
+                                        <img th:src="@{/media/assets/{id}/content(id=${post.imageMediaAssetId})}"
+                                             alt="Ảnh đính kèm" class="community-compact-thumb-sm">
+                                        <span class="community-thumb-tag">Ảnh bài viết</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 4. Action Area -->
+                            <div class="community-card-footer">
+                                <div class="community-card-actions">
+                                    <!-- Form Duyệt -->
+                                    <form method="post" th:action="@{/admin/community/posts/{id}/approve(id=${post.postId})}">
+                                        <button type="submit" class="admin-btn admin-btn-sm admin-btn-primary"
+                                                onclick="return confirm('Xác nhận duyệt xuất bản bài viết này?');">
+                                            Duyệt
+                                        </button>
+                                    </form>
+
+                                    <!-- Form Từ chối -->
+                                    <form method="post" th:action="@{/admin/community/posts/{id}/reject(id=${post.postId})}">
+                                        <button type="submit" class="admin-btn admin-btn-sm admin-btn-danger"
+                                                onclick="return confirm('Xác nhận từ chối bài viết này?');">
+                                            Từ chối
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </article>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div th:if="${postPage.totalPages() > 1}" class="admin-pagination" style="margin-top: 20px;">
+                        <a th:if="${postPage.hasPrevious()}"
+                           th:href="@{/admin/community/posts/pending(page=${page - 1}, size=${pageSize})}"
+                           class="admin-pagination-link">« Trước</a>
+                        <span class="admin-pagination-current" th:text="'Trang ' + (${page + 1}) + ' / ' + ${postPage.totalPages()}">Trang 1 / 5</span>
+                        <a th:if="${postPage.hasNext()}"
+                           th:href="@{/admin/community/posts/pending(page=${page + 1}, size=${pageSize})}"
+                           class="admin-pagination-link">Sau »</a>
+                    </div>
+                </section>
+
+            </section>
+        </main>
+    </div>
+
+</body>
+</html>

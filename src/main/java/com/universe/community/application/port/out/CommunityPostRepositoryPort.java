@@ -2,6 +2,8 @@ package com.universe.community.application.port.out;
 
 import com.universe.community.domain.CommunityPost;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -48,4 +50,29 @@ public interface CommunityPostRepositoryPort {
      * @param postId the post UUID
      */
     void deleteById(UUID postId);
+
+    /**
+     * Finds Community posts matching a collection of post UUIDs.
+     */
+    List<CommunityPost> findByIdIn(Collection<UUID> postIds);
+
+    /**
+     * Immutable page projection for Community posts.
+     */
+    record CommunityPostPage(
+            List<CommunityPost> items,
+            int page,
+            int size,
+            long totalElements
+    ) {}
+
+    /**
+     * Finds a paginated page of Community posts with PENDING_REVIEW status ordered oldest first.
+     */
+    CommunityPostPage findPendingReviewPosts(int page, int size);
+
+    /**
+     * Finds a paginated page of Community posts with HIDDEN status ordered newest first.
+     */
+    CommunityPostPage findHiddenPosts(int page, int size);
 }

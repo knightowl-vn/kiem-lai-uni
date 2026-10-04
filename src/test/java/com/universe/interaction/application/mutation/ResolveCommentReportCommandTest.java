@@ -60,10 +60,11 @@ class ResolveCommentReportCommandTest {
     }
 
     @Test
-    @DisplayName("ReportModerationAction contains exactly DELETE_COMMENT and NO_ACTION")
+    @DisplayName("ReportModerationAction contains exactly DELETE_COMMENT, CONTENT_HIDDEN, and NO_ACTION")
     void shouldContainExpectedEnumValues() {
         assertThat(ReportModerationAction.values()).containsExactly(
                 ReportModerationAction.DELETE_COMMENT,
+                ReportModerationAction.CONTENT_HIDDEN,
                 ReportModerationAction.NO_ACTION
         );
     }

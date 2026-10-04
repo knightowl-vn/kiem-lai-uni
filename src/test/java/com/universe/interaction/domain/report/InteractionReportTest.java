@@ -233,6 +233,46 @@ class InteractionReportTest {
         }
 
         @Test
+        @DisplayName("Transitions COMMUNITY_POST report to RESOLVED_ACTION_TAKEN with CONTENT_HIDDEN")
+        void shouldResolveContentHiddenForCommunityPost() {
+            InteractionReport report = InteractionReport.createPending(
+                    reportId, ReportTargetType.COMMUNITY_POST, UUID.randomUUID(), reporterUserId, ReportReason.HARASSMENT, null, snapshot, null, now
+            );
+
+            Instant resolvedAt = now.plus(5, ChronoUnit.MINUTES);
+            report.resolveContentHidden(resolverUserId, resolvedAt);
+
+            assertThat(report.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
+            assertThat(report.getResolvedByUserId()).isEqualTo(resolverUserId);
+            assertThat(report.getResolvedAt()).isEqualTo(resolvedAt);
+            assertThat(report.getModerationAction()).isEqualTo(ReportModerationAction.CONTENT_HIDDEN);
+            assertThat(report.isPending()).isFalse();
+            assertThat(report.isTerminal()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Rejects CONTENT_HIDDEN on COMMENT report and DELETE_COMMENT on COMMUNITY_POST report")
+        void shouldEnforceActionTargetTypeConsistency() {
+            InteractionReport commentReport = InteractionReport.createPending(
+                    reportId, ReportTargetType.COMMENT, commentId, reporterUserId, ReportReason.SPAM, null, snapshot, null, now
+            );
+            assertThatThrownBy(() -> commentReport.resolveActionTaken(resolverUserId, now.plusSeconds(60), ReportModerationAction.CONTENT_HIDDEN))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("CONTENT_HIDDEN action is not supported for target type COMMENT");
+
+            InteractionReport postReport = InteractionReport.createPending(
+                    UUID.randomUUID(), ReportTargetType.COMMUNITY_POST, UUID.randomUUID(), reporterUserId, ReportReason.SPAM, null, snapshot, null, now
+            );
+            assertThatThrownBy(() -> postReport.resolveActionTaken(resolverUserId, now.plusSeconds(60), ReportModerationAction.DELETE_COMMENT))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("DELETE_COMMENT action is not supported for target type COMMUNITY_POST");
+
+            assertThatThrownBy(() -> postReport.resolveActionTaken(resolverUserId, now.plusSeconds(60)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Cannot default resolution action for non-COMMENT target");
+        }
+
+        @Test
         @DisplayName("Rejects resolution on already terminal report")
         void shouldRejectResolutionWhenAlreadyTerminal() {
             InteractionReport report = InteractionReport.createPending(

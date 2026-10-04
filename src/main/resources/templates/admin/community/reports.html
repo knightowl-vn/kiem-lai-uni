@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý cộng đồng | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/admin/comment-reports.css}">
+</head>
+
+<body>
+
+    <div class="admin-layout">
+
+        <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+        <main class="admin-main">
+
+            <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+            <section class="dashboard-content">
+
+                <!-- Shared Community Workspace Tabs -->
+                <div th:replace="~{admin/community/fragments/community-tabs :: tabs('reports')}"></div>
+
+                <!-- Status Filter Navigation -->
+                <nav class="community-status-tabs" aria-label="Phân loại hàng đợi báo cáo bài viết">
+                    <a th:href="@{/admin/community/reports(scope='PENDING')}"
+                       class="community-status-tab"
+                       th:classappend="${selectedScope == 'PENDING' ? 'active' : ''}">
+                        Chờ xử lý
+                    </a>
+                    <a th:href="@{/admin/community/reports(scope='RESOLVED_ACTION_TAKEN')}"
+                       class="community-status-tab"
+                       th:classappend="${selectedScope == 'RESOLVED_ACTION_TAKEN' ? 'active' : ''}">
+                        Đã ẩn
+                    </a>
+                    <a th:href="@{/admin/community/reports(scope='RESOLVED_NO_ACTION')}"
+                       class="community-status-tab"
+                       th:classappend="${selectedScope == 'RESOLVED_NO_ACTION' ? 'active' : ''}">
+                        Đã bỏ qua
+                    </a>
+                    <a th:href="@{/admin/community/reports(scope='ALL')}"
+                       class="community-status-tab"
+                       th:classappend="${selectedScope == 'ALL' ? 'active' : ''}">
+                        Tất cả
+                    </a>
+                </nav>
+
+                <!-- Flash Success Message -->
+                <div th:if="${successMessage != null}" class="admin-form-success alert-success" role="alert" th:text="${successMessage}">
+                    Thông báo thành công
+                </div>
+
+                <!-- Flash Error Message -->
+                <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
+                    Thông báo lỗi
+                </div>
+
+                <!-- Filter Panel -->
+                <section class="admin-filter-panel">
+                    <form method="get" th:action="@{/admin/community/reports}" class="admin-filter-form comment-reports-filter-form">
+
+                        <input type="hidden" name="scope" th:value="${selectedScope}">
+
+                        <div class="admin-field">
+                            <label for="filter-reason">Lý do báo cáo</label>
+                            <select id="filter-reason" name="reason" class="admin-select">
+                                <option value="ALL">Tất cả lý do</option>
+                                <option th:each="r : ${reasons}"
+                                        th:value="${r.name()}"
+                                        th:text="${r.displayName()}"
+                                        th:selected="${selectedReason != null and selectedReason.name() == r.name()}">
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="admin-field">
+                            <label for="filter-sort">Sắp xếp</label>
+                            <select id="filter-sort" name="sort" class="admin-select">
+                                <option value="NEWEST" th:selected="${selectedSort == 'NEWEST'}">Mới nhất trước</option>
+                                <option value="OLDEST" th:selected="${selectedSort == 'OLDEST'}">Cũ nhất trước</option>
+                            </select>
+                        </div>
+
+                        <div class="admin-filter-actions">
+                            <button type="submit" class="admin-btn admin-btn-primary">Lọc</button>
+                            <a th:href="@{/admin/community/reports(scope=${selectedScope})}" class="admin-btn admin-btn-secondary">Đặt lại</a>
+                        </div>
+                    </form>
+                </section>
+
+                <!-- Moderation List (Cards) -->
+                <section class="community-moderation-list-section">
+                    <!-- Empty State -->
+                    <div th:if="${reports.isEmpty()}" class="community-empty-card">
+                        <div class="community-empty-icon">✓</div>
+                        <h3>Không có báo cáo nào</h3>
+                        <p>Không có báo cáo bài viết nào phù hợp với bộ lọc hiện tại.</p>
+                    </div>
+
+                    <!-- Cards -->
+                    <div th:unless="${reports.isEmpty()}" class="community-moderation-list">
+                        <article th:each="item : ${reports}" class="community-moderation-card">
+                            <!-- 1. Identity + Time & 2. Badges -->
+                            <div class="community-card-header">
+                                <div class="community-card-identity">
+                                    <img th:if="${item.reporter.avatarUrl != null}"
+                                         th:src="${item.reporter.avatarUrl}"
+                                         alt="Avatar" class="community-card-avatar">
+                                    <div th:unless="${item.reporter.avatarUrl != null}"
+                                         class="community-card-avatar-placeholder"
+                                         th:text="${item.reporter.displayName != null and !item.reporter.displayName.isEmpty() ? item.reporter.displayName.substring(0, 1) : '?'}">?</div>
+                                    <div class="community-card-user-meta">
+                                        <span class="community-card-user-name" th:text="${item.reporter.displayName}">Người báo cáo</span>
+                                        <div class="community-card-sub-meta">
+                                            <span th:if="${item.reporter.publicHandle != null}" th:text="'@' + ${item.reporter.publicHandle}">@handle</span>
+                                            <span>·</span>
+                                            <time th:text="${#temporals.format(item.createdAt(), 'dd/MM/yyyy HH:mm')}">01/01/2026 12:00</time>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="community-card-status-group">
+                                    <span class="admin-badge-pill" th:text="${item.reason.displayName()}">SPAM</span>
+                                    <span class="admin-badge-pill"
+                                          th:classappend="${item.status.name() == 'PENDING' ? ' status-pending' :
+                                                           (item.status.name() == 'RESOLVED_ACTION_TAKEN' ? ' status-action-taken' : ' status-resolved-no-action')}"
+                                          th:text="${item.status.name() == 'PENDING' ? 'Chờ xử lý' :
+                                                   (item.status.name() == 'RESOLVED_ACTION_TAKEN' ? 'Đã ẩn' : 'Đã bỏ qua')}">
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- 3. Content preview & Thumbnails -->
+                            <div class="community-card-body">
+                                <div class="community-card-content">
+                                    <div>
+                                        <span class="community-card-section-label">Nội dung tại thời điểm báo cáo:</span>
+                                        <p class="community-caption-truncate" th:text="${item.reportedCaptionSnapshot}">Snapshot caption</p>
+                                    </div>
+                                    <p th:if="${item.description != null and !item.description.isBlank()}" class="community-card-note">
+                                        <span class="text-muted">Ghi chú:</span> <span th:text="${item.description}">Mô tả</span>
+                                    </p>
+                                    <div th:if="${item.postExists}" class="community-card-target-box">
+                                        <div class="community-card-target-header">
+                                            <span>
+                                                <strong>Bài viết mục tiêu:</strong>
+                                                <span th:if="${item.postAuthor != null}" th:text="${item.postAuthor.displayName} + (${item.postAuthor.publicHandle != null ? ' (@' + item.postAuthor.publicHandle + ')' : ''})">Tác giả</span>
+                                            </span>
+                                            <span class="admin-badge-pill"
+                                                  th:classappend="${item.postStatus.name() == 'PUBLISHED' ? ' status-published' :
+                                                                   (item.postStatus.name() == 'HIDDEN' ? ' status-hidden' : ' status-pending')}"
+                                                  th:text="${item.postStatus.name() == 'PUBLISHED' ? 'Đã xuất bản' :
+                                                           (item.postStatus.name() == 'HIDDEN' ? 'Đã ẩn' :
+                                                           (item.postStatus.name() == 'PENDING_REVIEW' ? 'Chờ duyệt' :
+                                                           (item.postStatus.name() == 'REJECTED' ? 'Bị từ chối' : item.postStatus.name())))}">Đã xuất bản</span>
+                                        </div>
+                                        <p th:if="${item.currentCaption != null}" class="community-caption-truncate text-muted" th:text="${item.currentCaption}"></p>
+                                    </div>
+                                    <div th:unless="${item.postExists}" class="community-card-target-box">
+                                        <span class="admin-badge-pill status-deleted">Bài viết mục tiêu đã bị xóa</span>
+                                    </div>
+                                </div>
+                                <div class="community-card-thumbs-column"
+                                     th:with="sameMedia=${item.evidenceMediaAssetId != null and item.imageMediaAssetId != null and item.evidenceMediaAssetId.equals(item.imageMediaAssetId)}">
+                                    <!-- Deduplicated: render single thumbnail when both reference the same media asset -->
+                                    <div th:if="${sameMedia}" class="community-compact-thumb-wrap">
+                                        <img th:src="@{/media/assets/{id}/content(id=${item.imageMediaAssetId})}"
+                                             alt="Ảnh bài viết" class="community-compact-thumb-sm">
+                                        <span class="community-thumb-tag">Ảnh bài viết</span>
+                                    </div>
+                                    <!-- Diverged or single-image scenarios -->
+                                    <th:block th:unless="${sameMedia}">
+                                        <div th:if="${item.evidenceMediaAssetId != null}" class="community-compact-thumb-wrap">
+                                            <img th:src="@{/media/assets/{id}/content(id=${item.evidenceMediaAssetId})}"
+                                                 alt="Ảnh bằng chứng" class="community-compact-thumb-sm">
+                                            <span class="community-thumb-tag">Ảnh bằng chứng</span>
+                                        </div>
+                                        <div th:if="${item.imageMediaAssetId != null}" class="community-compact-thumb-wrap">
+                                            <img th:src="@{/media/assets/{id}/content(id=${item.imageMediaAssetId})}"
+                                                 alt="Ảnh bài viết" class="community-compact-thumb-sm">
+                                            <span class="community-thumb-tag">Ảnh bài viết</span>
+                                        </div>
+                                    </th:block>
+                                </div>
+                            </div>
+
+                            <!-- 4. Action Area -->
+                            <div class="community-card-footer">
+                                <a th:href="@{/admin/community/reports/{id}(id=${item.reportId})}"
+                                   class="admin-btn admin-btn-sm admin-btn-secondary">
+                                    Chi tiết
+                                </a>
+                            </div>
+                        </article>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div th:if="${reportPage.totalPages() > 1}" class="admin-pagination" style="margin-top: 20px;">
+                        <a th:if="${reportPage.hasPrevious()}"
+                           th:href="@{/admin/community/reports(scope=${selectedScope}, reason=${selectedReason != null ? selectedReason.name() : ''}, sort=${selectedSort}, page=${page - 1}, size=${pageSize})}"
+                           class="admin-pagination-link">« Trước</a>
+                        <span class="admin-pagination-current" th:text="'Trang ' + (${page + 1}) + ' / ' + ${reportPage.totalPages()}">Trang 1 / 5</span>
+                        <a th:if="${reportPage.hasNext()}"
+                           th:href="@{/admin/community/reports(scope=${selectedScope}, reason=${selectedReason != null ? selectedReason.name() : ''}, sort=${selectedSort}, page=${page + 1}, size=${pageSize})}"
+                           class="admin-pagination-link">Sau »</a>
+                    </div>
+                </section>
+
+            </section>
+        </main>
+    </div>
+
+</body>
+</html>

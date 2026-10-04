@@ -279,4 +279,36 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
             @Param("targetType") String targetType,
             @Param("targetIds") Collection<String> targetIds
     );
+
+    /**
+     * Retrieves a page of community post reports sorted newest first (created_at DESC, id DESC).
+     */
+    @Query("""
+            SELECT r FROM InteractionReportJpaEntity r
+            WHERE r.targetType = 'COMMUNITY_POST'
+              AND (:status IS NULL OR r.status = :status)
+              AND (:reason IS NULL OR r.reason = :reason)
+            ORDER BY r.createdAt DESC, r.id DESC
+            """)
+    Page<InteractionReportJpaEntity> findCommunityPostReportsNewest(
+            @Param("status") String status,
+            @Param("reason") String reason,
+            Pageable pageable
+    );
+
+    /**
+     * Retrieves a page of community post reports sorted oldest first (created_at ASC, id ASC).
+     */
+    @Query("""
+            SELECT r FROM InteractionReportJpaEntity r
+            WHERE r.targetType = 'COMMUNITY_POST'
+              AND (:status IS NULL OR r.status = :status)
+              AND (:reason IS NULL OR r.reason = :reason)
+            ORDER BY r.createdAt ASC, r.id ASC
+            """)
+    Page<InteractionReportJpaEntity> findCommunityPostReportsOldest(
+            @Param("status") String status,
+            @Param("reason") String reason,
+            Pageable pageable
+    );
 }

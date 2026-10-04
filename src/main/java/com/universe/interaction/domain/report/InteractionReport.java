@@ -111,8 +111,11 @@ public final class InteractionReport {
             if (resolvedAt.isBefore(this.createdAt)) {
                 throw new IllegalArgumentException("ResolvedAt timestamp cannot be before createdAt timestamp.");
             }
-            if (moderationAction != ReportModerationAction.DELETE_COMMENT) {
+            if (this.targetType == ReportTargetType.COMMENT && moderationAction != ReportModerationAction.DELETE_COMMENT) {
                 throw new IllegalArgumentException("ModerationAction must be DELETE_COMMENT for RESOLVED_ACTION_TAKEN report.");
+            }
+            if (this.targetType == ReportTargetType.COMMUNITY_POST && moderationAction != ReportModerationAction.CONTENT_HIDDEN) {
+                throw new IllegalArgumentException("ModerationAction must be CONTENT_HIDDEN for RESOLVED_ACTION_TAKEN report.");
             }
         } else if (this.status == ReportStatus.RESOLVED_NO_ACTION) {
             if (resolvedByUserId == null) {
@@ -207,16 +210,19 @@ public final class InteractionReport {
 
 
     /**
-     * Resolves the report with action taken (comment deleted by moderation).
+     * Resolves the report with action taken (comment deleted or community post hidden by moderation).
      */
     public void resolveActionTaken(UUID resolverUserId, Instant resolvedAt, ReportModerationAction moderationAction) {
         ensurePending();
         validateResolutionArguments(resolverUserId, resolvedAt);
-        if (moderationAction != ReportModerationAction.DELETE_COMMENT) {
-            throw new IllegalArgumentException("Action must be DELETE_COMMENT for resolveActionTaken.");
+        if (moderationAction != ReportModerationAction.DELETE_COMMENT && moderationAction != ReportModerationAction.CONTENT_HIDDEN) {
+            throw new IllegalArgumentException("Action must be DELETE_COMMENT or CONTENT_HIDDEN for resolveActionTaken.");
         }
-        if (this.targetType != ReportTargetType.COMMENT) {
+        if (moderationAction == ReportModerationAction.DELETE_COMMENT && this.targetType != ReportTargetType.COMMENT) {
             throw new IllegalArgumentException("DELETE_COMMENT action is not supported for target type " + this.targetType);
+        }
+        if (moderationAction == ReportModerationAction.CONTENT_HIDDEN && this.targetType != ReportTargetType.COMMUNITY_POST) {
+            throw new IllegalArgumentException("CONTENT_HIDDEN action is not supported for target type " + this.targetType);
         }
         this.status = ReportStatus.RESOLVED_ACTION_TAKEN;
         this.moderationAction = moderationAction;
@@ -232,6 +238,13 @@ public final class InteractionReport {
             throw new IllegalArgumentException("Cannot default resolution action for non-COMMENT target: " + this.targetType);
         }
         resolveActionTaken(resolverUserId, resolvedAt, ReportModerationAction.DELETE_COMMENT);
+    }
+
+    /**
+     * Resolves a COMMUNITY_POST report with action taken (CONTENT_HIDDEN).
+     */
+    public void resolveContentHidden(UUID resolverUserId, Instant resolvedAt) {
+        resolveActionTaken(resolverUserId, resolvedAt, ReportModerationAction.CONTENT_HIDDEN);
     }
 
     /**

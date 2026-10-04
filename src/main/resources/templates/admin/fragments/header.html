@@ -19,7 +19,7 @@
 
 				<h1 th:text="${pageTitle}">Tổng quan</h1>
 
-				<p>Theo dõi và quản lý hoạt động của hệ thống</p>
+				<p th:text="${pageSubtitle != null ? pageSubtitle : 'Theo dõi và quản lý hoạt động của hệ thống'}">Theo dõi và quản lý hoạt động của hệ thống</p>
 
 			</div>
 

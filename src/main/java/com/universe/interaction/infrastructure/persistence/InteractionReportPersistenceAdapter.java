@@ -261,4 +261,32 @@ public class InteractionReportPersistenceAdapter implements InteractionReportRep
         }
         return repository.countUnstampedReportsByTargets(targetType.name(), ids);
     }
+
+    @Override
+    public InteractionReportPage findCommunityPostReports(
+            ReportStatus status,
+            com.universe.interaction.domain.report.ReportReason reason,
+            boolean oldestFirst,
+            int page,
+            int size
+    ) {
+        String statusParam = status != null ? status.name() : null;
+        String reasonParam = reason != null ? reason.name() : null;
+        PageRequest pageRequest = PageRequest.of(page, size);
+
+        org.springframework.data.domain.Page<InteractionReportJpaEntity> entityPage = oldestFirst
+                ? repository.findCommunityPostReportsOldest(statusParam, reasonParam, pageRequest)
+                : repository.findCommunityPostReportsNewest(statusParam, reasonParam, pageRequest);
+
+        List<InteractionReport> domainItems = entityPage.getContent().stream()
+                .map(mapper::toDomain)
+                .toList();
+
+        return new InteractionReportPage(
+                domainItems,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements()
+        );
+    }
 }

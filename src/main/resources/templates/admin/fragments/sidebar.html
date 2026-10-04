@@ -40,6 +40,9 @@
 				th:classappend="${activeMenu == 'comment-reports'} ? ' active' : ''">
 
 				<span class="menu-icon">⚑</span> <span>Báo cáo bình luận</span>
+			</a> <a th:href="@{/admin/community/reports}" class="sidebar-link"
+				th:classappend="${activeMenu != null and (activeMenu == 'community' or activeMenu.startsWith('community'))} ? ' active' : ''">
+				<span class="menu-icon">👥</span> <span>Cộng đồng</span>
 			</a> <a th:href="@{/admin/wiki/articles}" class="sidebar-link"
 				th:classappend="${activeMenu == 'wiki'}
             ? ' active'

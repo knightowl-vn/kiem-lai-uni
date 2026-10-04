@@ -3,10 +3,13 @@ package com.universe.community.infrastructure.persistence;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.community.domain.CommunityPost;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -89,5 +92,51 @@ public class CommunityPostPersistenceAdapter implements CommunityPostRepositoryP
             throw new IllegalArgumentException("Post ID cannot be null.");
         }
         postRepository.deleteById(postId.toString());
+    }
+
+    @Override
+    public List<CommunityPost> findByIdIn(Collection<UUID> postIds) {
+        if (postIds == null || postIds.isEmpty()) {
+            return List.of();
+        }
+        List<String> stringIds = postIds.stream().filter(Objects::nonNull).map(UUID::toString).toList();
+        if (stringIds.isEmpty()) {
+            return List.of();
+        }
+        return postRepository.findByIdIn(stringIds).stream()
+                .map(postMapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    public CommunityPostPage findPendingReviewPosts(int page, int size) {
+        PageRequest pageRequest = PageRequest.of(page, size);
+        org.springframework.data.domain.Page<CommunityPostJpaEntity> entityPage =
+                postRepository.findPendingReviewPosts(pageRequest);
+        List<CommunityPost> items = entityPage.getContent().stream()
+                .map(postMapper::toDomain)
+                .toList();
+        return new CommunityPostPage(
+                items,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements()
+        );
+    }
+
+    @Override
+    public CommunityPostPage findHiddenPosts(int page, int size) {
+        PageRequest pageRequest = PageRequest.of(page, size);
+        org.springframework.data.domain.Page<CommunityPostJpaEntity> entityPage =
+                postRepository.findHiddenPosts(pageRequest);
+        List<CommunityPost> items = entityPage.getContent().stream()
+                .map(postMapper::toDomain)
+                .toList();
+        return new CommunityPostPage(
+                items,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements()
+        );
     }
 }
