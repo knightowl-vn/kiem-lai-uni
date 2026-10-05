@@ -125,10 +125,10 @@ class CommunityFeedClientContractTest {
         assertThat(js).contains("this.src = defaultAvatar");
         assertThat(js).contains("'/community/@' + encodeURIComponent(item.authorPublicHandle)");
 
-        // 5. Relative-time formatting and caption permalink affordance
+        // 5. Relative-time formatting and caption permalink affordance (enforces publishedAt invariant)
         assertThat(js).contains("timeEl.setAttribute('data-relative-time', '')");
-        assertThat(js).contains("timeEl.setAttribute('datetime', item.createdAt)");
-        assertThat(js).contains("window.RelativeTime.format(item.createdAt)");
+        assertThat(js).contains("timeEl.setAttribute('datetime', item.publishedAt)");
+        assertThat(js).contains("window.RelativeTime.format(item.publishedAt)");
         assertThat(js).doesNotContain("timeEl.textContent = item.createdAt");
         assertThat(js).doesNotContain("post-time-link");
         assertThat(js).contains("captionLink.className = 'post-caption'");
