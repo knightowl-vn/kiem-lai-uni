@@ -145,7 +145,7 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         when(getCommentThreadsByRootIdsUseCase.execute(CommentTarget.novelChapter(CHAPTER_ID), List.of(rootId)))
                 .thenReturn(List.of(threadView));
         when(userIdentityContract.findPublicProfilesByIds(Set.of(authorId)))
-                .thenReturn(Map.of(authorId, new UserPublicProfileDTO(authorId, "Tác Giả", "https://img.com/avatar.png")));
+                .thenReturn(Map.of(authorId, new UserPublicProfileDTO(authorId, "Tác Giả", "https://img.com/avatar.png", "tac_gia")));
 
         ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY);
 
@@ -200,8 +200,8 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         // Note: userTombstone must NOT be in the lookup query!
         when(userIdentityContract.findPublicProfilesByIds(Set.of(userRoot, userActiveReply)))
                 .thenReturn(Map.of(
-                        userRoot, new UserPublicProfileDTO(userRoot, "Root User", "https://img.com/root.jpg"),
-                        userActiveReply, new UserPublicProfileDTO(userActiveReply, "Reply User", "https://img.com/reply.jpg")
+                        userRoot, new UserPublicProfileDTO(userRoot, "Root User", "https://img.com/root.jpg", "root_user"),
+                        userActiveReply, new UserPublicProfileDTO(userActiveReply, "Reply User", "https://img.com/reply.jpg", "reply_user")
                 ));
 
         ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY);
@@ -281,7 +281,7 @@ class NovelBlockDiscussionQueryCoordinatorTest {
                 .thenReturn(List.of(threadView));
         // Case B: Identity profile exists with blank displayName (raw from Identity)
         when(userIdentityContract.findPublicProfilesByIds(Set.of(authorId)))
-                .thenReturn(Map.of(authorId, new UserPublicProfileDTO(authorId, "   ", "https://cdn.example.com/avatar.jpg")));
+                .thenReturn(Map.of(authorId, new UserPublicProfileDTO(authorId, "   ", "https://cdn.example.com/avatar.jpg", "author_blank_name")));
 
         ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY);
 
@@ -340,9 +340,9 @@ class NovelBlockDiscussionQueryCoordinatorTest {
                 .thenReturn(List.of(threadView));
         when(userIdentityContract.findPublicProfilesByIds(any()))
                 .thenReturn(Map.of(
-                        ownerRootId, new UserPublicProfileDTO(ownerRootId, "Owner Root", null),
-                        ownerReply1Id, new UserPublicProfileDTO(ownerReply1Id, "Owner Reply", null),
-                        otherUserId, new UserPublicProfileDTO(otherUserId, "Other User", null)
+                        ownerRootId, new UserPublicProfileDTO(ownerRootId, "Owner Root", null, "owner_root"),
+                        ownerReply1Id, new UserPublicProfileDTO(ownerReply1Id, "Owner Reply", null, "owner_reply"),
+                        otherUserId, new UserPublicProfileDTO(otherUserId, "Other User", null, "other_user")
                 ));
 
         // 1. Authenticated as Root Owner: root canEdit=true, canDelete=true; others false
@@ -444,8 +444,8 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         // Deleted B author MUST NOT be queried in Identity
         when(userIdentityContract.findPublicProfilesByIds(Set.of(userRoot, userC)))
                 .thenReturn(Map.of(
-                        userRoot, new UserPublicProfileDTO(userRoot, "Root User", null),
-                        userC, new UserPublicProfileDTO(userC, "Child C User", null)
+                        userRoot, new UserPublicProfileDTO(userRoot, "Root User", null, "root_user"),
+                        userC, new UserPublicProfileDTO(userC, "Child C User", null, "child_c_user")
                 ));
 
         ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, null);

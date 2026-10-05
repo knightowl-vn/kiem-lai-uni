@@ -514,6 +514,7 @@ class AdminNovelChapterRevisionCommandControllerTest {
                 ADMIN_EMAIL,
                 "Admin User",
                 null,
+                "admin_user",
                 "ACTIVE",
                 "ADMIN",
                 NOW

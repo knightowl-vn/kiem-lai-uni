@@ -7,6 +7,7 @@ import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -17,33 +18,35 @@ import java.util.UUID;
  *
  * <p>Preserves clean architecture boundaries:
  * <ul>
- *   <li>Exposes report evidence and current comment lifecycle state without cross-context display metadata;</li>
- *   <li>Maintains explicit separation between immutable historical evidence ({@code reportedBodySnapshot})
- *       and live comment body ({@code currentCommentBody});</li>
- *   <li>Explicitly indicates current comment availability via {@code currentCommentAvailable}.</li>
+ *   <li>Exposes report evidence and lifecycle state generically for any supported target;</li>
+ *   <li>Maintains explicit separation between immutable historical evidence ({@code reportedContentSnapshot})
+ *       and optional live target state;</li>
+ *   <li>Explicitly indicates live comment availability via {@code liveCommentAvailable} when reporting comments.</li>
  * </ul>
  */
 public record InteractionReportDetailResult(
         // Report fields (authoritative & immutable)
         UUID reportId,
-        UUID commentId,
+        ReportTargetType reportTargetType,
+        UUID reportTargetId,
         UUID reporterUserId,
         ReportReason reason,
         String description,
-        String reportedBodySnapshot,
+        String reportedContentSnapshot,
         ReportStatus status,
         Instant createdAt,
         UUID resolvedByUserId,
         Instant resolvedAt,
         ReportModerationAction moderationAction,
+        Instant targetDeletedAt,
 
-        // Current comment state
-        boolean currentCommentAvailable,
+        // Optional live comment enrichment (when reportTargetType == COMMENT and comment is available)
+        boolean liveCommentAvailable,
         UUID commentAuthorUserId,
         CommentStatus currentCommentStatus,
         String currentCommentBody,
-        CommentTargetType targetType,
-        UUID targetId,
+        CommentTargetType contentTargetType,
+        UUID contentTargetId,
         UUID currentCommentThreadRootCommentId,
         Instant commentCreatedAt,
         Instant commentUpdatedAt,
@@ -52,18 +55,23 @@ public record InteractionReportDetailResult(
 
     public InteractionReportDetailResult {
         Objects.requireNonNull(reportId, "reportId cannot be null");
-        Objects.requireNonNull(commentId, "commentId cannot be null");
+        Objects.requireNonNull(reportTargetType, "reportTargetType cannot be null");
+        Objects.requireNonNull(reportTargetId, "reportTargetId cannot be null");
         Objects.requireNonNull(reporterUserId, "reporterUserId cannot be null");
         Objects.requireNonNull(reason, "reason cannot be null");
-        Objects.requireNonNull(reportedBodySnapshot, "reportedBodySnapshot cannot be null");
+        Objects.requireNonNull(reportedContentSnapshot, "reportedContentSnapshot cannot be null");
         Objects.requireNonNull(status, "status cannot be null");
         Objects.requireNonNull(createdAt, "createdAt cannot be null");
     }
 
-    /**
-     * Creates a detail result when the target comment is available (active or soft-deleted tombstone).
-     */
-    public static InteractionReportDetailResult withAvailableComment(
+    // Backward-compatibility accessors
+    public UUID commentId() { return reportTargetId; }
+    public String reportedBodySnapshot() { return reportedContentSnapshot; }
+    public boolean currentCommentAvailable() { return liveCommentAvailable; }
+    public CommentTargetType targetType() { return contentTargetType; }
+    public UUID targetId() { return contentTargetId; }
+
+    public static InteractionReportDetailResult forCommentWithLiveComment(
             InteractionReport report,
             Comment comment
     ) {
@@ -72,16 +80,18 @@ public record InteractionReportDetailResult(
 
         return new InteractionReportDetailResult(
                 report.getId(),
-                report.getCommentId(),
+                report.getTargetType(),
+                report.getTargetId(),
                 report.getReporterUserId(),
                 report.getReason(),
                 report.getDescription(),
-                report.getReportedBodySnapshot(),
+                report.getReportedContentSnapshot(),
                 report.getStatus(),
                 report.getCreatedAt(),
                 report.getResolvedByUserId(),
                 report.getResolvedAt(),
                 report.getModerationAction(),
+                report.getTargetDeletedAt(),
                 true,
                 comment.getAuthorUserId(),
                 comment.getStatus(),
@@ -95,25 +105,23 @@ public record InteractionReportDetailResult(
         );
     }
 
-    /**
-     * Creates a detail result when the target comment is missing / unavailable.
-     * Historical report evidence is retained intact while comment current-state fields are null.
-     */
-    public static InteractionReportDetailResult withMissingComment(InteractionReport report) {
+    public static InteractionReportDetailResult forCommentWithoutLiveComment(InteractionReport report) {
         Objects.requireNonNull(report, "report cannot be null");
 
         return new InteractionReportDetailResult(
                 report.getId(),
-                report.getCommentId(),
+                report.getTargetType(),
+                report.getTargetId(),
                 report.getReporterUserId(),
                 report.getReason(),
                 report.getDescription(),
-                report.getReportedBodySnapshot(),
+                report.getReportedContentSnapshot(),
                 report.getStatus(),
                 report.getCreatedAt(),
                 report.getResolvedByUserId(),
                 report.getResolvedAt(),
                 report.getModerationAction(),
+                report.getTargetDeletedAt(),
                 false,
                 null,
                 null,
@@ -125,5 +133,46 @@ public record InteractionReportDetailResult(
                 null,
                 null
         );
+    }
+
+    public static InteractionReportDetailResult forCommunityPost(InteractionReport report) {
+        Objects.requireNonNull(report, "report cannot be null");
+
+        return new InteractionReportDetailResult(
+                report.getId(),
+                report.getTargetType(),
+                report.getTargetId(),
+                report.getReporterUserId(),
+                report.getReason(),
+                report.getDescription(),
+                report.getReportedContentSnapshot(),
+                report.getStatus(),
+                report.getCreatedAt(),
+                report.getResolvedByUserId(),
+                report.getResolvedAt(),
+                report.getModerationAction(),
+                report.getTargetDeletedAt(),
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    // Backward-compatible factory aliases
+    public static InteractionReportDetailResult withAvailableComment(InteractionReport report, Comment comment) {
+        return forCommentWithLiveComment(report, comment);
+    }
+
+    public static InteractionReportDetailResult withMissingComment(InteractionReport report) {
+        return report.getTargetType() == ReportTargetType.COMMUNITY_POST
+                ? forCommunityPost(report)
+                : forCommentWithoutLiveComment(report);
     }
 }

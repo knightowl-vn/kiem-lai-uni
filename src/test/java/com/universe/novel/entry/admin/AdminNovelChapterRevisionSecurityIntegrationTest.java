@@ -105,12 +105,16 @@ class AdminNovelChapterRevisionSecurityIntegrationTest {
         UserJpaEntity adminEntity = new UserJpaEntity();
         adminEntity.setId(ADMIN_ID.toString());
         adminEntity.setEmail(ADMIN_EMAIL);
+        adminEntity.setDisplayName("Admin User");
+        adminEntity.setPublicHandle("admin_user");
         adminEntity.setStatus("ACTIVE");
         adminEntity.setRole(UserRole.ADMIN);
 
         UserJpaEntity regularUserEntity = new UserJpaEntity();
         regularUserEntity.setId(UUID.randomUUID().toString());
         regularUserEntity.setEmail("user@universe.local");
+        regularUserEntity.setDisplayName("User One");
+        regularUserEntity.setPublicHandle("user_one");
         regularUserEntity.setStatus("ACTIVE");
         regularUserEntity.setRole(UserRole.USER);
 
@@ -122,7 +126,7 @@ class AdminNovelChapterRevisionSecurityIntegrationTest {
     @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
     @DisplayName("Security: POST restore với Admin authenticated + CSRF token hợp lệ được phép thực thi")
     void shouldAllowRestoreWhenAdminWithValidCsrf() throws Exception {
-        UserDTO user = new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "ACTIVE", "ADMIN", Instant.now());
+        UserDTO user = new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "admin_user", "ACTIVE", "ADMIN", Instant.now());
         when(authenticatedEmailResolver.require(any())).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 

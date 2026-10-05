@@ -725,6 +725,7 @@ class AdminNovelVolumeCommandControllerTest {
                                 ADMIN_EMAIL,
                                 "Admin",
                                 null,
+                                "admin_handle",
                                 "ACTIVE",
                                 "ADMIN",
                                 NOW
@@ -754,7 +755,7 @@ class AdminNovelVolumeCommandControllerTest {
         lenient().when(authentication.getName()).thenReturn("104829374019283746152");
 
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(
-                Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin", null, "ACTIVE", "ADMIN", NOW))
+                Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin", null, "admin_handle", "ACTIVE", "ADMIN", NOW))
         );
 
         when(createVolumeUseCase.execute(any(CreateVolumeCommand.class)))
@@ -787,7 +788,7 @@ class AdminNovelVolumeCommandControllerTest {
         when(authentication.getPrincipal()).thenReturn(ADMIN_EMAIL);
 
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(
-                Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin", null, "ACTIVE", "ADMIN", NOW))
+                Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin", null, "admin_handle", "ACTIVE", "ADMIN", NOW))
         );
 
         when(createVolumeUseCase.execute(any(CreateVolumeCommand.class)))

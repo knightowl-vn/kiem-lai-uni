@@ -1,8 +1,12 @@
 package com.universe.search.application;
 
+import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.novel.contracts.dto.locator.NovelChapterLocatorItemDTO;
 import com.universe.novel.contracts.dto.locator.NovelChapterLocatorResultDTO;
 import com.universe.novel.contracts.interfaces.NovelChapterLocatorContract;
+import com.universe.search.contracts.dto.CommunityProfileSearchItemDTO;
+import com.universe.search.contracts.dto.CommunityProfileSearchResultDTO;
 import com.universe.search.contracts.dto.SearchAggregationResultDTO;
 import com.universe.search.contracts.dto.SearchScope;
 import com.universe.wiki.contracts.dto.search.WikiNavigationalSearchItemDTO;
@@ -41,13 +45,17 @@ class SearchAggregationUseCaseTest {
     @Mock
     private NovelChapterLocatorContract novelChapterLocatorContract;
 
+    @Mock
+    private UserIdentityContract userIdentityContract;
+
     private SearchAggregationUseCase useCase;
 
     @BeforeEach
     void setUp() {
         useCase = new SearchAggregationUseCase(
                 wikiNavigationalSearchContract,
-                novelChapterLocatorContract
+                novelChapterLocatorContract,
+                userIdentityContract
         );
     }
 
@@ -56,8 +64,8 @@ class SearchAggregationUseCaseTest {
     class ScopeDispatchTests {
 
         @Test
-        @DisplayName("1. ALL invokes both Wiki and Novel contracts exactly once")
-        void aggregate_whenScopeIsAll_invokesBothContractsExactlyOnce() {
+        @DisplayName("1. ALL invokes Wiki, Novel, and Identity contracts exactly once")
+        void aggregate_whenScopeIsAll_invokesAllThreeContractsExactlyOnce() {
             WikiNavigationalSearchResultDTO wikiResult = new WikiNavigationalSearchResultDTO(
                     "kiếm lai",
                     List.of(createWikiItem("Trần Bình An", "tran-binh-an"))
@@ -67,23 +75,31 @@ class SearchAggregationUseCaseTest {
                     null,
                     List.of(createNovelItem(1, "Chương 1", "chuong-1"))
             );
+            List<UserPublicProfileDTO> identityResult = List.of(
+                    createUserProfile("Trần Bình An", "tranbinhan", "https://img/1.png")
+            );
 
             when(wikiNavigationalSearchContract.search("kiếm lai", 20)).thenReturn(wikiResult);
             when(novelChapterLocatorContract.locateChapters("kiếm lai", 20)).thenReturn(novelResult);
+            when(userIdentityContract.searchPublicUsers("kiếm lai", 20)).thenReturn(identityResult);
 
             SearchAggregationResultDTO result = useCase.aggregate("kiếm lai", SearchScope.ALL, 20);
 
             verify(wikiNavigationalSearchContract, times(1)).search("kiếm lai", 20);
             verify(novelChapterLocatorContract, times(1)).locateChapters("kiếm lai", 20);
+            verify(userIdentityContract, times(1)).searchPublicUsers("kiếm lai", 20);
 
             assertThat(result.query()).isEqualTo("kiếm lai");
             assertThat(result.scope()).isEqualTo(SearchScope.ALL);
             assertThat(result.wiki().items()).hasSize(1);
             assertThat(result.novel().items()).hasSize(1);
+            assertThat(result.community().items()).hasSize(1);
+            assertThat(result.community().items().get(0).publicHandle()).isEqualTo("tranbinhan");
+            assertThat(result.community().items().get(0).profileUrl()).isEqualTo("/community/@tranbinhan");
         }
 
         @Test
-        @DisplayName("2. WIKI invokes only Wiki contract and returns explicit empty Novel group")
+        @DisplayName("2. WIKI invokes only Wiki contract and returns explicit empty Novel and Community groups")
         void aggregate_whenScopeIsWiki_invokesOnlyWikiContract() {
             WikiNavigationalSearchResultDTO wikiResult = new WikiNavigationalSearchResultDTO(
                     "thạch hạo",
@@ -95,6 +111,7 @@ class SearchAggregationUseCaseTest {
 
             verify(wikiNavigationalSearchContract, times(1)).search("thạch hạo", 10);
             verifyNoInteractions(novelChapterLocatorContract);
+            verifyNoInteractions(userIdentityContract);
 
             assertThat(result.query()).isEqualTo("thạch hạo");
             assertThat(result.scope()).isEqualTo(SearchScope.WIKI);
@@ -102,10 +119,12 @@ class SearchAggregationUseCaseTest {
             assertThat(result.novel().items()).isEmpty();
             assertThat(result.novel().query()).isEqualTo("");
             assertThat(result.novel().matchedChapterNumber()).isNull();
+            assertThat(result.community().items()).isEmpty();
+            assertThat(result.community().query()).isEqualTo("");
         }
 
         @Test
-        @DisplayName("3. NOVEL invokes only Novel contract and returns explicit empty Wiki group")
+        @DisplayName("3. NOVEL invokes only Novel contract and returns explicit empty Wiki and Community groups")
         void aggregate_whenScopeIsNovel_invokesOnlyNovelContract() {
             NovelChapterLocatorResultDTO novelResult = new NovelChapterLocatorResultDTO(
                     "chương 10",
@@ -118,12 +137,41 @@ class SearchAggregationUseCaseTest {
 
             verify(novelChapterLocatorContract, times(1)).locateChapters("chương 10", 15);
             verifyNoInteractions(wikiNavigationalSearchContract);
+            verifyNoInteractions(userIdentityContract);
 
             assertThat(result.query()).isEqualTo("chương 10");
             assertThat(result.scope()).isEqualTo(SearchScope.NOVEL);
             assertThat(result.novel().items()).hasSize(1);
             assertThat(result.wiki().items()).isEmpty();
             assertThat(result.wiki().query()).isEqualTo("");
+            assertThat(result.community().items()).isEmpty();
+            assertThat(result.community().query()).isEqualTo("");
+        }
+
+        @Test
+        @DisplayName("4. COMMUNITY invokes only Identity contract and returns explicit empty Wiki and Novel groups")
+        void aggregate_whenScopeIsCommunity_invokesOnlyIdentityContract() {
+            List<UserPublicProfileDTO> identityResult = List.of(
+                    createUserProfile("Cố Huỳnh", "cohuynh", "https://img/co.png")
+            );
+            when(userIdentityContract.searchPublicUsers("cohuynh", 15)).thenReturn(identityResult);
+
+            SearchAggregationResultDTO result = useCase.aggregate("cohuynh", SearchScope.COMMUNITY, 15);
+
+            verify(userIdentityContract, times(1)).searchPublicUsers("cohuynh", 15);
+            verifyNoInteractions(wikiNavigationalSearchContract);
+            verifyNoInteractions(novelChapterLocatorContract);
+
+            assertThat(result.query()).isEqualTo("cohuynh");
+            assertThat(result.scope()).isEqualTo(SearchScope.COMMUNITY);
+            assertThat(result.community().items()).hasSize(1);
+            assertThat(result.community().items().get(0).displayName()).isEqualTo("Cố Huỳnh");
+            assertThat(result.community().items().get(0).publicHandle()).isEqualTo("cohuynh");
+            assertThat(result.community().items().get(0).profileUrl()).isEqualTo("/community/@cohuynh");
+            assertThat(result.wiki().items()).isEmpty();
+            assertThat(result.wiki().query()).isEqualTo("");
+            assertThat(result.novel().items()).isEmpty();
+            assertThat(result.novel().query()).isEqualTo("");
         }
 
         @Test
@@ -131,15 +179,18 @@ class SearchAggregationUseCaseTest {
         void aggregate_whenScopeIsNull_behavesAsAll() {
             WikiNavigationalSearchResultDTO wikiResult = new WikiNavigationalSearchResultDTO("test", List.of());
             NovelChapterLocatorResultDTO novelResult = new NovelChapterLocatorResultDTO("test", null, List.of());
+            List<UserPublicProfileDTO> identityResult = List.of();
 
             when(wikiNavigationalSearchContract.search("test", 20)).thenReturn(wikiResult);
             when(novelChapterLocatorContract.locateChapters("test", 20)).thenReturn(novelResult);
+            when(userIdentityContract.searchPublicUsers("test", 20)).thenReturn(identityResult);
 
             SearchAggregationResultDTO result = useCase.aggregate("test", null, 20);
 
             assertThat(result.scope()).isEqualTo(SearchScope.ALL);
             verify(wikiNavigationalSearchContract, times(1)).search("test", 20);
             verify(novelChapterLocatorContract, times(1)).locateChapters("test", 20);
+            verify(userIdentityContract, times(1)).searchPublicUsers("test", 20);
         }
     }
 
@@ -156,11 +207,13 @@ class SearchAggregationUseCaseTest {
 
             verifyNoInteractions(wikiNavigationalSearchContract);
             verifyNoInteractions(novelChapterLocatorContract);
+            verifyNoInteractions(userIdentityContract);
 
             assertThat(result.query()).isEqualTo("");
             assertThat(result.scope()).isEqualTo(SearchScope.ALL);
             assertThat(result.wiki().items()).isEmpty();
             assertThat(result.novel().items()).isEmpty();
+            assertThat(result.community().items()).isEmpty();
         }
 
         @Test
@@ -170,11 +223,14 @@ class SearchAggregationUseCaseTest {
                     .thenReturn(new WikiNavigationalSearchResultDTO("kiếm lai", List.of()));
             when(novelChapterLocatorContract.locateChapters(anyString(), anyInt()))
                     .thenReturn(new NovelChapterLocatorResultDTO("kiếm lai", null, List.of()));
+            when(userIdentityContract.searchPublicUsers(anyString(), anyInt()))
+                    .thenReturn(List.of());
 
             SearchAggregationResultDTO result = useCase.aggregate("   kiếm     lai   ", SearchScope.ALL, 20);
 
             verify(wikiNavigationalSearchContract).search("kiếm lai", 20);
             verify(novelChapterLocatorContract).locateChapters("kiếm lai", 20);
+            verify(userIdentityContract).searchPublicUsers("kiếm lai", 20);
             assertThat(result.query()).isEqualTo("kiếm lai");
         }
 
@@ -188,11 +244,14 @@ class SearchAggregationUseCaseTest {
                     .thenReturn(new WikiNavigationalSearchResultDTO(expectedCappedQuery, List.of()));
             when(novelChapterLocatorContract.locateChapters(anyString(), anyInt()))
                     .thenReturn(new NovelChapterLocatorResultDTO(expectedCappedQuery, null, List.of()));
+            when(userIdentityContract.searchPublicUsers(anyString(), anyInt()))
+                    .thenReturn(List.of());
 
             SearchAggregationResultDTO result = useCase.aggregate(longQuery, SearchScope.ALL, 20);
 
             verify(wikiNavigationalSearchContract).search(expectedCappedQuery, 20);
             verify(novelChapterLocatorContract).locateChapters(expectedCappedQuery, 20);
+            verify(userIdentityContract).searchPublicUsers(expectedCappedQuery, 20);
             assertThat(result.query()).hasSize(200);
             assertThat(result.query()).isEqualTo(expectedCappedQuery);
         }
@@ -210,11 +269,14 @@ class SearchAggregationUseCaseTest {
                     .thenReturn(new WikiNavigationalSearchResultDTO("test", List.of()));
             when(novelChapterLocatorContract.locateChapters("test", 20))
                     .thenReturn(new NovelChapterLocatorResultDTO("test", null, List.of()));
+            when(userIdentityContract.searchPublicUsers("test", 20))
+                    .thenReturn(List.of());
 
             useCase.aggregate("test", SearchScope.ALL, nonPositiveLimit);
 
             verify(wikiNavigationalSearchContract).search("test", 20);
             verify(novelChapterLocatorContract).locateChapters("test", 20);
+            verify(userIdentityContract).searchPublicUsers("test", 20);
         }
 
         @ParameterizedTest
@@ -225,11 +287,14 @@ class SearchAggregationUseCaseTest {
                     .thenReturn(new WikiNavigationalSearchResultDTO("test", List.of()));
             when(novelChapterLocatorContract.locateChapters("test", validLimit))
                     .thenReturn(new NovelChapterLocatorResultDTO("test", null, List.of()));
+            when(userIdentityContract.searchPublicUsers("test", validLimit))
+                    .thenReturn(List.of());
 
             useCase.aggregate("test", SearchScope.ALL, validLimit);
 
             verify(wikiNavigationalSearchContract).search("test", validLimit);
             verify(novelChapterLocatorContract).locateChapters("test", validLimit);
+            verify(userIdentityContract).searchPublicUsers("test", validLimit);
         }
 
         @ParameterizedTest
@@ -240,11 +305,14 @@ class SearchAggregationUseCaseTest {
                     .thenReturn(new WikiNavigationalSearchResultDTO("test", List.of()));
             when(novelChapterLocatorContract.locateChapters("test", 20))
                     .thenReturn(new NovelChapterLocatorResultDTO("test", null, List.of()));
+            when(userIdentityContract.searchPublicUsers("test", 20))
+                    .thenReturn(List.of());
 
             useCase.aggregate("test", SearchScope.ALL, excessiveLimit);
 
             verify(wikiNavigationalSearchContract).search("test", 20);
             verify(novelChapterLocatorContract).locateChapters("test", 20);
+            verify(userIdentityContract).searchPublicUsers("test", 20);
         }
     }
 
@@ -253,7 +321,7 @@ class SearchAggregationUseCaseTest {
     class OrderingAndInvariantsTests {
 
         @Test
-        @DisplayName("12 & 13. Wiki and Novel result orders are preserved exactly as returned")
+        @DisplayName("12 & 13. Wiki, Novel, and Community result orders are preserved exactly as returned")
         void aggregate_preservesDownstreamItemOrderingExactly() {
             WikiNavigationalSearchItemDTO wiki1 = createWikiItem("A", "slug-a");
             WikiNavigationalSearchItemDTO wiki2 = createWikiItem("B", "slug-b");
@@ -263,16 +331,25 @@ class SearchAggregationUseCaseTest {
             NovelChapterLocatorItemDTO novel2 = createNovelItem(2, "Chương 2", "c-2");
             NovelChapterLocatorItemDTO novel3 = createNovelItem(3, "Chương 3", "c-3");
 
+            UserPublicProfileDTO user1 = createUserProfile("U1", "h1", "https://img/1.png");
+            UserPublicProfileDTO user2 = createUserProfile("U2", "h2", "https://img/2.png");
+            UserPublicProfileDTO user3 = createUserProfile("U3", "h3", null);
+
             WikiNavigationalSearchResultDTO wikiResult = new WikiNavigationalSearchResultDTO("test", List.of(wiki1, wiki2, wiki3));
             NovelChapterLocatorResultDTO novelResult = new NovelChapterLocatorResultDTO("test", null, List.of(novel1, novel2, novel3));
+            List<UserPublicProfileDTO> identityResult = List.of(user1, user2, user3);
 
             when(wikiNavigationalSearchContract.search("test", 20)).thenReturn(wikiResult);
             when(novelChapterLocatorContract.locateChapters("test", 20)).thenReturn(novelResult);
+            when(userIdentityContract.searchPublicUsers("test", 20)).thenReturn(identityResult);
 
             SearchAggregationResultDTO result = useCase.aggregate("test", SearchScope.ALL, 20);
 
             assertThat(result.wiki().items()).containsExactly(wiki1, wiki2, wiki3);
             assertThat(result.novel().items()).containsExactly(novel1, novel2, novel3);
+            assertThat(result.community().items())
+                    .extracting(CommunityProfileSearchItemDTO::publicHandle)
+                    .containsExactly("h1", "h2", "h3");
         }
 
         @Test
@@ -280,16 +357,22 @@ class SearchAggregationUseCaseTest {
         void aggregate_keepsGroupsSeparateWithoutCrossRanking() {
             WikiNavigationalSearchItemDTO wikiItem = createWikiItem("Kiếm Lai", "kiem-lai");
             NovelChapterLocatorItemDTO novelItem = createNovelItem(1, "Kiếm Lai Chương 1", "kiem-lai-c-1");
+            UserPublicProfileDTO userItem = createUserProfile("Kiếm Lai", "kiemlai", null);
 
             when(wikiNavigationalSearchContract.search("kiem", 20))
                     .thenReturn(new WikiNavigationalSearchResultDTO("kiem", List.of(wikiItem)));
             when(novelChapterLocatorContract.locateChapters("kiem", 20))
                     .thenReturn(new NovelChapterLocatorResultDTO("kiem", null, List.of(novelItem)));
+            when(userIdentityContract.searchPublicUsers("kiem", 20))
+                    .thenReturn(List.of(userItem));
 
             SearchAggregationResultDTO result = useCase.aggregate("kiem", SearchScope.ALL, 20);
 
             assertThat(result.wiki().items()).containsExactly(wikiItem);
             assertThat(result.novel().items()).containsExactly(novelItem);
+            assertThat(result.community().items())
+                    .extracting(CommunityProfileSearchItemDTO::publicHandle)
+                    .containsExactly("kiemlai");
         }
 
         @Test
@@ -303,6 +386,8 @@ class SearchAggregationUseCaseTest {
             assertThat(wikiOnlyResult.novel()).isNotNull();
             assertThat(wikiOnlyResult.novel().items()).isEmpty();
             assertThat(wikiOnlyResult.novel().matchedChapterNumber()).isNull();
+            assertThat(wikiOnlyResult.community()).isNotNull();
+            assertThat(wikiOnlyResult.community().items()).isEmpty();
 
             when(novelChapterLocatorContract.locateChapters("novel-only", 20))
                     .thenReturn(new NovelChapterLocatorResultDTO("novel-only", null, List.of()));
@@ -311,15 +396,51 @@ class SearchAggregationUseCaseTest {
 
             assertThat(novelOnlyResult.wiki()).isNotNull();
             assertThat(novelOnlyResult.wiki().items()).isEmpty();
+            assertThat(novelOnlyResult.community()).isNotNull();
+            assertThat(novelOnlyResult.community().items()).isEmpty();
+
+            when(userIdentityContract.searchPublicUsers("community-only", 20))
+                    .thenReturn(List.of());
+
+            SearchAggregationResultDTO communityOnlyResult = useCase.aggregate("community-only", SearchScope.COMMUNITY, 20);
+
+            assertThat(communityOnlyResult.wiki()).isNotNull();
+            assertThat(communityOnlyResult.wiki().items()).isEmpty();
+            assertThat(communityOnlyResult.novel()).isNotNull();
+            assertThat(communityOnlyResult.novel().items()).isEmpty();
         }
 
         @Test
-        @DisplayName("16. Default overloads delegate correctly")
+        @DisplayName("16. Mapping from UserPublicProfileDTO to CommunityProfileSearchItemDTO preserves privacy (no userId)")
+        void aggregate_mapsIdentityDTOToCommunityItemDTOCorrectly() {
+            UUID internalUserId = UUID.randomUUID();
+            UserPublicProfileDTO identityDTO = new UserPublicProfileDTO(
+                    internalUserId,
+                    "Nguyễn Du",
+                    "https://img/avatar.png",
+                    "nguyendu"
+            );
+            when(userIdentityContract.searchPublicUsers("nguyen", 20)).thenReturn(List.of(identityDTO));
+
+            SearchAggregationResultDTO result = useCase.aggregate("nguyen", SearchScope.COMMUNITY, 20);
+
+            assertThat(result.community().items()).hasSize(1);
+            CommunityProfileSearchItemDTO item = result.community().items().get(0);
+            assertThat(item.displayName()).isEqualTo("Nguyễn Du");
+            assertThat(item.publicHandle()).isEqualTo("nguyendu");
+            assertThat(item.avatarUrl()).isEqualTo("https://img/avatar.png");
+            assertThat(item.profileUrl()).isEqualTo("/community/@nguyendu");
+        }
+
+        @Test
+        @DisplayName("17. Default overloads delegate correctly")
         void aggregate_defaultOverloadsDelegateCorrectly() {
             when(wikiNavigationalSearchContract.search("test", 20))
                     .thenReturn(new WikiNavigationalSearchResultDTO("test", List.of()));
             when(novelChapterLocatorContract.locateChapters("test", 20))
                     .thenReturn(new NovelChapterLocatorResultDTO("test", null, List.of()));
+            when(userIdentityContract.searchPublicUsers("test", 20))
+                    .thenReturn(List.of());
 
             SearchAggregationResultDTO result2Args = useCase.aggregate("test", SearchScope.ALL);
             assertThat(result2Args.query()).isEqualTo("test");
@@ -337,13 +458,17 @@ class SearchAggregationUseCaseTest {
         @Test
         @DisplayName("SearchAggregationUseCase constructor rejects null dependencies")
         void constructor_rejectsNullDependencies() {
-            assertThatThrownBy(() -> new SearchAggregationUseCase(null, novelChapterLocatorContract))
+            assertThatThrownBy(() -> new SearchAggregationUseCase(null, novelChapterLocatorContract, userIdentityContract))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("WikiNavigationalSearchContract must not be null");
 
-            assertThatThrownBy(() -> new SearchAggregationUseCase(wikiNavigationalSearchContract, null))
+            assertThatThrownBy(() -> new SearchAggregationUseCase(wikiNavigationalSearchContract, null, userIdentityContract))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("NovelChapterLocatorContract must not be null");
+
+            assertThatThrownBy(() -> new SearchAggregationUseCase(wikiNavigationalSearchContract, novelChapterLocatorContract, null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("UserIdentityContract must not be null");
         }
 
         @Test
@@ -351,17 +476,21 @@ class SearchAggregationUseCaseTest {
         void searchAggregationResultDTO_constructorRejectsNullFields() {
             WikiNavigationalSearchResultDTO wikiResult = new WikiNavigationalSearchResultDTO("", List.of());
             NovelChapterLocatorResultDTO novelResult = new NovelChapterLocatorResultDTO("", null, List.of());
+            CommunityProfileSearchResultDTO commResult = new CommunityProfileSearchResultDTO("", List.of());
 
-            assertThatThrownBy(() -> new SearchAggregationResultDTO(null, SearchScope.ALL, wikiResult, novelResult))
+            assertThatThrownBy(() -> new SearchAggregationResultDTO(null, SearchScope.ALL, wikiResult, novelResult, commResult))
                     .isInstanceOf(NullPointerException.class);
 
-            assertThatThrownBy(() -> new SearchAggregationResultDTO("q", null, wikiResult, novelResult))
+            assertThatThrownBy(() -> new SearchAggregationResultDTO("q", null, wikiResult, novelResult, commResult))
                     .isInstanceOf(NullPointerException.class);
 
-            assertThatThrownBy(() -> new SearchAggregationResultDTO("q", SearchScope.ALL, null, novelResult))
+            assertThatThrownBy(() -> new SearchAggregationResultDTO("q", SearchScope.ALL, null, novelResult, commResult))
                     .isInstanceOf(NullPointerException.class);
 
-            assertThatThrownBy(() -> new SearchAggregationResultDTO("q", SearchScope.ALL, wikiResult, null))
+            assertThatThrownBy(() -> new SearchAggregationResultDTO("q", SearchScope.ALL, wikiResult, null, commResult))
+                    .isInstanceOf(NullPointerException.class);
+
+            assertThatThrownBy(() -> new SearchAggregationResultDTO("q", SearchScope.ALL, wikiResult, novelResult, null))
                     .isInstanceOf(NullPointerException.class);
         }
 
@@ -371,6 +500,7 @@ class SearchAggregationUseCaseTest {
             when(wikiNavigationalSearchContract.search("test", 20)).thenReturn(null);
             when(novelChapterLocatorContract.locateChapters("test", 20))
                     .thenReturn(new NovelChapterLocatorResultDTO("test", null, List.of()));
+            when(userIdentityContract.searchPublicUsers("test", 20)).thenReturn(List.of());
 
             assertThatThrownBy(() -> useCase.aggregate("test", SearchScope.ALL, 20))
                     .isInstanceOf(NullPointerException.class)
@@ -383,10 +513,25 @@ class SearchAggregationUseCaseTest {
             when(wikiNavigationalSearchContract.search("test", 20))
                     .thenReturn(new WikiNavigationalSearchResultDTO("test", List.of()));
             when(novelChapterLocatorContract.locateChapters("test", 20)).thenReturn(null);
+            when(userIdentityContract.searchPublicUsers("test", 20)).thenReturn(List.of());
 
             assertThatThrownBy(() -> useCase.aggregate("test", SearchScope.ALL, 20))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("novel must not be null");
+        }
+
+        @Test
+        @DisplayName("aggregate fails fast with NullPointerException when invoked Identity contract returns null")
+        void aggregate_whenInvokedIdentityContractReturnsNull_throwsNullPointerException() {
+            when(wikiNavigationalSearchContract.search("test", 20))
+                    .thenReturn(new WikiNavigationalSearchResultDTO("test", List.of()));
+            when(novelChapterLocatorContract.locateChapters("test", 20))
+                    .thenReturn(new NovelChapterLocatorResultDTO("test", null, List.of()));
+            when(userIdentityContract.searchPublicUsers("test", 20)).thenReturn(null);
+
+            assertThatThrownBy(() -> useCase.aggregate("test", SearchScope.ALL, 20))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("community must not be null");
         }
 
         @Test
@@ -407,6 +552,16 @@ class SearchAggregationUseCaseTest {
             assertThatThrownBy(() -> useCase.aggregate("test", SearchScope.NOVEL, 20))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("novel must not be null");
+        }
+
+        @Test
+        @DisplayName("aggregate fails fast with NullPointerException when scoped COMMUNITY search returns null")
+        void aggregate_whenScopedCommunityReturnsNull_throwsNullPointerException() {
+            when(userIdentityContract.searchPublicUsers("test", 20)).thenReturn(null);
+
+            assertThatThrownBy(() -> useCase.aggregate("test", SearchScope.COMMUNITY, 20))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("community must not be null");
         }
     }
 
@@ -429,6 +584,15 @@ class SearchAggregationUseCaseTest {
                 slug,
                 1,
                 "Quyển 1"
+        );
+    }
+
+    private UserPublicProfileDTO createUserProfile(String displayName, String publicHandle, String avatarUrl) {
+        return new UserPublicProfileDTO(
+                UUID.randomUUID(),
+                displayName,
+                avatarUrl,
+                publicHandle
         );
     }
 }

@@ -2,6 +2,7 @@ package com.universe.interaction.application.ports;
 
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 
 import java.util.Collection;
@@ -51,17 +52,19 @@ public interface CommentRepositoryPort {
     Optional<Comment> findByIdForUpdate(UUID commentId);
 
     /**
-     * Finds active root comments for the given target using zero-based slice pagination.
+     * Finds active root comments for the given target using zero-based slice pagination and the specified sort mode.
      *
      * <p>Roots have {@code parent_comment_id IS NULL} and {@code status = 'ACTIVE'}.
-     * Ordered deterministically by {@code createdAt DESC, id DESC}.
+     * When {@code sortMode == CommentSortMode.FEATURED}, ordered by {@code engagementScore DESC, createdAt DESC, id DESC}.
+     * When {@code sortMode == CommentSortMode.NEWEST}, ordered by {@code createdAt DESC, id DESC}.
      *
      * @param target target entity (cannot be null)
+     * @param sortMode sorting mode (cannot be null)
      * @param page zero-based page index (>= 0)
      * @param size page size (> 0)
      * @return immutable slice of root comments
      */
-    CommentSlice findActiveRoots(CommentTarget target, int page, int size);
+    CommentSlice findActiveRoots(CommentTarget target, CommentSortMode sortMode, int page, int size);
 
     /**
      * Finds all replies for a thread root comment, ordered chronologically.
@@ -149,4 +152,40 @@ public interface CommentRepositoryPort {
      * @param commentIds collection of comment IDs to delete
      */
     void deleteAllByIds(Collection<UUID> commentIds);
+
+    /**
+     * Retrieves ALL comment IDs for a given target regardless of status or hierarchy.
+     *
+     * @param targetType the target type
+     * @param targetId the target ID
+     * @return list of comment UUIDs
+     */
+    List<UUID> findAllCommentIdsByTarget(com.universe.interaction.domain.CommentTargetType targetType, UUID targetId);
+
+    /**
+     * Counts active comments and replies grouped by targetId for multiple targets.
+     *
+     * @param targetType the target type
+     * @param targetIds collection of target IDs
+     * @return map of target ID to active comment count
+     */
+    Map<UUID, Long> countActiveCommentsByTargetIds(
+            com.universe.interaction.domain.CommentTargetType targetType,
+            Collection<UUID> targetIds
+    );
+
+    /**
+     * Finds and locks all comments for a target with an exclusive pessimistic write lock,
+     * ordered deterministically by createdAt ASC, id ASC.
+     *
+     * <p>Precondition: Must be invoked within an active mutation transaction.
+     *
+     * @param targetType the target type
+     * @param targetId the target ID
+     * @return list of locked domain comments
+     */
+    List<Comment> lockAllCommentsByTarget(
+            com.universe.interaction.domain.CommentTargetType targetType,
+            UUID targetId
+    );
 }

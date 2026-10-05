@@ -119,6 +119,8 @@ class ReaderBookmarkSecurityIntegrationTest {
         UserJpaEntity userEntity = new UserJpaEntity();
         userEntity.setId(USER_ID.toString());
         userEntity.setEmail(USER_EMAIL);
+        userEntity.setDisplayName("Reader User");
+        userEntity.setPublicHandle("reader_user");
         userEntity.setStatus("ACTIVE");
         userEntity.setRole(UserRole.USER);
 

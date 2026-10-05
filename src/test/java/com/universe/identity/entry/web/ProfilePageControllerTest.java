@@ -52,6 +52,7 @@ class ProfilePageControllerTest {
                 email,
                 "Test User",
                 "/media/assets/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/content",
+                "test_user_handle",
                 "Tiểu sử người dùng",
                 "ACTIVE",
                 "USER",
@@ -68,6 +69,7 @@ class ProfilePageControllerTest {
 
         assertThat(view).isEqualTo("identity/profile");
         assertThat(model.getAttribute("user")).isEqualTo(userView);
+        assertThat(((CurrentUserView) model.getAttribute("user")).publicHandle()).isEqualTo("test_user_handle");
         assertThat(model.getAttribute("hasPassword")).isEqualTo(userView.hasLocalPassword());
 
         verify(authenticatedEmailResolver).require(authentication);

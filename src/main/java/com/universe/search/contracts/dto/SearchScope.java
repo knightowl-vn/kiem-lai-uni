@@ -8,7 +8,8 @@ import java.util.Locale;
 public enum SearchScope {
     ALL,
     WIKI,
-    NOVEL;
+    NOVEL,
+    COMMUNITY;
 
     /**
      * Parses a raw scope string into a SearchScope enum (case-insensitive).

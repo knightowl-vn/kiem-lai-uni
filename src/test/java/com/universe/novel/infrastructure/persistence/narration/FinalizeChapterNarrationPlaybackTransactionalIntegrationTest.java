@@ -271,8 +271,8 @@ class FinalizeChapterNarrationPlaybackTransactionalIntegrationTest {
     private void seedDatabaseRows() {
         Timestamp timestamp = Timestamp.from(NOW);
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) "
-                        + "VALUES (?, 'h9e-admin@universe.local', '$2a$10$hash', 'H9E Admin', 'ACTIVE', 'ADMIN', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) "
+                        + "VALUES (?, 'h9e-admin@universe.local', '$2a$10$hash', 'H9E Admin', 'h9e_admin', 'ACTIVE', 'ADMIN', 1, 0, ?, ?)",
                 USER_ID.toString(), timestamp, timestamp
         );
         jdbcTemplate.update(

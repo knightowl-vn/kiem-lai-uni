@@ -13,8 +13,10 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -43,6 +45,9 @@ class SubmitCommentReportUseCaseTest {
     private CommentRepositoryPort commentRepositoryPort;
 
     @Mock
+    private CommunityPostInteractionMutationPort communityPostMutationPort;
+
+    @Mock
     private InteractionReportRepositoryPort reportRepositoryPort;
 
     @Mock
@@ -68,13 +73,15 @@ class SubmitCommentReportUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new SubmitCommentReportUseCase(
+        SubmitInteractionReportUseCase interactionUseCase = new SubmitInteractionReportUseCase(
                 commentRepositoryPort,
+                communityPostMutationPort,
                 reportRepositoryPort,
                 eligibilityPort,
                 idGeneratorPort,
                 clockPort
         );
+        useCase = new SubmitCommentReportUseCase(interactionUseCase);
     }
 
     private Comment createActiveRootComment() {
@@ -93,8 +100,10 @@ class SubmitCommentReportUseCaseTest {
         @DisplayName("Active root comment can be reported successfully")
         void shouldSuccessfullyReportActiveRootComment() {
             Comment root = createActiveRootComment();
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(ROOT_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, ROOT_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(false);
+            when(commentRepositoryPort.findById(ROOT_COMMENT_ID))
+                    .thenReturn(Optional.of(root));
             when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
                     .thenReturn(Optional.of(root));
             when(eligibilityPort.isEligible(TARGET))
@@ -117,11 +126,11 @@ class SubmitCommentReportUseCaseTest {
 
             assertThat(result).isNotNull();
             assertThat(result.getId()).isEqualTo(GENERATED_REPORT_ID);
-            assertThat(result.getCommentId()).isEqualTo(ROOT_COMMENT_ID);
+            assertThat(result.getTargetId()).isEqualTo(ROOT_COMMENT_ID);
             assertThat(result.getReporterUserId()).isEqualTo(REPORTER_USER_ID);
             assertThat(result.getReason()).isEqualTo(ReportReason.SPAM);
             assertThat(result.getDescription()).isEqualTo("Commercial link detected");
-            assertThat(result.getReportedBodySnapshot()).isEqualTo("Authoritative root comment text");
+            assertThat(result.getReportedContentSnapshot()).isEqualTo("Authoritative root comment text");
             assertThat(result.getStatus()).isEqualTo(ReportStatus.PENDING);
             assertThat(result.getCreatedAt()).isEqualTo(NOW);
             assertThat(result.getResolvedByUserId()).isNull();
@@ -131,7 +140,7 @@ class SubmitCommentReportUseCaseTest {
             verify(reportRepositoryPort).save(captor.capture());
             InteractionReport saved = captor.getValue();
             assertThat(saved.getId()).isEqualTo(GENERATED_REPORT_ID);
-            assertThat(saved.getReportedBodySnapshot()).isEqualTo("Authoritative root comment text");
+            assertThat(saved.getReportedContentSnapshot()).isEqualTo("Authoritative root comment text");
         }
 
         @Test
@@ -140,12 +149,14 @@ class SubmitCommentReportUseCaseTest {
             Comment root = createActiveRootComment();
             Comment reply = createActiveReplyComment(root);
 
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(REPLY_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, REPLY_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(false);
-            when(commentRepositoryPort.findByIdForUpdate(REPLY_COMMENT_ID))
+            when(commentRepositoryPort.findById(REPLY_COMMENT_ID))
                     .thenReturn(Optional.of(reply));
             when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
                     .thenReturn(Optional.of(root));
+            when(commentRepositoryPort.findByIdForUpdate(REPLY_COMMENT_ID))
+                    .thenReturn(Optional.of(reply));
             when(eligibilityPort.isEligible(TARGET))
                     .thenReturn(true);
             when(idGeneratorPort.generate())
@@ -165,8 +176,8 @@ class SubmitCommentReportUseCaseTest {
             InteractionReport result = useCase.execute(command);
 
             assertThat(result.getId()).isEqualTo(GENERATED_REPORT_ID);
-            assertThat(result.getCommentId()).isEqualTo(REPLY_COMMENT_ID);
-            assertThat(result.getReportedBodySnapshot()).isEqualTo("Authoritative reply comment text");
+            assertThat(result.getTargetId()).isEqualTo(REPLY_COMMENT_ID);
+            assertThat(result.getReportedContentSnapshot()).isEqualTo("Authoritative reply comment text");
             assertThat(result.getStatus()).isEqualTo(ReportStatus.PENDING);
         }
 
@@ -186,12 +197,14 @@ class SubmitCommentReportUseCaseTest {
             assertThat(replyB.getParentCommentId()).isEqualTo(replyAId);
             assertThat(replyB.getThreadRootCommentId()).isEqualTo(ROOT_COMMENT_ID);
 
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(replyBId, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, replyBId, REPORTER_USER_ID))
                     .thenReturn(false);
-            when(commentRepositoryPort.findByIdForUpdate(replyBId))
+            when(commentRepositoryPort.findById(replyBId))
                     .thenReturn(Optional.of(replyB));
             when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
                     .thenReturn(Optional.of(root));
+            when(commentRepositoryPort.findByIdForUpdate(replyBId))
+                    .thenReturn(Optional.of(replyB));
             when(eligibilityPort.isEligible(TARGET))
                     .thenReturn(true);
             when(idGeneratorPort.generate())
@@ -212,17 +225,17 @@ class SubmitCommentReportUseCaseTest {
 
             assertThat(result).isNotNull();
             assertThat(result.getId()).isEqualTo(GENERATED_REPORT_ID);
-            assertThat(result.getCommentId()).isEqualTo(replyBId);
+            assertThat(result.getTargetId()).isEqualTo(replyBId);
             assertThat(result.getReporterUserId()).isEqualTo(REPORTER_USER_ID);
-            assertThat(result.getReportedBodySnapshot()).isEqualTo("Active descendant text");
+            assertThat(result.getReportedContentSnapshot()).isEqualTo("Active descendant text");
             assertThat(result.getStatus()).isEqualTo(ReportStatus.PENDING);
 
             ArgumentCaptor<InteractionReport> captor = ArgumentCaptor.forClass(InteractionReport.class);
             verify(reportRepositoryPort).save(captor.capture());
             InteractionReport saved = captor.getValue();
             assertThat(saved.getId()).isEqualTo(GENERATED_REPORT_ID);
-            assertThat(saved.getCommentId()).isEqualTo(replyBId);
-            assertThat(saved.getReportedBodySnapshot()).isEqualTo("Active descendant text");
+            assertThat(saved.getTargetId()).isEqualTo(replyBId);
+            assertThat(saved.getReportedContentSnapshot()).isEqualTo("Active descendant text");
         }
     }
 
@@ -233,9 +246,9 @@ class SubmitCommentReportUseCaseTest {
         @Test
         @DisplayName("Rejects report when comment is not found")
         void shouldRejectWhenCommentNotFound() {
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(ROOT_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, ROOT_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(false);
-            when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
+            when(commentRepositoryPort.findById(ROOT_COMMENT_ID))
                     .thenReturn(Optional.empty());
 
             SubmitCommentReportCommand command = new SubmitCommentReportCommand(
@@ -258,9 +271,9 @@ class SubmitCommentReportUseCaseTest {
             Comment root = createActiveRootComment();
             root.delete(T1.plusSeconds(60));
 
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(ROOT_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, ROOT_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(false);
-            when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
+            when(commentRepositoryPort.findById(ROOT_COMMENT_ID))
                     .thenReturn(Optional.of(root));
 
             SubmitCommentReportCommand command = new SubmitCommentReportCommand(
@@ -283,9 +296,9 @@ class SubmitCommentReportUseCaseTest {
             Comment root = createActiveRootComment();
             Comment reply = createActiveReplyComment(root);
 
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(REPLY_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, REPLY_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(false);
-            when(commentRepositoryPort.findByIdForUpdate(REPLY_COMMENT_ID))
+            when(commentRepositoryPort.findById(REPLY_COMMENT_ID))
                     .thenReturn(Optional.of(reply));
             when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
                     .thenReturn(Optional.empty());
@@ -298,8 +311,8 @@ class SubmitCommentReportUseCaseTest {
             );
 
             assertThatThrownBy(() -> useCase.execute(command))
-                    .isInstanceOf(CommentNotReportableException.class)
-                    .hasMessageContaining("Thread root comment not found");
+                    .isInstanceOf(CommentNotFoundException.class)
+                    .hasMessageContaining("Comment not found: " + ROOT_COMMENT_ID);
 
             verify(reportRepositoryPort, never()).save(any());
         }
@@ -311,12 +324,14 @@ class SubmitCommentReportUseCaseTest {
             Comment reply = createActiveReplyComment(root);
             root.delete(T1.plusSeconds(60));
 
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(REPLY_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, REPLY_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(false);
-            when(commentRepositoryPort.findByIdForUpdate(REPLY_COMMENT_ID))
+            when(commentRepositoryPort.findById(REPLY_COMMENT_ID))
                     .thenReturn(Optional.of(reply));
             when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
                     .thenReturn(Optional.of(root));
+            when(commentRepositoryPort.findByIdForUpdate(REPLY_COMMENT_ID))
+                    .thenReturn(Optional.of(reply));
 
             SubmitCommentReportCommand command = new SubmitCommentReportCommand(
                     REPLY_COMMENT_ID,
@@ -337,8 +352,10 @@ class SubmitCommentReportUseCaseTest {
         void shouldRejectWhenTargetNotEligible() {
             Comment root = createActiveRootComment();
 
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(ROOT_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, ROOT_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(false);
+            when(commentRepositoryPort.findById(ROOT_COMMENT_ID))
+                    .thenReturn(Optional.of(root));
             when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
                     .thenReturn(Optional.of(root));
             when(eligibilityPort.isEligible(TARGET))
@@ -368,8 +385,10 @@ class SubmitCommentReportUseCaseTest {
         void shouldRejectSelfReport() {
             Comment root = createActiveRootComment();
 
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(ROOT_COMMENT_ID, COMMENT_AUTHOR_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, ROOT_COMMENT_ID, COMMENT_AUTHOR_ID))
                     .thenReturn(false);
+            when(commentRepositoryPort.findById(ROOT_COMMENT_ID))
+                    .thenReturn(Optional.of(root));
             when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
                     .thenReturn(Optional.of(root));
 
@@ -382,7 +401,7 @@ class SubmitCommentReportUseCaseTest {
 
             assertThatThrownBy(() -> useCase.execute(command))
                     .isInstanceOf(SelfReportNotAllowedException.class)
-                    .hasMessageContaining("cannot report their own comment");
+                    .hasMessageContaining("cannot report their own COMMENT");
 
             verify(reportRepositoryPort, never()).save(any());
         }
@@ -395,7 +414,7 @@ class SubmitCommentReportUseCaseTest {
         @Test
         @DisplayName("Rejects when a pending report already exists for the same comment and reporter")
         void shouldRejectWhenPendingReportAlreadyExistsInPreCheck() {
-            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(ROOT_COMMENT_ID, REPORTER_USER_ID))
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMENT, ROOT_COMMENT_ID, REPORTER_USER_ID))
                     .thenReturn(true);
 
             SubmitCommentReportCommand command = new SubmitCommentReportCommand(

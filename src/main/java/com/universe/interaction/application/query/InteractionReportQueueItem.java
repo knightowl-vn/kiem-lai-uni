@@ -5,6 +5,7 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -16,50 +17,51 @@ import java.util.UUID;
  * <p>Framework-free, consumer-neutral, and presentation-free.
  *
  * @param reportId unique identifier of the report
- * @param commentId unique identifier of the reported comment
+ * @param reportTargetType target type of the report (COMMENT or COMMUNITY_POST)
+ * @param reportTargetId unique identifier of the reported target
  * @param reporterUserId unique identifier of the reporting user
  * @param reason taxonomy report reason
  * @param description optional reporter-provided explanation (nullable)
- * @param reportedBodySnapshot immutable snapshot of comment body captured at report submission time
+ * @param reportedContentSnapshot immutable snapshot of target content captured at report submission time
  * @param status current lifecycle status of the report
  * @param createdAt timestamp when the report was created
- * @param commentAuthorUserId unique identifier of the author of the reported comment
- * @param targetType bounded-context target type of the comment
- * @param targetId unique identifier of the comment's target
- * @param commentStatus current lifecycle state of the comment (e.g. ACTIVE, DELETED)
+ * @param commentAuthorUserId unique identifier of the author of the reported comment (nullable)
+ * @param contentTargetType bounded-context content target type of the comment (nullable)
+ * @param contentTargetId unique identifier of the comment's content target (nullable)
+ * @param commentStatus current lifecycle state of the comment (nullable)
  * @param moderationAction exact persisted moderation action (null for PENDING, non-null for PROCESSED)
  * @param resolverUserId unique identifier of moderator resolving the report (null for PENDING, non-null for PROCESSED)
  * @param resolvedAt timestamp when report was resolved (null for PENDING, non-null for PROCESSED)
+ * @param targetDeletedAt timestamp when the reported target was deleted (nullable)
  */
 public record InteractionReportQueueItem(
         UUID reportId,
-        UUID commentId,
+        ReportTargetType reportTargetType,
+        UUID reportTargetId,
         UUID reporterUserId,
         ReportReason reason,
         String description,
-        String reportedBodySnapshot,
+        String reportedContentSnapshot,
         ReportStatus status,
         Instant createdAt,
         UUID commentAuthorUserId,
-        CommentTargetType targetType,
-        UUID targetId,
+        CommentTargetType contentTargetType,
+        UUID contentTargetId,
         CommentStatus commentStatus,
         ReportModerationAction moderationAction,
         UUID resolverUserId,
-        Instant resolvedAt
+        Instant resolvedAt,
+        Instant targetDeletedAt
 ) {
     public InteractionReportQueueItem {
         Objects.requireNonNull(reportId, "reportId cannot be null.");
-        Objects.requireNonNull(commentId, "commentId cannot be null.");
+        Objects.requireNonNull(reportTargetType, "reportTargetType cannot be null.");
+        Objects.requireNonNull(reportTargetId, "reportTargetId cannot be null.");
         Objects.requireNonNull(reporterUserId, "reporterUserId cannot be null.");
         Objects.requireNonNull(reason, "reason cannot be null.");
-        Objects.requireNonNull(reportedBodySnapshot, "reportedBodySnapshot cannot be null.");
+        Objects.requireNonNull(reportedContentSnapshot, "reportedContentSnapshot cannot be null.");
         Objects.requireNonNull(status, "status cannot be null.");
         Objects.requireNonNull(createdAt, "createdAt cannot be null.");
-        Objects.requireNonNull(commentAuthorUserId, "commentAuthorUserId cannot be null.");
-        Objects.requireNonNull(targetType, "targetType cannot be null.");
-        Objects.requireNonNull(targetId, "targetId cannot be null.");
-        Objects.requireNonNull(commentStatus, "commentStatus cannot be null.");
 
         if (status == ReportStatus.PENDING) {
             if (moderationAction != null) {
@@ -85,4 +87,10 @@ public record InteractionReportQueueItem(
             Objects.requireNonNull(resolvedAt, "resolvedAt cannot be null for RESOLVED_NO_ACTION queue item.");
         }
     }
+
+    // Backward-compatibility accessors
+    public UUID commentId() { return reportTargetId; }
+    public String reportedBodySnapshot() { return reportedContentSnapshot; }
+    public CommentTargetType targetType() { return contentTargetType; }
+    public UUID targetId() { return contentTargetId; }
 }

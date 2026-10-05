@@ -113,13 +113,13 @@ class ReaderReadingHistoryQueryPersistenceIntegrationTest {
 
         // 1. Users
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'query-history-user1@universe.local', '$2a$10$hash', 'History User 1', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'query-history-user1@universe.local', '$2a$10$hash', 'History User 1', 'query_hist_user1', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_1_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'query-history-user2@universe.local', '$2a$10$hash', 'History User 2', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'query-history-user2@universe.local', '$2a$10$hash', 'History User 2', 'query_hist_user2', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_2_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
 

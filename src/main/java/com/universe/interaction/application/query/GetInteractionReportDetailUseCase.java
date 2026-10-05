@@ -19,9 +19,9 @@ import java.util.UUID;
  * <ul>
  *   <li>Authoritative report retrieval via {@link InteractionReportRepositoryPort};</li>
  *   <li>Missing report throws {@link InteractionReportNotFoundException};</li>
- *   <li>Current comment lookup via {@link CommentRepositoryPort} using immutable {@code report.commentId};</li>
+ *   <li>When target is {@code COMMENT}: performs optional live comment lookup via {@link CommentRepositoryPort};</li>
+ *   <li>When target is {@code COMMUNITY_POST}: constructs post report detail with frozen content snapshot without representing post as missing comment;</li>
  *   <li>Missing current comment does NOT fail the query; historical report evidence remains accessible;</li>
- *   <li>Soft-deleted comments are treated as available tombstones with null current body;</li>
  *   <li>Zero cross-context imports; consumer-neutral application boundary.</li>
  * </ul>
  */
@@ -41,7 +41,7 @@ public class GetInteractionReportDetailUseCase {
     }
 
     /**
-     * Executes retrieval of the raw detail for a single comment report.
+     * Executes retrieval of the raw detail for a single interaction report.
      *
      * @param reportId unique report ID (cannot be null)
      * @return immutable {@link InteractionReportDetailResult}
@@ -56,10 +56,14 @@ public class GetInteractionReportDetailUseCase {
         InteractionReport report = reportRepositoryPort.findById(reportId)
                 .orElseThrow(() -> new InteractionReportNotFoundException(reportId));
 
-        Optional<Comment> commentOptional = commentRepositoryPort.findById(report.getCommentId());
-
-        return commentOptional
-                .map(comment -> InteractionReportDetailResult.withAvailableComment(report, comment))
-                .orElseGet(() -> InteractionReportDetailResult.withMissingComment(report));
+        return switch (report.getTargetType()) {
+            case COMMENT -> {
+                Optional<Comment> commentOptional = commentRepositoryPort.findById(report.getTargetId());
+                yield commentOptional
+                        .map(comment -> InteractionReportDetailResult.forCommentWithLiveComment(report, comment))
+                        .orElseGet(() -> InteractionReportDetailResult.forCommentWithoutLiveComment(report));
+            }
+            case COMMUNITY_POST -> InteractionReportDetailResult.forCommunityPost(report);
+        };
     }
 }

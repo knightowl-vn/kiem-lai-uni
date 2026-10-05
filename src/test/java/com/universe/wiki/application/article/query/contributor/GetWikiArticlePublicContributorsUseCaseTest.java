@@ -101,8 +101,8 @@ class GetWikiArticlePublicContributorsUseCaseTest {
                 .thenReturn(aggregates);
 
         Map<UUID, UserPublicProfileDTO> profileMap = Map.of(
-                user1Id, new UserPublicProfileDTO(user1Id, "Trần Văn A", "https://avatar.com/a.jpg"),
-                user2Id, new UserPublicProfileDTO(user2Id, "Lê Thị B", null)
+                user1Id, new UserPublicProfileDTO(user1Id, "Trần Văn A", "https://avatar.com/a.jpg", "tran_van_a"),
+                user2Id, new UserPublicProfileDTO(user2Id, "Lê Thị B", null, "le_thi_b")
         );
         when(userIdentityContract.findPublicProfilesByIds(Set.of(user1Id, user2Id)))
                 .thenReturn(profileMap);
@@ -133,7 +133,7 @@ class GetWikiArticlePublicContributorsUseCaseTest {
         for (int i = 1; i <= 51; i++) {
             UUID userId = UUID.randomUUID();
             aggregates.add(new WikiArticlePublicContributorAggregate(userId, (long) i, now.minusSeconds(i * 10)));
-            profileMap.put(userId, new UserPublicProfileDTO(userId, "Contributor " + i, null));
+            profileMap.put(userId, new UserPublicProfileDTO(userId, "Contributor " + i, null, "contributor_" + i));
         }
 
         when(publicContributorQueryPort.findActiveContributorsByArticleId(articleId))
@@ -164,7 +164,7 @@ class GetWikiArticlePublicContributorsUseCaseTest {
         for (int i = 2; i <= 51; i++) {
             UUID userId = UUID.randomUUID();
             aggregates.add(new WikiArticlePublicContributorAggregate(userId, (long) i, now.minusSeconds(i * 10)));
-            profileMap.put(userId, new UserPublicProfileDTO(userId, "Contributor " + i, null));
+            profileMap.put(userId, new UserPublicProfileDTO(userId, "Contributor " + i, null, "contributor_" + i));
         }
 
         when(publicContributorQueryPort.findActiveContributorsByArticleId(articleId))
@@ -194,7 +194,7 @@ class GetWikiArticlePublicContributorsUseCaseTest {
             UUID userId = UUID.randomUUID();
             aggregates.add(new WikiArticlePublicContributorAggregate(userId, (long) i, now.minusSeconds(i * 10)));
             if (i <= 45) {
-                profileMap.put(userId, new UserPublicProfileDTO(userId, "Contributor " + i, null));
+                profileMap.put(userId, new UserPublicProfileDTO(userId, "Contributor " + i, null, "contributor_" + i));
             }
         }
 

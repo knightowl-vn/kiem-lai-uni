@@ -71,6 +71,7 @@ class AdminWikiContributionCommandControllerTest {
                 "admin@universe.local",
                 "Admin User",
                 null,
+                "admin_user",
                 UserStatus.ACTIVE,
                 UserRole.ADMIN
         );
@@ -491,6 +492,7 @@ class AdminWikiContributionCommandControllerTest {
                     "superadmin@universe.local",
                     "Super Admin",
                     null,
+                    "super_admin",
                     UserStatus.ACTIVE,
                     UserRole.SUPER_ADMIN
             );
@@ -614,6 +616,7 @@ class AdminWikiContributionCommandControllerTest {
                     "superadmin@universe.local",
                     "Super Admin User",
                     null,
+                    "super_admin_user",
                     UserStatus.ACTIVE,
                     UserRole.SUPER_ADMIN
             );

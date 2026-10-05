@@ -15,6 +15,7 @@ public record AuthenticatedRequestIdentity(
         String normalizedEmail,
         String displayName,
         String avatarUrl,
+        String publicHandle,
         UserStatus status,
         UserRole role
 ) {
@@ -23,12 +24,18 @@ public record AuthenticatedRequestIdentity(
         Objects.requireNonNull(userId, "userId must not be null");
         Objects.requireNonNull(normalizedEmail, "normalizedEmail must not be null");
         Objects.requireNonNull(displayName, "displayName must not be null");
+        Objects.requireNonNull(publicHandle, "publicHandle must not be null");
         Objects.requireNonNull(status, "status must not be null");
         Objects.requireNonNull(role, "role must not be null");
 
         normalizedEmail = normalizedEmail.trim().toLowerCase(Locale.ROOT);
         if (normalizedEmail.isEmpty()) {
             throw new IllegalArgumentException("normalizedEmail must not be blank");
+        }
+
+        publicHandle = publicHandle.trim();
+        if (publicHandle.isEmpty()) {
+            throw new IllegalArgumentException("publicHandle must not be blank");
         }
     }
 }

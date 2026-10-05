@@ -4,6 +4,7 @@ import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.test.TestDatabaseSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,6 +31,7 @@ import java.lang.reflect.Method;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -108,11 +110,13 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport pendingReport = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.SPAM,
                 "Commercial promotional link",
                 "Spam text snapshot",
+                null,
                 createdAt
         );
 
@@ -125,11 +129,11 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport retrieved = found.get();
         assertThat(retrieved.getId()).isEqualTo(reportId);
-        assertThat(retrieved.getCommentId()).isEqualTo(commentId);
+        assertThat(retrieved.getTargetId()).isEqualTo(commentId);
         assertThat(retrieved.getReporterUserId()).isEqualTo(reporterUserId);
         assertThat(retrieved.getReason()).isEqualTo(ReportReason.SPAM);
         assertThat(retrieved.getDescription()).isEqualTo("Commercial promotional link");
-        assertThat(retrieved.getReportedBodySnapshot()).isEqualTo("Spam text snapshot");
+        assertThat(retrieved.getReportedContentSnapshot()).isEqualTo("Spam text snapshot");
         assertThat(retrieved.getStatus()).isEqualTo(ReportStatus.PENDING);
         assertThat(retrieved.getCreatedAt()).isEqualTo(createdAt);
         assertThat(retrieved.getResolvedByUserId()).isNull();
@@ -155,11 +159,13 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         // 2. True after saving PENDING report
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.HARASSMENT,
                 null,
                 "Reported comment snapshot",
+                null,
                 now
         );
         adapter.save(report);
@@ -188,20 +194,24 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport report1 = InteractionReport.createPending(
                 UUID.randomUUID(),
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.SPAM,
                 null,
                 "Snapshot 1",
+                null,
                 now
         );
         InteractionReport report2 = InteractionReport.createPending(
                 UUID.randomUUID(),
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.HARASSMENT,
                 null,
                 "Snapshot 2",
+                null,
                 now
         );
 
@@ -222,11 +232,13 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport report = InteractionReport.createPending(
                 UUID.randomUUID(),
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.SPAM,
                 null,
                 "Valid initial snapshot",
+                null,
                 now
         );
 
@@ -250,7 +262,7 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         // 1. Report #1: PENDING -> RESOLVED_ACTION_TAKEN
         UUID reportId1 = UUID.randomUUID();
         InteractionReport report1 = InteractionReport.createPending(
-                reportId1, commentId, reporterUserId, ReportReason.SPAM, null, "Snapshot 1", now
+                reportId1, ReportTargetType.COMMENT, commentId, reporterUserId, ReportReason.SPAM, null, "Snapshot 1", null, now
         );
         adapter.save(report1);
 
@@ -261,7 +273,7 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         // 2. Report #2: PENDING from same reporter on same comment succeeds
         UUID reportId2 = UUID.randomUUID();
         InteractionReport report2 = InteractionReport.createPending(
-                reportId2, commentId, reporterUserId, ReportReason.HARASSMENT, null, "Snapshot 2", now
+                reportId2, ReportTargetType.COMMENT, commentId, reporterUserId, ReportReason.HARASSMENT, null, "Snapshot 2", null, now
         );
         InteractionReport savedReport2 = adapter.save(report2);
 
@@ -321,11 +333,13 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport pendingReport = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.SPOILER,
                 "Major plot spoiler",
                 "Spoiler text snapshot",
+                null,
                 createdAt
         );
         adapter.save(pendingReport);
@@ -338,11 +352,11 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport retrieved = found.get();
         assertThat(retrieved.getId()).isEqualTo(reportId);
-        assertThat(retrieved.getCommentId()).isEqualTo(commentId);
+        assertThat(retrieved.getTargetId()).isEqualTo(commentId);
         assertThat(retrieved.getReporterUserId()).isEqualTo(reporterUserId);
         assertThat(retrieved.getReason()).isEqualTo(ReportReason.SPOILER);
         assertThat(retrieved.getDescription()).isEqualTo("Major plot spoiler");
-        assertThat(retrieved.getReportedBodySnapshot()).isEqualTo("Spoiler text snapshot");
+        assertThat(retrieved.getReportedContentSnapshot()).isEqualTo("Spoiler text snapshot");
         assertThat(retrieved.getStatus()).isEqualTo(ReportStatus.PENDING);
         assertThat(retrieved.getCreatedAt()).isEqualTo(createdAt);
     }
@@ -366,7 +380,7 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
         InteractionReport report = InteractionReport.createPending(
-                reportId, commentId, reporterUserId, ReportReason.HARASSMENT, null, "Harassment snapshot", now
+                reportId, ReportTargetType.COMMENT, commentId, reporterUserId, ReportReason.HARASSMENT, null, "Harassment snapshot", null, now
         );
         adapter.save(report);
 
@@ -433,7 +447,7 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         // 1. RESOLVED_ACTION_TAKEN -> DELETE_COMMENT
         UUID reportId1 = UUID.randomUUID();
         InteractionReport report1 = InteractionReport.createPending(
-                reportId1, commentId, reporter1, ReportReason.SPAM, null, "Snapshot 1", now
+                reportId1, ReportTargetType.COMMENT, commentId, reporter1, ReportReason.SPAM, null, "Snapshot 1", null, now
         );
         adapter.save(report1);
         report1.resolveActionTaken(resolverUserId, now.plusSeconds(10));
@@ -453,7 +467,7 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         // 2. RESOLVED_NO_ACTION -> NO_ACTION
         UUID reportId2 = UUID.randomUUID();
         InteractionReport report2 = InteractionReport.createPending(
-                reportId2, commentId, reporter2, ReportReason.HARASSMENT, "No violation", "Snapshot 2", now
+                reportId2, ReportTargetType.COMMENT, commentId, reporter2, ReportReason.HARASSMENT, "No violation", "Snapshot 2", null, now
         );
         adapter.save(report2);
         report2.resolveNoAction(resolverUserId, now.plusSeconds(20));
@@ -480,26 +494,133 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         // Invalid: PENDING with moderation_action set
         assertThatThrownBy(() -> jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'PENDING', 'DELETE_COMMENT', ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, content_snapshot, status, moderation_action, created_at) " +
+                        "VALUES (?, 'COMMENT', ?, ?, 'SPAM', 'Snapshot', 'PENDING', 'DELETE_COMMENT', ?)",
                 UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now)
         )).isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .hasMessageContaining("chk_interaction_reports_moderation_action");
 
         // Invalid: RESOLVED_ACTION_TAKEN with NULL moderation_action
         assertThatThrownBy(() -> jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_ACTION_TAKEN', NULL, ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, content_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, 'COMMENT', ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_ACTION_TAKEN', NULL, ?, ?, ?)",
                 UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now), UUID.randomUUID().toString(), Timestamp.from(now)
         )).isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .hasMessageContaining("chk_interaction_reports_moderation_action");
 
         // Invalid: RESOLVED_NO_ACTION with DELETE_COMMENT
         assertThatThrownBy(() -> jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_NO_ACTION', 'DELETE_COMMENT', ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, content_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, 'COMMENT', ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_NO_ACTION', 'DELETE_COMMENT', ?, ?, ?)",
                 UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now), UUID.randomUUID().toString(), Timestamp.from(now)
         )).isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .hasMessageContaining("chk_interaction_reports_moderation_action");
+    }
+
+    @Test
+    @DisplayName("Persists and retrieves COMMUNITY_POST report with NULL evidence_media_asset_id (caption-only)")
+    void shouldPersistAndRetrieveCaptionOnlyCommunityPostReport() {
+        UUID reportId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID reporterUserId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        InteractionReport report = InteractionReport.createPending(
+                reportId,
+                ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporterUserId,
+                ReportReason.SPAM,
+                "Caption only spam",
+                "Spam post caption",
+                null,
+                now
+        );
+        adapter.save(report);
+
+        InteractionReport retrieved = adapter.findById(reportId).orElseThrow();
+        assertThat(retrieved.getTargetType()).isEqualTo(ReportTargetType.COMMUNITY_POST);
+        assertThat(retrieved.getTargetId()).isEqualTo(postId);
+        assertThat(retrieved.getEvidenceMediaAssetId()).isNull();
+
+        Map<String, Object> dbRow = jdbcTemplate.queryForMap(
+                "SELECT target_type, target_id, evidence_media_asset_id, status FROM interaction_reports WHERE id = ?",
+                reportId.toString()
+        );
+        assertThat(dbRow.get("target_type")).isEqualTo("COMMUNITY_POST");
+        assertThat(dbRow.get("evidence_media_asset_id")).isNull();
+    }
+
+    @Test
+    @DisplayName("Persists and retrieves COMMUNITY_POST report with image UUID in evidence_media_asset_id")
+    void shouldPersistAndRetrieveCommunityPostReportWithEvidenceMediaAssetId() {
+        UUID reportId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID mediaAssetId = UUID.randomUUID();
+        UUID reporterUserId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        InteractionReport report = InteractionReport.createPending(
+                reportId,
+                ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporterUserId,
+                ReportReason.HARASSMENT,
+                "Inappropriate image caption",
+                "Post caption with image",
+                mediaAssetId,
+                now
+        );
+        adapter.save(report);
+
+        InteractionReport retrieved = adapter.findById(reportId).orElseThrow();
+        assertThat(retrieved.getTargetType()).isEqualTo(ReportTargetType.COMMUNITY_POST);
+        assertThat(retrieved.getTargetId()).isEqualTo(postId);
+        assertThat(retrieved.getEvidenceMediaAssetId()).isEqualTo(mediaAssetId);
+
+        Map<String, Object> dbRow = jdbcTemplate.queryForMap(
+                "SELECT target_type, target_id, evidence_media_asset_id, status FROM interaction_reports WHERE id = ?",
+                reportId.toString()
+        );
+        assertThat(dbRow.get("target_type")).isEqualTo("COMMUNITY_POST");
+        assertThat(dbRow.get("evidence_media_asset_id")).isEqualTo(mediaAssetId.toString());
+    }
+
+    @Test
+    @DisplayName("Enforces duplicate pending uniqueness constraint on COMMUNITY_POST targets")
+    void shouldEnforceDuplicatePendingConstraintOnCommunityPost() {
+        UUID postId = UUID.randomUUID();
+        UUID reporter = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        InteractionReport report1 = InteractionReport.createPending(
+                UUID.randomUUID(),
+                ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporter,
+                ReportReason.SPAM,
+                "First report",
+                "Post caption",
+                null,
+                now
+        );
+        adapter.save(report1);
+
+        InteractionReport report2 = InteractionReport.createPending(
+                UUID.randomUUID(),
+                ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporter,
+                ReportReason.HARASSMENT,
+                "Second duplicate report",
+                "Post caption",
+                null,
+                now
+        );
+
+        assertThatThrownBy(() -> adapter.save(report2))
+                .isInstanceOf(com.universe.interaction.application.exceptions.DuplicatePendingReportException.class)
+                .hasMessageContaining(postId.toString())
+                .hasMessageContaining(reporter.toString());
     }
 }

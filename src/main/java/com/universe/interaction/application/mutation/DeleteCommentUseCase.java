@@ -5,12 +5,16 @@ import com.universe.interaction.application.exceptions.CommentMutationForbiddenE
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
+import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
 import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
+import com.universe.interaction.domain.report.ReportTargetType;
+import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
@@ -21,6 +25,7 @@ import java.util.Objects;
  * <ul>
  *   <li>Normal author delete is allowed ONLY for leaf comments (comments with zero descendants);</li>
  *   <li>If the comment has one or more replies/descendants, the deletion is rejected with {@link CommentHasRepliesException};</li>
+ *   <li>Stamps {@code targetDeletedAt} on all associated reports for evidence retention;</li>
  *   <li>Reactions and revisions for the deleted leaf comment are physically purged;</li>
  *   <li>The leaf comment row is physically removed from {@code interaction_comments}.</li>
  * </ul>
@@ -31,15 +36,21 @@ public class DeleteCommentUseCase {
     private final CommentRepositoryPort commentRepositoryPort;
     private final CommentRevisionRepositoryPort commentRevisionRepositoryPort;
     private final ReactionRepositoryPort reactionRepositoryPort;
+    private final InteractionReportRepositoryPort reportRepositoryPort;
+    private final ClockPort clockPort;
 
     public DeleteCommentUseCase(
             CommentRepositoryPort commentRepositoryPort,
             CommentRevisionRepositoryPort commentRevisionRepositoryPort,
-            ReactionRepositoryPort reactionRepositoryPort
+            ReactionRepositoryPort reactionRepositoryPort,
+            InteractionReportRepositoryPort reportRepositoryPort,
+            ClockPort clockPort
     ) {
         this.commentRepositoryPort = Objects.requireNonNull(commentRepositoryPort, "CommentRepositoryPort cannot be null.");
         this.commentRevisionRepositoryPort = Objects.requireNonNull(commentRevisionRepositoryPort, "CommentRevisionRepositoryPort cannot be null.");
         this.reactionRepositoryPort = Objects.requireNonNull(reactionRepositoryPort, "ReactionRepositoryPort cannot be null.");
+        this.reportRepositoryPort = Objects.requireNonNull(reportRepositoryPort, "InteractionReportRepositoryPort cannot be null.");
+        this.clockPort = Objects.requireNonNull(clockPort, "ClockPort cannot be null.");
     }
 
     @Transactional
@@ -62,13 +73,22 @@ public class DeleteCommentUseCase {
             throw new CommentHasRepliesException(comment.getId());
         }
 
-        // 4. Clean up decoupled reactions for this single leaf comment
+        Instant deletedAt = clockPort.now();
+
+        // 4. Stamp targetDeletedAt on reports for evidence retention
+        reportRepositoryPort.stampTargetDeletedAtForTargets(
+                ReportTargetType.COMMENT,
+                List.of(comment.getId()),
+                deletedAt
+        );
+
+        // 5. Clean up decoupled reactions for this single leaf comment
         reactionRepositoryPort.deleteAllByTargetIds(ReactionTargetType.COMMENT, List.of(comment.getId()));
 
-        // 5. Clean up comment revisions for this single leaf comment
+        // 6. Clean up comment revisions for this single leaf comment
         commentRevisionRepositoryPort.deleteAllByCommentIds(List.of(comment.getId()));
 
-        // 6. Physically remove the leaf comment row
+        // 7. Physically remove the leaf comment row
         commentRepositoryPort.deleteById(comment.getId());
     }
 }

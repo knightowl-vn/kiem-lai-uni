@@ -106,6 +106,8 @@ class ReaderWikiLookupSecurityIntegrationTest {
         UserJpaEntity userEntity = new UserJpaEntity();
         userEntity.setId(UUID.randomUUID().toString());
         userEntity.setEmail(USER_EMAIL);
+        userEntity.setDisplayName("Reader User");
+        userEntity.setPublicHandle("reader_user");
         userEntity.setStatus("ACTIVE");
         userEntity.setRole(UserRole.USER);
 

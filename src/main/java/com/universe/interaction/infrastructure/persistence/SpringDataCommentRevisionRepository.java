@@ -56,4 +56,10 @@ public interface SpringDataCommentRevisionRepository extends JpaRepository<Comme
     @Modifying
     @Query("DELETE FROM CommentRevisionJpaEntity r WHERE r.commentId IN :commentIds")
     void deleteAllByCommentIdIn(@Param("commentIds") java.util.Collection<String> commentIds);
+
+    /**
+     * Counts the total number of revisions associated with a collection of comment IDs.
+     */
+    @Query("SELECT COUNT(r) FROM CommentRevisionJpaEntity r WHERE r.commentId IN :commentIds")
+    long countByCommentIdIn(@Param("commentIds") java.util.Collection<String> commentIds);
 }

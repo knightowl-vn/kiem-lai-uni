@@ -5,8 +5,10 @@ import com.universe.interaction.application.query.GetInteractionReportDetailUseC
 import com.universe.interaction.application.query.InteractionReportDetailResult;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTargetType;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
@@ -258,6 +260,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
     void caseE_shouldReturnUnavailableWhenCommentMissing() {
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 rootCommentId,
                 reporterId,
                 ReportReason.SPAM,
@@ -265,6 +268,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                 "Snapshot",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null,
@@ -487,6 +491,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
     ) {
         return new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.SPAM,
@@ -494,6 +499,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                 "Reported evidence snapshot",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null,

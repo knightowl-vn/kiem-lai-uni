@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<nav class="community-workspace-tabs" th:fragment="tabs(activeTab)" aria-label="Điều hướng không gian Cộng đồng">
+    <a th:href="@{/admin/community/reports}"
+       class="community-workspace-tab"
+       th:classappend="${activeTab == 'reports'} ? ' active' : ''">
+        <span>Báo cáo</span>
+    </a>
+    <a th:href="@{/admin/community/posts/pending}"
+       class="community-workspace-tab"
+       th:classappend="${activeTab == 'pending'} ? ' active' : ''">
+        <span>Chờ duyệt</span>
+    </a>
+    <a th:href="@{/admin/community/posts/hidden}"
+       class="community-workspace-tab"
+       th:classappend="${activeTab == 'hidden'} ? ' active' : ''">
+        <span>Đã ẩn</span>
+    </a>
+    <a th:href="@{/admin/community/settings}"
+       class="community-workspace-tab"
+       th:classappend="${activeTab == 'settings'} ? ' active' : ''">
+        <span>Cài đặt</span>
+    </a>
+</nav>
+
+</body>
+</html>

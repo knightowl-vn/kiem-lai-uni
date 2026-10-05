@@ -60,6 +60,11 @@
     let threadCount = 0;
     let commentCount = 0;
 
+    // Comment Sort State (MS-07B8.2.3)
+    let currentSort = 'NEWEST';
+    let sortCaches = new Map(); // 'FEATURED' | 'NEWEST' -> { page, hasNext, threadCount, commentCount, threads }
+    let reactionUpdatedHandler = null;
+
     // Revision History State (MS-05E6D)
     let historyActiveCommentId = null;
     let historyCurrentPage = 0;
@@ -186,10 +191,18 @@
         historyIsLoadingMore = false;
         historyRenderedRevisionNumbers.clear();
         historyPreviousFocusedElement = null;
-        if (currentDoc && typeof currentDoc.removeEventListener === 'function' && keydownHandler) {
-            currentDoc.removeEventListener('keydown', keydownHandler);
+        if (currentDoc && typeof currentDoc.removeEventListener === 'function') {
+            if (keydownHandler) {
+                currentDoc.removeEventListener('keydown', keydownHandler);
+            }
+            if (reactionUpdatedHandler) {
+                currentDoc.removeEventListener('kiemlai:reaction-updated', reactionUpdatedHandler);
+            }
         }
         keydownHandler = null;
+        reactionUpdatedHandler = null;
+        currentSort = 'NEWEST';
+        sortCaches.clear();
 
         if (rootDraftDebounceTimer) {
             clearTimeout(rootDraftDebounceTimer);
@@ -547,6 +560,123 @@
         const els = getElements(doc);
         if (els.countBadgeEl) {
             els.countBadgeEl.textContent = formatCommentCount(count);
+        }
+    }
+
+    /**
+     * Ensures canonical sort controls exist above the thread list.
+     */
+    function ensureSortControls(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d || !articleId) return null;
+        const els = getElements(d);
+        if (!els.threadListEl || !els.threadListEl.parentNode) return null;
+
+        let controls = els.threadListEl.parentNode.querySelector('.kl-sort-dropdown[data-target-id="' + articleId + '"], .kl-comment-sort-controls[data-target-id="' + articleId + '"]');
+        if (!controls) {
+            const pres = resolveCommentPresentation();
+            if (pres && (typeof pres.renderSortDropdown === 'function' || typeof pres.renderSortControls === 'function')) {
+                const renderer = pres.renderSortDropdown || pres.renderSortControls;
+                controls = renderer({
+                    currentSort: currentSort,
+                    targetId: articleId,
+                    actionName: 'change-comment-sort'
+                }, d);
+                if (controls) {
+                    els.threadListEl.parentNode.insertBefore(controls, els.threadListEl);
+                }
+            }
+        }
+        return controls;
+    }
+
+    /**
+     * Updates visual and aria state on sort buttons.
+     */
+    function updateSortControlsActiveState(activeSort, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d || !articleId) return;
+        const pres = resolveCommentPresentation();
+        const controls = d.querySelectorAll('.kl-sort-dropdown[data-target-id="' + articleId + '"], .kl-comment-sort-controls[data-target-id="' + articleId + '"]');
+        controls.forEach(ctrl => {
+            if (pres && typeof pres.updateSortDropdown === 'function') {
+                pres.updateSortDropdown(ctrl, activeSort);
+            } else {
+                const labelEl = ctrl.querySelector('.kl-sort-dropdown__label');
+                if (labelEl) {
+                    labelEl.textContent = (activeSort === 'FEATURED') ? 'Nổi bật' : 'Mới nhất';
+                }
+                const btns = ctrl.querySelectorAll('[data-action="change-comment-sort"], .kl-sort-dropdown__item, .kl-comment-sort-btn');
+                btns.forEach(btn => {
+                    const mode = btn.getAttribute('data-sort-mode');
+                    const isActive = (mode === activeSort);
+                    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+                    if (isActive) {
+                        btn.classList.add('is-active');
+                        btn.classList.add('is-selected');
+                    } else {
+                        btn.classList.remove('is-active');
+                        btn.classList.remove('is-selected');
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Switches the active comment sorting mode (FEATURED or NEWEST).
+     */
+    async function switchSort(newSort, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const normalizedSort = (newSort === 'NEWEST') ? 'NEWEST' : 'FEATURED';
+        if (normalizedSort === currentSort) {
+            updateSortControlsActiveState(currentSort, d);
+            return;
+        }
+
+        currentSort = normalizedSort;
+        updateSortControlsActiveState(currentSort, d);
+
+        const cached = sortCaches.get(currentSort);
+        if (cached && Array.isArray(cached.threads)) {
+            const els = getElements(d);
+            currentPage = cached.page;
+            hasNext = cached.hasNext;
+            threadCount = cached.threadCount;
+            commentCount = cached.commentCount;
+            currentThreads = cached.threads.slice();
+            renderedRootIds.clear();
+
+            if (els.threadListEl) {
+                clearElement(els.threadListEl);
+                currentThreads.forEach(t => {
+                    const threadEl = renderThread(t, d);
+                    if (threadEl && t.root && t.root.id) {
+                        renderedRootIds.add(String(t.root.id));
+                        els.threadListEl.appendChild(threadEl);
+                    }
+                });
+            }
+            if (els.footerEl) {
+                els.footerEl.hidden = !hasNext;
+            }
+            if (els.statusEl) {
+                clearElement(els.statusEl);
+                if (currentThreads.length === 0) {
+                    els.statusEl.className = 'wiki-discussion-status wiki-discussion-status--empty';
+                    els.statusEl.textContent = 'Chưa có bình luận nào. Hãy là người đầu tiên thảo luận!';
+                } else {
+                    els.statusEl.className = 'wiki-discussion-status';
+                }
+            }
+            restoreActiveInlineComposer(d);
+        } else {
+            const els = getElements(d);
+            if (els.threadListEl) {
+                clearElement(els.threadListEl);
+            }
+            await loadDiscussionFeed(0, false, d, true);
         }
     }
 
@@ -1530,7 +1660,9 @@
         }
 
         try {
-            const url = '/api/wiki/articles/' + encodeURIComponent(articleId) + '/comments?page=' + page + '&size=' + DEFAULT_PAGE_SIZE;
+            ensureSortControls(d);
+            updateSortControlsActiveState(currentSort, d);
+            const url = '/api/wiki/articles/' + encodeURIComponent(articleId) + '/comments?page=' + page + '&size=' + DEFAULT_PAGE_SIZE + '&sort=' + encodeURIComponent(currentSort);
             const response = await doFetch(url, { method: 'GET' });
 
             if (currentToken !== loadToken) {
@@ -1574,6 +1706,13 @@
             const newThreads = Array.isArray(data.threads) ? data.threads : [];
 
             if (newThreads.length === 0 && !append) {
+                sortCaches.set(currentSort, {
+                    page: currentPage,
+                    hasNext: hasNext,
+                    threadCount: threadCount,
+                    commentCount: commentCount,
+                    threads: []
+                });
                 if (els.statusEl) {
                     clearElement(els.statusEl);
                     els.statusEl.className = 'wiki-discussion-status wiki-discussion-status--empty';
@@ -1613,6 +1752,14 @@
                     }
                 }
             }
+
+            sortCaches.set(currentSort, {
+                page: currentPage,
+                hasNext: hasNext,
+                threadCount: threadCount,
+                commentCount: commentCount,
+                threads: currentThreads.slice()
+            });
 
             if (els.footerEl) {
                 els.footerEl.hidden = !hasNext;
@@ -1669,10 +1816,18 @@
                 const freshThread = await res.json();
                 if (!freshThread || !freshThread.root) return;
 
-                // Update internal thread list
+                // Update internal thread list and sort caches
                 const idx = currentThreads.findIndex(t => t && t.root && String(t.root.id) === strRootId);
                 if (idx >= 0) {
                     currentThreads[idx] = freshThread;
+                }
+                for (const cache of sortCaches.values()) {
+                    if (cache && Array.isArray(cache.threads)) {
+                        const cIdx = cache.threads.findIndex(t => t && t.root && String(t.root.id) === strRootId);
+                        if (cIdx >= 0) {
+                            cache.threads[cIdx] = freshThread;
+                        }
+                    }
                 }
 
                 if (threadEl) {
@@ -1683,6 +1838,11 @@
                         threadEl.parentNode.removeChild(threadEl);
                         renderedRootIds.delete(strRootId);
                         currentThreads = currentThreads.filter(t => t && t.root && String(t.root.id) !== strRootId);
+                        for (const cache of sortCaches.values()) {
+                            if (cache && Array.isArray(cache.threads)) {
+                                cache.threads = cache.threads.filter(t => t && t.root && String(t.root.id) !== strRootId);
+                            }
+                        }
                     }
                 }
                 restoreActiveInlineComposer(d);
@@ -1693,6 +1853,11 @@
                 }
                 renderedRootIds.delete(strRootId);
                 currentThreads = currentThreads.filter(t => t && t.root && String(t.root.id) !== strRootId);
+                for (const cache of sortCaches.values()) {
+                    if (cache && Array.isArray(cache.threads)) {
+                        cache.threads = cache.threads.filter(t => t && t.root && String(t.root.id) !== strRootId);
+                    }
+                }
             } else {
                 showDiscussionError('Không thể cập nhật thảo luận. Vui lòng tải lại trang.', d);
             }
@@ -2093,6 +2258,7 @@
 
                 if (res && res.status === 201) {
                     removeReplyDraft(strTargetId);
+                    sortCaches.delete('FEATURED');
                     const marker = loadActiveInlineMarker();
                     if (marker && marker.type === 'reply' && String(marker.targetCommentId) === strTargetId) {
                         removeActiveInlineMarker();
@@ -2331,6 +2497,7 @@
 
                 if (res && res.status === 204) {
                     removeEditDraft(strCommentId);
+                    sortCaches.clear();
                     const marker = loadActiveInlineMarker();
                     if (marker && marker.type === 'edit' && String(marker.commentId) === strCommentId) {
                         removeActiveInlineMarker();
@@ -2408,6 +2575,7 @@
 
             if (res && res.status === 204) {
                 clearDiscussionStatus(d);
+                sortCaches.clear();
                 if (isRootDelete) {
                     // Authoritatively reload feed from page 0
                     await loadDiscussionFeed(0, false, d);
@@ -2596,6 +2764,7 @@
 
             if (res && res.status === 201) {
                 removeRootDraft();
+                sortCaches.clear();
                 if (els.composerInputEl) {
                     els.composerInputEl.value = '';
                 }
@@ -3376,6 +3545,35 @@
             pendingDeepLink = deepLink;
         }
 
+        // Wire sort button clicks (MS-07B8.2.3)
+        if (els.sectionEl) {
+            els.sectionEl.addEventListener('click', function (e) {
+                const target = e.target;
+                if (!target || typeof target.closest !== 'function') return;
+                const sortBtn = target.closest('[data-action="change-comment-sort"]');
+                if (sortBtn) {
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    const sortMode = sortBtn.getAttribute('data-sort-mode');
+                    if (sortMode) {
+                        switchSort(sortMode, currentDoc);
+                    }
+                }
+            });
+        }
+
+        // Wire reaction update listener (MS-07B8.2.3)
+        if (currentDoc && typeof currentDoc.addEventListener === 'function') {
+            if (reactionUpdatedHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener('kiemlai:reaction-updated', reactionUpdatedHandler);
+            }
+            reactionUpdatedHandler = function (e) {
+                const detail = e && e.detail;
+                if (!detail || detail.targetType !== 'COMMENT') return;
+                sortCaches.delete('FEATURED');
+            };
+            currentDoc.addEventListener('kiemlai:reaction-updated', reactionUpdatedHandler);
+        }
+
         // Initial feed load
         loadDiscussionFeed(0, false, currentDoc);
 
@@ -3411,6 +3609,10 @@
         destroy: resetState,
         resetState: resetState,
         loadDiscussionFeed: loadDiscussionFeed,
+        switchSort: switchSort,
+        getCurrentSort: function () { return currentSort; },
+        SORT_MODES: { FEATURED: 'FEATURED', NEWEST: 'NEWEST' },
+        _sortCaches: sortCaches,
         refreshFeed: function (doc) { return loadDiscussionFeed(0, false, doc, true); },
         refreshThread: refreshThread,
         refreshMetrics: refreshMetrics,

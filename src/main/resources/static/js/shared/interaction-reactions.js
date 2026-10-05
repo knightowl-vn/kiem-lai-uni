@@ -700,6 +700,18 @@
             if (validateReactionSummary(data, targetType, targetId)) {
                 clearTargetStatus(targetType, targetId, d);
                 updateAllWidgetsForTarget(targetType, targetId, data, d);
+                try {
+                    if (d && typeof d.dispatchEvent === 'function') {
+                        const eventDetail = { targetType: targetType, targetId: targetId, summary: data };
+                        if (typeof CustomEvent === 'function') {
+                            d.dispatchEvent(new CustomEvent('kiemlai:reaction-updated', { bubbles: true, detail: eventDetail }));
+                        } else if (typeof d.createEvent === 'function') {
+                            const ev = d.createEvent('CustomEvent');
+                            ev.initCustomEvent('kiemlai:reaction-updated', true, true, eventDetail);
+                            d.dispatchEvent(ev);
+                        }
+                    }
+                } catch (_) {}
                 return data;
             } else {
                 setTargetStatus(targetType, targetId, GENERIC_ERROR_MSG, d);

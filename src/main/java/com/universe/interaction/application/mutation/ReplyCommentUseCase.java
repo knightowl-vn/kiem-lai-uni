@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -49,39 +50,69 @@ public class ReplyCommentUseCase {
     public Comment execute(ReplyCommentCommand command) {
         Objects.requireNonNull(command, "ReplyCommentCommand cannot be null.");
 
-        // 1. Load immediate parent with row lock
-        Comment parent = commentRepositoryPort.findByIdForUpdate(command.parentCommentId())
+        // 1. Resolve parent without lock to determine tree hierarchy
+        Comment initialParent = commentRepositoryPort.findById(command.parentCommentId())
                 .orElseThrow(() -> new CommentNotFoundException("Parent comment not found: " + command.parentCommentId()));
 
-        // 2. Parent must currently be ACTIVE
-        if (parent.isDeleted()) {
+        if (initialParent.isDeleted()) {
             throw new CommentMutationForbiddenException("Cannot reply to a deleted comment: " + command.parentCommentId());
         }
 
-        // 3. Resolve and validate thread root
+        Comment parent;
         Comment threadRoot;
-        if (parent.isRoot()) {
+
+        // 2. Acquire locks in canonical total ID ASC order (matching database lock ordering)
+        if (initialParent.isRoot()) {
+            parent = commentRepositoryPort.findByIdForUpdate(initialParent.getId())
+                    .orElseThrow(() -> new CommentNotFoundException("Parent comment not found: " + initialParent.getId()));
+            if (parent.isDeleted()) {
+                throw new CommentMutationForbiddenException("Cannot reply to a deleted comment: " + initialParent.getId());
+            }
             threadRoot = parent;
         } else {
-            UUID threadRootCommentId = parent.getThreadRootCommentId();
+            UUID threadRootCommentId = initialParent.getThreadRootCommentId();
             if (threadRootCommentId == null) {
-                throw new CommentThreadIntegrityException("Parent reply is missing threadRootCommentId: " + parent.getId());
+                throw new CommentThreadIntegrityException("Parent reply is missing threadRootCommentId: " + initialParent.getId());
             }
 
-            // Lock thread root with row lock
-            threadRoot = commentRepositoryPort.findByIdForUpdate(threadRootCommentId)
-                    .orElseThrow(() -> new CommentThreadIntegrityException("Thread root comment not found for reply: " + threadRootCommentId));
+            // Step 2a: Sort the two IDs into canonical total order (ID ASC)
+            List<UUID> orderedIds = CommentLockOrder.inLockOrder(threadRootCommentId, initialParent.getId());
 
+            // Step 2b: Acquire pessimistic write locks in canonical total order
+            Comment first = commentRepositoryPort.findByIdForUpdate(orderedIds.get(0))
+                    .orElseThrow(() -> orderedIds.get(0).equals(threadRootCommentId)
+                            ? new CommentThreadIntegrityException("Thread root comment not found for reply: " + threadRootCommentId)
+                            : new CommentNotFoundException("Parent comment not found: " + initialParent.getId()));
+
+            Comment second = commentRepositoryPort.findByIdForUpdate(orderedIds.get(1))
+                    .orElseThrow(() -> orderedIds.get(1).equals(threadRootCommentId)
+                            ? new CommentThreadIntegrityException("Thread root comment not found for reply: " + threadRootCommentId)
+                            : new CommentNotFoundException("Parent comment not found: " + initialParent.getId()));
+
+            // Step 2c: Map locked entities back to semantic roles
+            if (first.getId().equals(threadRootCommentId)) {
+                threadRoot = first;
+                parent = second;
+            } else {
+                parent = first;
+                threadRoot = second;
+            }
+
+            // Step 2d: Revalidate semantic invariants under authoritative row locks
+            if (threadRoot.isDeleted()) {
+                throw new CommentMutationForbiddenException("Cannot reply in a deleted discussion thread: " + threadRootCommentId);
+            }
             if (!threadRoot.isRoot()) {
                 throw new CommentThreadIntegrityException("Resolved thread root is not a root comment: " + threadRootCommentId);
             }
-
+            if (parent.isDeleted()) {
+                throw new CommentMutationForbiddenException("Cannot reply to a deleted comment: " + command.parentCommentId());
+            }
+            if (!Objects.equals(parent.getThreadRootCommentId(), threadRoot.getId())) {
+                throw new CommentThreadIntegrityException("Parent thread root does not match locked thread root.");
+            }
             if (!Objects.equals(threadRoot.getTarget(), parent.getTarget())) {
                 throw new CommentThreadIntegrityException("Parent target does not match thread root target.");
-            }
-
-            if (threadRoot.isDeleted()) {
-                throw new CommentMutationForbiddenException("Cannot reply in a deleted discussion thread: " + threadRootCommentId);
             }
         }
 

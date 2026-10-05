@@ -234,6 +234,48 @@ public class ReactionPersistenceAdapter implements ReactionRepositoryPort {
     }
 
     @Override
+    public Map<UUID, Long> countTotalReactionsByTargetIds(
+            ReactionTargetType targetType,
+            Collection<UUID> targetIds
+    ) {
+        if (targetType == null || targetIds == null || targetIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<String> idStrings = targetIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (idStrings.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Object[]> rows = repository.countTotalReactionsByTargetIds(
+                targetType.name(),
+                idStrings
+        );
+
+        Map<UUID, Long> result = new HashMap<>();
+        for (UUID targetId : targetIds) {
+            if (targetId != null) {
+                result.put(targetId, 0L);
+            }
+        }
+
+        if (rows != null) {
+            for (Object[] row : rows) {
+                if (row != null && row.length >= 2 && row[0] != null && row[1] != null) {
+                    UUID targetId = UUID.fromString((String) row[0]);
+                    long count = ((Number) row[1]).longValue();
+                    result.put(targetId, count);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    @Override
     public long countTotalReactionsByTarget(ReactionTarget target) {
         if (target == null) {
             throw new IllegalArgumentException("ReactionTarget cannot be null.");

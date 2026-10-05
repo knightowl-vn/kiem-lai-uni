@@ -61,6 +61,7 @@ class RevokeWikiContributionCreditUseCaseTest {
                 role.toLowerCase() + "@universe.local",
                 "User " + role,
                 null,
+                "user_" + role.toLowerCase(),
                 "ACTIVE",
                 role,
                 now.minusSeconds(86400)

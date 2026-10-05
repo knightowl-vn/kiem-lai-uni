@@ -26,6 +26,8 @@ import com.universe.novel.infrastructure.persistence.reader.ReaderChapterAccessQ
 import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.SystemClockAdapter;
 import com.universe.test.TestDatabaseSupport;
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
+import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.notification.contracts.command.NotificationDispatchCommand;
 import com.universe.notification.contracts.port.NotificationDispatchPort;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
@@ -115,6 +117,12 @@ class CommentReplyNotificationIntegrationTest {
     @MockBean
     private WikiArticleQueryPort wikiArticleQueryPort;
 
+    @MockBean
+    private CommunityPostQueryPort communityPostQueryPort;
+
+    @MockBean
+    private CommunityPostInteractionMutationPort communityPostInteractionMutationPort;
+
     @Autowired
     private CreateRootCommentUseCase createRootCommentUseCase;
 
@@ -188,10 +196,11 @@ class CommentReplyNotificationIntegrationTest {
 
     private void seedUser(UUID id, String email, String displayName) {
         Instant now = Instant.now();
+        String handle = "u_" + id.toString().replace("-", "");
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, ?, '$2a$10$hash', ?, 'ACTIVE', 'USER', 1, 0, ?, ?)",
-                id.toString(), email, displayName, Timestamp.from(now), Timestamp.from(now)
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, ?, '$2a$10$hash', ?, ?, 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                id.toString(), email, displayName, handle, Timestamp.from(now), Timestamp.from(now)
         );
     }
 

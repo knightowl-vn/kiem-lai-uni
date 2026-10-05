@@ -608,10 +608,11 @@ class WikiArticleCommentPrivacyIntegrationTest {
     // =========================================================================
 
     private void insertUser(UUID id, String email, String displayName) {
+        String handle = "u_" + id.toString().replace("-", "");
         jdbcTemplate.update("""
-                INSERT INTO identity_users (id, email, password_hash, display_name, status, role, auth_provider, created_at, updated_at, avatar_customized)
-                VALUES (?, ?, '$2a$10$hash', ?, 'ACTIVE', 'USER', 'LOCAL', ?, ?, false)
-                """, id.toString(), email, displayName, Timestamp.from(NOW), Timestamp.from(NOW));
+                INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, auth_provider, created_at, updated_at, avatar_customized)
+                VALUES (?, ?, '$2a$10$hash', ?, ?, 'ACTIVE', 'USER', 'LOCAL', ?, ?, false)
+                """, id.toString(), email, displayName, handle, Timestamp.from(NOW), Timestamp.from(NOW));
     }
 
     private void insertArticle(UUID id, String title, String slug, String status, Instant now) {

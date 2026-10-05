@@ -51,6 +51,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -123,8 +124,8 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
     ) {
         Timestamp resolvedAtTs = resolvedAt != null ? Timestamp.from(resolvedAt) : null;
         jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at, moderation_action) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, description, content_snapshot, status, created_at, resolved_by_user_id, resolved_at, moderation_action) " +
+                        "VALUES (?, 'COMMENT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 reportId.toString(),
                 commentId.toString(),
                 reporterUserId.toString(),
@@ -626,5 +627,27 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
         assertThatThrownBy(() -> new InteractionReportQueuePage(List.of(), 0, 10, -1))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("K. Admin queue isolation: COMMUNITY_POST reports do not leak into the comment report queue")
+    void shouldNotReturnCommunityPostReportsInCommentReportQueue() {
+        UUID postId = UUID.randomUUID();
+        UUID reportId = UUID.randomUUID();
+        UUID reporterUserId = UUID.randomUUID();
+        Instant createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        jdbcTemplate.update(
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, description, content_snapshot, status, created_at) " +
+                        "VALUES (?, 'COMMUNITY_POST', ?, ?, 'HARASSMENT', 'Inappropriate caption', 'Caption snapshot', 'PENDING', ?)",
+                reportId.toString(), postId.toString(), reporterUserId.toString(), Timestamp.from(createdAt)
+        );
+
+        InteractionReportQueuePage page = adapter.findQueueReports(new InteractionReportQueueFilter(
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 10
+        ));
+
+        assertThat(page.totalElements()).isZero();
+        assertThat(page.items()).isEmpty();
     }
 }

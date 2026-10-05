@@ -29,9 +29,11 @@ import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.domain.CommentRevision;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
@@ -161,6 +163,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 "scholar@universe.local",
                 "Scholar User",
                 null,
+                "scholar_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -187,7 +190,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_1_ID, "Scholar User", null),
+                new CommentAuthorDTO(USER_1_ID, "Scholar User", null, "scholar_user"),
                 false,
                 false
         );
@@ -196,7 +199,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 List.of(thread), 1, 1, 0, 20, false
         );
 
-        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null))
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED))
                 .thenReturn(feedResponse);
 
         mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
@@ -217,6 +220,41 @@ class WikiArticleCommentControllerIntegrationTest {
 
     @Test
     @WithAnonymousUser
+    @DisplayName("Explicit sort param is forwarded to wiki coordinator")
+    void shouldForwardExplicitSortParam() throws Exception {
+        WikiDiscussionFeedResponseDTO feedResponse = new WikiDiscussionFeedResponseDTO(
+                List.of(), 0, 0, 0, 20, false
+        );
+
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.NEWEST))
+                .thenReturn(feedResponse);
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED))
+                .thenReturn(feedResponse);
+
+        mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
+                        .param("sort", "NEWEST"))
+                .andExpect(status().isOk());
+
+        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.NEWEST);
+
+        mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
+                        .param("sort", "FEATURED"))
+                .andExpect(status().isOk());
+
+        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Invalid sort param returns 400 Bad Request on wiki comments")
+    void shouldReturn400ForInvalidSortParam() throws Exception {
+        mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
+                        .param("sort", "INVALID_SORT"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithAnonymousUser
     @DisplayName("Anonymous user can fetch single thread on published article")
     void shouldFetchSingleThreadOnPublishedArticle() throws Exception {
         CommentReadDTO rootDTO = new CommentReadDTO(
@@ -228,7 +266,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_1_ID, "Scholar User", null),
+                new CommentAuthorDTO(USER_1_ID, "Scholar User", null, "scholar_user"),
                 false,
                 false
         );
@@ -275,7 +313,7 @@ class WikiArticleCommentControllerIntegrationTest {
     @WithAnonymousUser
     @DisplayName("Feed returns 404 when Wiki article is not published or missing")
     void shouldFailClosedOnFeedWhenArticleUnpublished() throws Exception {
-        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(eq(ARTICLE_ID), any(Integer.class), any(Integer.class), any()))
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(eq(ARTICLE_ID), any(Integer.class), any(Integer.class), any(), any()))
                 .thenThrow(new com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException(ARTICLE_ID));
 
         mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments"))
@@ -637,7 +675,7 @@ class WikiArticleCommentControllerIntegrationTest {
         WikiDiscussionFeedResponseDTO feedResponse = new WikiDiscussionFeedResponseDTO(
                 List.of(), 0, 0, 0, 50, false
         );
-        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 50, null))
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 50, null, CommentSortMode.FEATURED))
                 .thenReturn(feedResponse);
 
         mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
@@ -645,7 +683,7 @@ class WikiArticleCommentControllerIntegrationTest {
                         .param("size", "100"))
                 .andExpect(status().isOk());
 
-        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 50, null);
+        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 50, null, CommentSortMode.FEATURED);
     }
 
     @Test
@@ -710,11 +748,13 @@ class WikiArticleCommentControllerIntegrationTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.SPAM,
                 "Spam comment on wiki",
                 "Authoritative wiki comment body snapshot",
+                null,
                 NOW
         );
 
@@ -762,11 +802,13 @@ class WikiArticleCommentControllerIntegrationTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.HARASSMENT,
                 "Valid description",
                 "Real server snapshot",
+                null,
                 NOW
         );
 

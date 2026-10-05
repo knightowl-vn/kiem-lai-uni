@@ -53,7 +53,7 @@ class NovelLocatorTemplateContractTest {
         // Scope hidden input chỉ render khi activeNav != 'novel'
         assertThat(navbar).contains("th:if=\"${activeNav != 'novel'}\"");
         assertThat(navbar).contains("name=\"scope\"");
-        assertThat(navbar).contains("th:value=\"${navbarSearchScope != null and !navbarSearchScope.isBlank() ? navbarSearchScope : (activeNav == 'wiki' ? 'wiki' : 'all')}\"");
+        assertThat(navbar).contains("th:value=\"${navbarSearchScope != null and !navbarSearchScope.isBlank() ? navbarSearchScope : (activeNav == 'wiki' ? 'wiki' : (activeNav == 'community' ? 'community' : 'all'))}\"");
 
         // Input q
         assertThat(navbar).contains("name=\"q\"");

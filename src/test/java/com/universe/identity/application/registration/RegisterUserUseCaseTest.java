@@ -68,14 +68,15 @@ class RegisterUserUseCaseTest {
 
 	private PasswordPolicy passwordPolicy;
 
+	private RegisterUserAttemptExecutor attemptExecutor;
 	private RegisterUserUseCase registerUserUseCase;
 
 	@BeforeEach
 	void setUp() {
 		passwordPolicy = new PasswordPolicy();
-
+		attemptExecutor = new RegisterUserAttemptExecutor(userRepositoryPort, outboxPort);
 		registerUserUseCase = new RegisterUserUseCase(userRepositoryPort, passwordHasherPort, passwordPolicy,
-				idGeneratorPort, clockPort, outboxPort);
+				idGeneratorPort, clockPort, attemptExecutor);
 	}
 
 	@Test
@@ -133,6 +134,8 @@ class RegisterUserUseCaseTest {
 
 		assertThat(registeredEvent.occurredAt()).isEqualTo(NOW);
 
+		assertThat(savedUser.getPublicHandle()).isEqualTo("athena");
+
 		assertThat(savedUser.domainEventsSnapshot()).isEmpty();
 
 		assertThat(result.id()).isEqualTo(USER_ID);
@@ -140,6 +143,8 @@ class RegisterUserUseCaseTest {
 		assertThat(result.email()).isEqualTo("athena@example.com");
 
 		assertThat(result.displayName()).isEqualTo("Athena");
+
+		assertThat(result.publicHandle()).isEqualTo("athena");
 
 		assertThat(result.avatarUrl()).isNull();
 
@@ -210,5 +215,61 @@ class RegisterUserUseCaseTest {
 		verify(userRepositoryPort).save(any(User.class));
 
 		verify(outboxPort).saveEvent(any(DomainEvent.class), eq("User"), eq(1L), eq("Identity"));
+	}
+
+	@Test
+	@DisplayName("Tự động cấp phát handle tiếp theo khi handle đầu tiên đã tồn tại")
+	void shouldAllocateNextHandleWhenFirstCandidateExists() {
+		RegisterUserCommand command = new RegisterUserCommand("athena@example.com", RAW_PASSWORD, "Athena");
+
+		when(userRepositoryPort.existsByEmail(any(Email.class))).thenReturn(false);
+		when(passwordHasherPort.hash(RAW_PASSWORD)).thenReturn(HASHED_PASSWORD);
+		when(idGeneratorPort.generate()).thenReturn(USER_ID);
+		when(clockPort.now()).thenReturn(NOW);
+
+		when(userRepositoryPort.existsByPublicHandle("athena")).thenReturn(true);
+		when(userRepositoryPort.existsByPublicHandle("athena_1111")).thenReturn(false);
+
+		UserDTO result = registerUserUseCase.execute(command);
+
+		ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+		verify(userRepositoryPort).save(userCaptor.capture());
+
+		User savedUser = userCaptor.getValue();
+		assertThat(savedUser.getPublicHandle()).isEqualTo("athena_1111");
+		assertThat(result.publicHandle()).isEqualTo("athena_1111");
+	}
+
+	@Test
+	@DisplayName("Khôi phục thành công khi attempt đầu tiên gặp DuplicatePublicHandleException do race condition DB")
+	void shouldRecoverWhenAttemptThrowsDuplicatePublicHandleException() {
+		RegisterUserCommand command = new RegisterUserCommand("athena@example.com", RAW_PASSWORD, "Athena");
+
+		when(userRepositoryPort.existsByEmail(any(Email.class))).thenReturn(false);
+		when(passwordHasherPort.hash(RAW_PASSWORD)).thenReturn(HASHED_PASSWORD);
+		when(idGeneratorPort.generate()).thenReturn(USER_ID);
+		when(clockPort.now()).thenReturn(NOW);
+
+		// Pre-check passes
+		when(userRepositoryPort.existsByPublicHandle(any())).thenReturn(false);
+
+		// Mock executor behavior: first attempt fails on handle "athena", second attempt succeeds on "athena_1111"
+		RegisterUserAttemptExecutor mockExecutor = org.mockito.Mockito.mock(RegisterUserAttemptExecutor.class);
+		when(mockExecutor.executeAttempt(eq(USER_ID), any(), eq(HASHED_PASSWORD), eq("Athena"), eq("athena"), eq(NOW)))
+				.thenThrow(new com.universe.identity.domain.exceptions.DuplicatePublicHandleException("athena", null));
+
+		UserDTO successDto = new UserDTO(USER_ID, "athena@example.com", "Athena", null, "athena_1111", "ACTIVE", "USER", NOW);
+		when(mockExecutor.executeAttempt(eq(USER_ID), any(), eq(HASHED_PASSWORD), eq("Athena"), eq("athena_1111"), eq(NOW)))
+				.thenReturn(successDto);
+
+		RegisterUserUseCase useCaseWithMockExecutor = new RegisterUserUseCase(
+				userRepositoryPort, passwordHasherPort, passwordPolicy, idGeneratorPort, clockPort, mockExecutor
+		);
+
+		UserDTO result = useCaseWithMockExecutor.execute(command);
+
+		assertThat(result.publicHandle()).isEqualTo("athena_1111");
+		verify(mockExecutor).executeAttempt(eq(USER_ID), any(), eq(HASHED_PASSWORD), eq("Athena"), eq("athena"), eq(NOW));
+		verify(mockExecutor).executeAttempt(eq(USER_ID), any(), eq(HASHED_PASSWORD), eq("Athena"), eq("athena_1111"), eq(NOW));
 	}
 }

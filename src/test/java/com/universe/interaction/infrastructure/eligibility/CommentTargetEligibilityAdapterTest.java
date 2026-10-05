@@ -1,5 +1,7 @@
 package com.universe.interaction.infrastructure.eligibility;
 
+import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
@@ -28,26 +30,34 @@ class CommentTargetEligibilityAdapterTest {
     @Mock
     private com.universe.wiki.application.ports.WikiArticleQueryPort wikiArticleQueryPort;
 
+    @Mock
+    private CommunityPostQueryPort communityPostQueryPort;
+
     private CommentTargetEligibilityAdapter adapter;
 
     private static final UUID CHAPTER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID ARTICLE_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    private static final UUID POST_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
 
     @BeforeEach
     void setUp() {
-        adapter = new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort);
+        adapter = new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, communityPostQueryPort);
     }
 
     @Test
     @DisplayName("Should reject null dependency in constructor")
     void shouldRejectNullDependency() {
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null, wikiArticleQueryPort))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null, wikiArticleQueryPort, communityPostQueryPort))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ReaderChapterAccessQueryPort cannot be null.");
 
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, null))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, null, communityPostQueryPort))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("WikiArticleQueryPort cannot be null.");
+
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("CommunityPostQueryPort cannot be null.");
     }
 
     @Test
@@ -108,5 +118,34 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
+    }
+
+    @Test
+    @DisplayName("Should return true when COMMUNITY_POST target exists")
+    void shouldReturnTrueWhenCommunityPostExists() {
+        CommentTarget target = CommentTarget.communityPost(POST_ID);
+        CommunityPostPublicDTO mockPost = new CommunityPostPublicDTO(
+                POST_ID, UUID.randomUUID(), "Post caption", null, 0, java.time.Instant.now(), java.time.Instant.now()
+        );
+        when(communityPostQueryPort.findPublicPostById(POST_ID)).thenReturn(Optional.of(mockPost));
+
+        boolean result = adapter.isEligible(target);
+
+        assertThat(result).isTrue();
+        verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
+    }
+
+    @Test
+    @DisplayName("Should return false when COMMUNITY_POST target does not exist")
+    void shouldReturnFalseWhenCommunityPostDoesNotExist() {
+        CommentTarget target = CommentTarget.communityPost(POST_ID);
+        when(communityPostQueryPort.findPublicPostById(POST_ID)).thenReturn(Optional.empty());
+
+        boolean result = adapter.isEligible(target);
+
+        assertThat(result).isFalse();
+        verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
     }
 }

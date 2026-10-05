@@ -1,5 +1,6 @@
 package com.universe.interaction.infrastructure.eligibility;
 
+import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.ReactionTargetEligibilityPort;
 import com.universe.interaction.domain.Comment;
@@ -17,6 +18,7 @@ import java.util.UUID;
  * <ul>
  *   <li>{@code NOVEL_CHAPTER}: delegates to {@link ReaderChapterAccessQueryPort} to ensure chapter is published and accessible.</li>
  *   <li>{@code COMMENT}: inspects {@link CommentRepositoryPort} to ensure comment exists and is {@code ACTIVE}.</li>
+ *   <li>{@code COMMUNITY_POST}: delegates to {@link CommunityPostQueryPort} to ensure post exists.</li>
  *   <li>{@code DONGHUA_EPISODE}: fails closed (returns {@code false}) until a complete Donghua querying contract exists.</li>
  * </ul>
  */
@@ -25,10 +27,12 @@ public class ReactionTargetEligibilityAdapter implements ReactionTargetEligibili
 
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
     private final CommentRepositoryPort commentRepositoryPort;
+    private final CommunityPostQueryPort communityPostQueryPort;
 
     public ReactionTargetEligibilityAdapter(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
-            CommentRepositoryPort commentRepositoryPort
+            CommentRepositoryPort commentRepositoryPort,
+            CommunityPostQueryPort communityPostQueryPort
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(
                 readerChapterAccessQueryPort,
@@ -37,6 +41,10 @@ public class ReactionTargetEligibilityAdapter implements ReactionTargetEligibili
         this.commentRepositoryPort = Objects.requireNonNull(
                 commentRepositoryPort,
                 "CommentRepositoryPort cannot be null."
+        );
+        this.communityPostQueryPort = Objects.requireNonNull(
+                communityPostQueryPort,
+                "CommunityPostQueryPort cannot be null."
         );
     }
 
@@ -49,6 +57,7 @@ public class ReactionTargetEligibilityAdapter implements ReactionTargetEligibili
         return switch (target.type()) {
             case NOVEL_CHAPTER -> isNovelChapterEligible(target.targetId());
             case COMMENT -> isCommentEligible(target.targetId());
+            case COMMUNITY_POST -> isCommunityPostEligible(target.targetId());
             case DONGHUA_EPISODE -> false; // Fail closed until real Donghua owning contract exists
         };
     }
@@ -67,5 +76,12 @@ public class ReactionTargetEligibilityAdapter implements ReactionTargetEligibili
         return commentRepositoryPort.findById(commentId)
                 .map(Comment::isActive)
                 .orElse(false);
+    }
+
+    private boolean isCommunityPostEligible(UUID postId) {
+        if (postId == null) {
+            return false;
+        }
+        return communityPostQueryPort.findPublicPostById(postId).isPresent();
     }
 }

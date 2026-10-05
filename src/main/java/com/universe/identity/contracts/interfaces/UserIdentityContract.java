@@ -2,7 +2,9 @@ package com.universe.identity.contracts.interfaces;
 
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -53,4 +55,31 @@ public interface UserIdentityContract {
     default Map<UUID, UserPublicProfileDTO> findPublicProfilesByIds(Set<UUID> userIds) {
         return Map.of();
     }
+
+    /**
+     * Tra cứu hồ sơ công khai của người dùng theo public handle.
+     *
+     * @param publicHandle handle công khai
+     * @return UserPublicProfileDTO nếu tìm thấy và user đang ACTIVE
+     */
+    default Optional<UserPublicProfileDTO> findPublicProfileByHandle(String publicHandle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Tra cứu thông tin chi tiết hồ sơ công khai (bao gồm bio) của người dùng theo public handle.
+     *
+     * @param publicHandle handle công khai
+     * @return UserPublicProfileDetailsDTO nếu tìm thấy và user đang ACTIVE
+     */
+    Optional<UserPublicProfileDetailsDTO> findPublicProfileDetailsByHandle(String publicHandle);
+
+    /**
+     * Tìm kiếm danh sách hồ sơ công khai của người dùng đang hoạt động (ACTIVE).
+     *
+     * @param query từ khóa tìm kiếm (theo handle hoặc displayName)
+     * @param limit số lượng kết quả tối đa (tối đa 50)
+     * @return danh sách UserPublicProfileDTO đã được xếp hạng
+     */
+    List<UserPublicProfileDTO> searchPublicUsers(String query, int limit);
 }

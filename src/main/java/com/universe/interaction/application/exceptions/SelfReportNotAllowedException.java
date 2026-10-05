@@ -18,6 +18,13 @@ public class SelfReportNotAllowedException extends BaseApplicationException {
         );
     }
 
+    public SelfReportNotAllowedException(com.universe.interaction.domain.report.ReportTargetType targetType, UUID targetId, UUID userId) {
+        super(
+                "SELF_REPORT_NOT_ALLOWED",
+                "User " + userId + " cannot report their own " + targetType + " " + targetId
+        );
+    }
+
     public SelfReportNotAllowedException(String message) {
         super("SELF_REPORT_NOT_ALLOWED", message);
     }

@@ -2,6 +2,7 @@ package com.universe.interaction.entry.wiki;
 
 import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.CommentRevisionSliceResponseDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
@@ -155,7 +156,7 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
         StatementCounter.reset();
         statistics().clear();
 
-        WikiDiscussionFeedResponseDTO responseA = coordinator.getDiscussionFeed(articleId, 0, 20);
+        WikiDiscussionFeedResponseDTO responseA = coordinator.getDiscussionFeed(articleId, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(responseA.threads()).hasSize(1);
         int queriesA = StatementCounter.totalCount();
@@ -171,10 +172,8 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
 
         // Feed must not issue standalone COUNT(*) for root pagination
         assertThat(StatementCounter.statements().stream().noneMatch(s ->
-                s.toLowerCase().contains("interaction_comments")
-                && s.toUpperCase().contains("COUNT(")
-                && !s.toUpperCase().contains("COUNT(DISTINCT")
-                && !s.toUpperCase().contains("GROUP BY")))
+                s.trim().toUpperCase().startsWith("SELECT COUNT(")
+                && !s.toUpperCase().contains("COUNT(DISTINCT")))
                 .as("Feed pagination must NOT execute pagination COUNT(*)")
                 .isTrue();
 
@@ -201,7 +200,7 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
         StatementCounter.reset();
         statistics().clear();
 
-        WikiDiscussionFeedResponseDTO responseB = coordinator.getDiscussionFeed(articleId, 0, 20);
+        WikiDiscussionFeedResponseDTO responseB = coordinator.getDiscussionFeed(articleId, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(responseB.threads()).hasSize(20);
         int queriesB = StatementCounter.totalCount();
@@ -372,7 +371,7 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
         StatementCounter.reset();
         statistics().clear();
 
-        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(articleId, 0, 20);
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(articleId, 0, 20, null, CommentSortMode.FEATURED);
         assertThat(response.threads()).hasSize(20);
 
         long userQueries = StatementCounter.statements().stream()
@@ -445,7 +444,7 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
 
         // --- PATH A: FEED READ ---
         StatementCounter.reset();
-        coordinator.getDiscussionFeed(articleId, 0, 20);
+        coordinator.getDiscussionFeed(articleId, 0, 20, null, CommentSortMode.FEATURED);
         int feedQueries = StatementCounter.totalCount();
         System.out.println("AUDIT_WIKI_FEED_SQL: count=" + feedQueries);
         StatementCounter.statements().forEach(s -> System.out.println("  FEED_SQL: " + s));
@@ -501,10 +500,11 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
     // =========================================================================
 
     private void insertUser(UUID id, String email, String displayName) {
+        String handle = "u_" + id.toString().replace("-", "");
         jdbcTemplate.update("""
-                INSERT INTO identity_users (id, email, password_hash, display_name, status, role, auth_provider, created_at, updated_at, avatar_customized)
-                VALUES (?, ?, 'hash', ?, 'ACTIVE', 'USER', 'LOCAL', ?, ?, false)
-                """, id.toString(), email, displayName, Timestamp.from(NOW), Timestamp.from(NOW));
+                INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, auth_provider, created_at, updated_at, avatar_customized)
+                VALUES (?, ?, 'hash', ?, ?, 'ACTIVE', 'USER', 'LOCAL', ?, ?, false)
+                """, id.toString(), email, displayName, handle, Timestamp.from(NOW), Timestamp.from(NOW));
     }
 
     private void insertArticle(UUID id, String title, String slug, String status, Instant now) {

@@ -115,12 +115,16 @@ class AdminNovelChapterWikiReferenceCommandSecurityIntegrationTest {
         UserJpaEntity adminEntity = new UserJpaEntity();
         adminEntity.setId(ADMIN_ID.toString());
         adminEntity.setEmail(ADMIN_EMAIL);
+        adminEntity.setDisplayName("Admin User");
+        adminEntity.setPublicHandle("admin_user");
         adminEntity.setStatus("ACTIVE");
         adminEntity.setRole(UserRole.ADMIN);
 
         UserJpaEntity regularUserEntity = new UserJpaEntity();
         regularUserEntity.setId(UUID.randomUUID().toString());
         regularUserEntity.setEmail(USER_EMAIL);
+        regularUserEntity.setDisplayName("User One");
+        regularUserEntity.setPublicHandle("user_one");
         regularUserEntity.setStatus("ACTIVE");
         regularUserEntity.setRole(UserRole.USER);
 
@@ -128,7 +132,7 @@ class AdminNovelChapterWikiReferenceCommandSecurityIntegrationTest {
         when(springDataUserJpaRepository.findByEmail(USER_EMAIL)).thenReturn(Optional.of(regularUserEntity));
 
         UserDTO adminUser = new UserDTO(
-                ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "ACTIVE", "ADMIN", Instant.now()
+                ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "admin_user", "ACTIVE", "ADMIN", Instant.now()
         );
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(adminUser));
         when(authenticatedEmailResolver.require(any())).thenReturn(ADMIN_EMAIL);

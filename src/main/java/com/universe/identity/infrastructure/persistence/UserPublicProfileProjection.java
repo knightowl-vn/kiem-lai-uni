@@ -10,4 +10,6 @@ public interface UserPublicProfileProjection {
     String getDisplayName();
 
     String getAvatarUrl();
+
+    String getPublicHandle();
 }

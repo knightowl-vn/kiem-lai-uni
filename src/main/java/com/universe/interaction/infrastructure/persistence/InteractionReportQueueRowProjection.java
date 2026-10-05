@@ -11,7 +11,9 @@ public interface InteractionReportQueueRowProjection {
 
     String getReportId();
 
-    String getCommentId();
+    String getReportTargetType();
+
+    String getReportTargetId();
 
     String getReporterUserId();
 
@@ -19,7 +21,7 @@ public interface InteractionReportQueueRowProjection {
 
     String getDescription();
 
-    String getReportedBodySnapshot();
+    String getReportedContentSnapshot();
 
     String getReportStatus();
 
@@ -27,9 +29,9 @@ public interface InteractionReportQueueRowProjection {
 
     String getCommentAuthorUserId();
 
-    String getTargetType();
+    String getContentTargetType();
 
-    String getTargetId();
+    String getContentTargetId();
 
     String getCommentStatus();
 
@@ -38,4 +40,23 @@ public interface InteractionReportQueueRowProjection {
     String getResolvedByUserId();
 
     Instant getResolvedAt();
+
+    Instant getTargetDeletedAt();
+
+    // Backward-compatible projection aliases if referenced
+    default String getCommentId() {
+        return getReportTargetId();
+    }
+
+    default String getReportedBodySnapshot() {
+        return getReportedContentSnapshot();
+    }
+
+    default String getTargetType() {
+        return getContentTargetType();
+    }
+
+    default String getTargetId() {
+        return getContentTargetId();
+    }
 }

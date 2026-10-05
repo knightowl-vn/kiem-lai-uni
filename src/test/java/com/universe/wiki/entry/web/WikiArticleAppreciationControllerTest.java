@@ -66,6 +66,7 @@ class WikiArticleAppreciationControllerTest {
                             USER_EMAIL,
                             "Scholar User",
                             null,
+                            "scholar_user",
                             UserStatus.ACTIVE,
                             UserRole.USER
                     )

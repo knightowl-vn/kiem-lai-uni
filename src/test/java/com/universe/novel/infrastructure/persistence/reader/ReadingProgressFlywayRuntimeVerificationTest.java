@@ -135,8 +135,8 @@ class ReadingProgressFlywayRuntimeVerificationTest {
 
         // Seed user, volume, chapter
         jdbc.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'reader@universe.local', '$2a$10$hash', 'Reader', 'ACTIVE', 1, 0, NOW(), NOW())",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'reader@universe.local', '$2a$10$hash', 'Reader', 'reader_user', 'ACTIVE', 1, 0, NOW(), NOW())",
                 userId.toString()
         );
 

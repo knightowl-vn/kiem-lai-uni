@@ -13,6 +13,7 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueueItemDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
@@ -124,9 +125,9 @@ class AdminCommentReportQueueCoordinatorTest {
         // Deduplicated identity lookup: reporter1, reporter2, author1
         Set<UUID> expectedUserIds = Set.of(reporter1, reporter2, author1);
         when(userIdentityContract.findPublicProfilesByIds(expectedUserIds)).thenReturn(Map.of(
-                reporter1, new UserPublicProfileDTO(reporter1, "Alice", "https://img/alice.png"),
-                reporter2, new UserPublicProfileDTO(reporter2, "Bob", "https://img/bob.png"),
-                author1, new UserPublicProfileDTO(author1, "Charlie", null)
+                reporter1, new UserPublicProfileDTO(reporter1, "Alice", "https://img/alice.png", "alice"),
+                reporter2, new UserPublicProfileDTO(reporter2, "Bob", "https://img/bob.png", "bob"),
+                author1, new UserPublicProfileDTO(author1, "Charlie", null, "charlie")
         ));
 
         when(chapterListQueryPort.findListItemsByIds(Set.of(chapterId))).thenReturn(Map.of(
@@ -284,8 +285,8 @@ class AdminCommentReportQueueCoordinatorTest {
         when(queueQueryPort.findQueueReports(defaultFilter))
                 .thenReturn(new InteractionReportQueuePage(List.of(item), 0, 20, 1));
         when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
-                reporterId, new UserPublicProfileDTO(reporterId, "User A", null),
-                authorId, new UserPublicProfileDTO(authorId, "User B", null)
+                reporterId, new UserPublicProfileDTO(reporterId, "User A", null, "user_a"),
+                authorId, new UserPublicProfileDTO(authorId, "User B", null, "user_b")
         ));
         // Novel returns empty map (chapter deleted/missing)
         when(chapterListQueryPort.findListItemsByIds(Set.of(missingChapterId))).thenReturn(Map.of());
@@ -407,6 +408,7 @@ class AdminCommentReportQueueCoordinatorTest {
 
         InteractionReportQueueItem processedItem = new InteractionReportQueueItem(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.SPAM,
@@ -420,7 +422,8 @@ class AdminCommentReportQueueCoordinatorTest {
                 CommentStatus.DELETED,
                 ReportModerationAction.DELETE_COMMENT,
                 resolverId,
-                resolvedAt
+                resolvedAt,
+                null
         );
 
         InteractionReportQueueFilter processedFilter = new InteractionReportQueueFilter(
@@ -437,9 +440,9 @@ class AdminCommentReportQueueCoordinatorTest {
 
         Set<UUID> expectedUserIds = Set.of(reporterId, authorId, resolverId);
         when(userIdentityContract.findPublicProfilesByIds(expectedUserIds)).thenReturn(Map.of(
-                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null),
-                authorId, new UserPublicProfileDTO(authorId, "Author", null),
-                resolverId, new UserPublicProfileDTO(resolverId, "Moderator Bob", "https://img/bob.png")
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null, "author"),
+                resolverId, new UserPublicProfileDTO(resolverId, "Moderator Bob", "https://img/bob.png", "moderator_bob")
         ));
         when(chapterListQueryPort.findListItemsByIds(Set.of(chapterId))).thenReturn(Map.of(
                 chapterId, new ChapterListItemDTO(chapterId, 1, "Chương 1", "tap-1/chuong-1", "PUBLISHED", Instant.now())
@@ -487,6 +490,7 @@ class AdminCommentReportQueueCoordinatorTest {
 
         return new InteractionReportQueueItem(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 reason,
@@ -500,7 +504,8 @@ class AdminCommentReportQueueCoordinatorTest {
                 commentStatus,
                 action,
                 resolverId,
-                resolvedAt
+                resolvedAt,
+                null
         );
     }
 }

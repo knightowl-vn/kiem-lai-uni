@@ -50,6 +50,7 @@ class InteractionReportRetentionPersistenceTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -100,12 +101,27 @@ class InteractionReportRetentionPersistenceTest {
             Instant resolvedAt,
             ReportModerationAction moderationAction
     ) {
+        insertReport(reportId, "COMMENT", commentId, status, createdAt, resolvedAt, moderationAction, null);
+    }
+
+    private void insertReport(
+            UUID reportId,
+            String targetType,
+            UUID targetId,
+            ReportStatus status,
+            Instant createdAt,
+            Instant resolvedAt,
+            ReportModerationAction moderationAction,
+            Instant targetDeletedAt
+    ) {
         Timestamp resolvedAtTs = resolvedAt != null ? Timestamp.from(resolvedAt) : null;
+        Timestamp targetDeletedAtTs = targetDeletedAt != null ? Timestamp.from(targetDeletedAt) : null;
         jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at, moderation_action) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, description, content_snapshot, status, created_at, resolved_by_user_id, resolved_at, moderation_action, target_deleted_at) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 reportId.toString(),
-                commentId.toString(),
+                targetType,
+                targetId.toString(),
                 UUID.randomUUID().toString(),
                 ReportReason.SPAM.name(),
                 "Report description",
@@ -114,7 +130,8 @@ class InteractionReportRetentionPersistenceTest {
                 Timestamp.from(createdAt),
                 resolvedAt != null ? UUID.randomUUID().toString() : null,
                 resolvedAtTs,
-                moderationAction != null ? moderationAction.name() : null
+                moderationAction != null ? moderationAction.name() : null,
+                targetDeletedAtTs
         );
     }
 
@@ -395,5 +412,79 @@ class InteractionReportRetentionPersistenceTest {
         assertThat(indexColumns.get(0).get("SEQ_IN_INDEX")).isEqualTo(1L);
         assertThat(indexColumns.get(1).get("COLUMN_NAME")).isEqualTo("id");
         assertThat(indexColumns.get(1).get("SEQ_IN_INDEX")).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("17. Hierarchical Rule: target_deleted_at resets retention anchor even if resolved_at was > 30 days ago")
+    void shouldRetainWhenTargetDeletedAtIsRecentEvenIfResolvedAtIsOld() {
+        UUID commentId = insertComment(CommentStatus.DELETED, "Deleted comment");
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant cutoff = now.minus(30, ChronoUnit.DAYS);
+
+        UUID reportId = UUID.randomUUID();
+        Instant resolvedAt = now.minus(45, ChronoUnit.DAYS); // Resolved 45 days ago (older than 30d)
+        Instant targetDeletedAt = now.minus(10, ChronoUnit.DAYS); // Target deleted 10 days ago (within 30d window)
+
+        insertReport(reportId, "COMMENT", commentId, ReportStatus.RESOLVED_ACTION_TAKEN, resolvedAt.minus(1, ChronoUnit.HOURS), resolvedAt, ReportModerationAction.DELETE_COMMENT, targetDeletedAt);
+
+        int deleted = adapter.purgeExpiredReportsBefore(cutoff, 50);
+
+        // Retained because target_deleted_at is 10 days ago (< 30 days old)
+        assertThat(deleted).isZero();
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM interaction_reports WHERE id = ?", Integer.class, reportId.toString());
+        assertThat(count).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("18. Hierarchical Rule: pending report with target_deleted_at > 30 days ago is purged")
+    void shouldPurgePendingReportWhenTargetDeletedAtIsExpired() {
+        UUID postId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant cutoff = now.minus(30, ChronoUnit.DAYS);
+
+        UUID reportId = UUID.randomUUID();
+        Instant targetDeletedAt = now.minus(35, ChronoUnit.DAYS); // Target deleted 35 days ago
+
+        insertReport(reportId, "COMMUNITY_POST", postId, ReportStatus.PENDING, now.minus(40, ChronoUnit.DAYS), null, null, targetDeletedAt);
+
+        int deleted = adapter.purgeExpiredReportsBefore(cutoff, 50);
+
+        assertThat(deleted).isEqualTo(1);
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM interaction_reports WHERE id = ?", Integer.class, reportId.toString());
+        assertThat(count).isZero();
+    }
+
+    @Test
+    @DisplayName("19. Stamping target_deleted_at updates only matching target rows where target_deleted_at is NULL")
+    void shouldStampTargetDeletedAtCorrectly() {
+        UUID postId1 = UUID.randomUUID();
+        UUID postId2 = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        UUID report1Id = UUID.randomUUID();
+        UUID report2Id = UUID.randomUUID();
+        UUID reportAlreadyStampedId = UUID.randomUUID();
+        Instant priorDeletedAt = now.minus(50, ChronoUnit.DAYS);
+
+        insertReport(report1Id, "COMMUNITY_POST", postId1, ReportStatus.PENDING, now, null, null, null);
+        insertReport(report2Id, "COMMUNITY_POST", postId2, ReportStatus.PENDING, now, null, null, null);
+        insertReport(reportAlreadyStampedId, "COMMUNITY_POST", postId1, ReportStatus.PENDING, now, null, null, priorDeletedAt);
+
+        int stamped = adapter.stampTargetDeletedAtForTargets(
+                com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST,
+                List.of(postId1),
+                now
+        );
+
+        assertThat(stamped).isEqualTo(1);
+
+        Timestamp ts1 = jdbcTemplate.queryForObject("SELECT target_deleted_at FROM interaction_reports WHERE id = ?", Timestamp.class, report1Id.toString());
+        assertThat(ts1).isNotNull();
+
+        Timestamp ts2 = jdbcTemplate.queryForObject("SELECT target_deleted_at FROM interaction_reports WHERE id = ?", Timestamp.class, report2Id.toString());
+        assertThat(ts2).isNull();
+
+        Timestamp tsAlready = jdbcTemplate.queryForObject("SELECT target_deleted_at FROM interaction_reports WHERE id = ?", Timestamp.class, reportAlreadyStampedId.toString());
+        assertThat(tsAlready.toInstant()).isEqualTo(priorDeletedAt);
     }
 }

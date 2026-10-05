@@ -5,41 +5,27 @@ import com.universe.identity.application.ports.PasswordHasherPort;
 import com.universe.identity.application.ports.UserRepositoryPort;
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.domain.Email;
-import com.universe.identity.domain.User;
+import com.universe.identity.domain.PublicHandleGenerator;
+import com.universe.identity.domain.exceptions.DuplicatePublicHandleException;
 import com.universe.identity.domain.exceptions.EmailAlreadyExistsException;
 import com.universe.shared.id.IdGeneratorPort;
-import com.universe.shared.messaging.OutboxPort;
 import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.Objects;
+import java.util.UUID;
 
 @Service
 public class RegisterUserUseCase {
 
-    private static final String AGGREGATE_TYPE =
-            "User";
-
-    private static final String SOURCE_MODULE =
-            "Identity";
-
-    private final UserRepositoryPort
-            userRepositoryPort;
-
-    private final PasswordHasherPort
-            passwordHasherPort;
-
-    private final PasswordPolicy
-            passwordPolicy;
-
-    private final IdGeneratorPort
-            idGeneratorPort;
-
-    private final ClockPort
-            clockPort;
-
-    private final OutboxPort
-            outboxPort;
+    private final UserRepositoryPort userRepositoryPort;
+    private final PasswordHasherPort passwordHasherPort;
+    private final PasswordPolicy passwordPolicy;
+    private final IdGeneratorPort idGeneratorPort;
+    private final ClockPort clockPort;
+    private final RegisterUserAttemptExecutor attemptExecutor;
 
     public RegisterUserUseCase(
             UserRepositoryPort userRepositoryPort,
@@ -47,92 +33,63 @@ public class RegisterUserUseCase {
             PasswordPolicy passwordPolicy,
             IdGeneratorPort idGeneratorPort,
             ClockPort clockPort,
-            OutboxPort outboxPort
+            RegisterUserAttemptExecutor attemptExecutor
     ) {
-        this.userRepositoryPort =
-                userRepositoryPort;
-
-        this.passwordHasherPort =
-                passwordHasherPort;
-
-        this.passwordPolicy =
-                passwordPolicy;
-
-        this.idGeneratorPort =
-                idGeneratorPort;
-
-        this.clockPort =
-                clockPort;
-
-        this.outboxPort =
-                outboxPort;
+        this.userRepositoryPort = Objects.requireNonNull(userRepositoryPort, "userRepositoryPort cannot be null");
+        this.passwordHasherPort = Objects.requireNonNull(passwordHasherPort, "passwordHasherPort cannot be null");
+        this.passwordPolicy = Objects.requireNonNull(passwordPolicy, "passwordPolicy cannot be null");
+        this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "idGeneratorPort cannot be null");
+        this.clockPort = Objects.requireNonNull(clockPort, "clockPort cannot be null");
+        this.attemptExecutor = Objects.requireNonNull(attemptExecutor, "attemptExecutor cannot be null");
     }
 
-    @Transactional
-    public UserDTO execute(
-            RegisterUserCommand command
-    ) {
-        Email email =
-                new Email(
-                        command.email()
-                );
+    public UserDTO execute(RegisterUserCommand command) {
+        Objects.requireNonNull(command, "command cannot be null");
+
+        Email email = new Email(command.email());
 
         if (userRepositoryPort.existsByEmail(email)) {
-            throw new EmailAlreadyExistsException(
-                    "Email đã được sử dụng."
-            );
+            throw new EmailAlreadyExistsException("Email đã được sử dụng.");
         }
 
-        passwordPolicy.validate(
-                command.password()
-        );
+        passwordPolicy.validate(command.password());
 
-        String passwordHash =
-                passwordHasherPort.hash(
-                        command.password()
-                );
+        String passwordHash = passwordHasherPort.hash(command.password());
+        UUID userId = idGeneratorPort.generate();
+        Instant now = clockPort.now();
 
-        User user =
-                User.createLocal(
-                        idGeneratorPort.generate(),
+        int finalAttemptIndex = PublicHandleGenerator.MAX_COLLISION_ATTEMPTS + 1;
+        for (int attempt = 0; attempt <= finalAttemptIndex; attempt++) {
+            String candidateHandle = PublicHandleGenerator.candidateForAttempt(
+                    command.displayName(),
+                    userId,
+                    attempt
+            );
+
+            if (attempt <= PublicHandleGenerator.MAX_COLLISION_ATTEMPTS
+                    && userRepositoryPort.existsByPublicHandle(candidateHandle)) {
+                continue;
+            }
+
+            try {
+                return attemptExecutor.executeAttempt(
+                        userId,
                         email,
                         passwordHash,
                         command.displayName(),
-                        clockPort.now()
+                        candidateHandle,
+                        now
                 );
+            } catch (DuplicatePublicHandleException ex) {
+                if (attempt >= finalAttemptIndex) {
+                    throw new IllegalStateException(
+                            "Không thể cấp phát public handle duy nhất sau " + (finalAttemptIndex + 1) + " lần thử.",
+                            ex
+                    );
+                }
+            }
+        }
 
-        saveUserAndDomainEvents(user);
-
-        return new UserDTO(
-                user.getId(),
-                user.getEmail().value(),
-                user.getDisplayName(),
-                user.getAvatarUrl(),
-                user.getStatus().name(),
-                user.getRole().name(),
-                user.getCreatedAt()
-        );
-    }
-
-    private void saveUserAndDomainEvents(
-            User user
-    ) {
-        userRepositoryPort.save(user);
-
-        user.domainEventsSnapshot()
-                .forEach(event ->
-                        outboxPort.saveEvent(
-                                event,
-                                AGGREGATE_TYPE,
-                                user.getAggregateVersion(),
-                                SOURCE_MODULE
-                        )
-                );
-
-        /*
-         * Chỉ xóa khỏi aggregate sau khi tất cả event
-         * đã được đưa vào persistence context của Outbox.
-         */
-        user.clearDomainEvents();
+        throw new IllegalStateException("Không thể cấp phát public handle duy nhất.");
     }
 }

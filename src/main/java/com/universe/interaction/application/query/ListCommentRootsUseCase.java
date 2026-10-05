@@ -2,6 +2,7 @@ package com.universe.interaction.application.query;
 
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentSlice;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,7 +15,7 @@ import java.util.Objects;
  *
  * <p>Preserves deterministic ordering and performance:
  * <ul>
- *   <li>Ordered deterministically by {@code createdAt DESC, id DESC};</li>
+ *   <li>Supports deterministic {@link CommentSortMode#FEATURED} and {@link CommentSortMode#NEWEST};</li>
  *   <li>Avoids N+1 queries by intentionally not loading thread replies for roots;</li>
  *   <li>Uses offset slice pagination without issuing COUNT(*) queries;</li>
  *   <li>Returns framework-free {@link CommentReadSlice}.</li>
@@ -30,9 +31,12 @@ public class ListCommentRootsUseCase {
     }
 
     @Transactional(readOnly = true)
-    public CommentReadSlice execute(CommentTarget target, int page, int size) {
+    public CommentReadSlice execute(CommentTarget target, CommentSortMode sortMode, int page, int size) {
         if (target == null) {
             throw new IllegalArgumentException("CommentTarget cannot be null.");
+        }
+        if (sortMode == null) {
+            sortMode = CommentSortMode.FEATURED;
         }
         if (page < 0) {
             throw new IllegalArgumentException("Page index cannot be negative: " + page);
@@ -41,11 +45,12 @@ public class ListCommentRootsUseCase {
             throw new IllegalArgumentException("Page size must be greater than zero: " + size);
         }
 
-        CommentSlice domainSlice = commentRepositoryPort.findActiveRoots(target, page, size);
+        CommentSlice domainSlice = commentRepositoryPort.findActiveRoots(target, sortMode, page, size);
         List<CommentReadItem> items = domainSlice.items().stream()
                 .map(CommentReadItem::fromRoot)
                 .toList();
 
         return new CommentReadSlice(items, domainSlice.page(), domainSlice.size(), domainSlice.hasNext());
     }
+
 }

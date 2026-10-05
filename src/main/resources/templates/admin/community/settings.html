@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý cộng đồng | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/admin/comment-reports.css}">
+</head>
+
+<body>
+
+    <div class="admin-layout">
+
+        <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+        <main class="admin-main">
+
+            <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+            <section class="dashboard-content">
+
+                <!-- Shared Community Workspace Tabs -->
+                <div th:replace="~{admin/community/fragments/community-tabs :: tabs('settings')}"></div>
+
+                <!-- Flash Success Message -->
+                <div th:if="${successMessage != null}" class="admin-form-success alert-success" role="alert" th:text="${successMessage}">
+                    Thông báo thành công
+                </div>
+
+                <!-- Flash Error Message -->
+                <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
+                    Thông báo lỗi
+                </div>
+
+                <!-- Settings Card Container -->
+                <div class="community-settings-card">
+                    <div class="community-settings-header">
+                        <h3>Cấu hình xuất bản bài viết</h3>
+                        <p>Quyết định phương thức kiểm duyệt và hiển thị nội dung người dùng đăng tải trong cộng đồng.</p>
+                    </div>
+
+                    <form method="post" th:action="@{/admin/community/settings}" class="community-settings-form">
+                        <input type="hidden" name="version" th:value="${settings.version}">
+
+                        <div class="community-settings-options">
+                            <!-- Option 1: AUTO_PUBLISH -->
+                            <label class="community-setting-option" th:classappend="${settings.publicationMode.name() == 'AUTO_PUBLISH'} ? ' is-current' : ''">
+                                <input type="radio" name="publicationMode" value="AUTO_PUBLISH"
+                                       th:checked="${settings.publicationMode.name() == 'AUTO_PUBLISH'}"
+                                       class="community-setting-radio">
+                                <div class="community-setting-option-content">
+                                    <div class="community-setting-option-title">
+                                        <span>Tự động đăng (AUTO_PUBLISH)</span>
+                                        <span th:if="${settings.publicationMode.name() == 'AUTO_PUBLISH'}" class="admin-badge-pill status-approved" style="margin-left: 8px;">Đang áp dụng</span>
+                                    </div>
+                                    <p class="community-setting-option-desc">Bài viết mới và các bản chỉnh sửa sẽ xuất bản ngay lập tức mà không cần quản trị viên duyệt trước.</p>
+                                </div>
+                            </label>
+
+                            <!-- Option 2: PRE_MODERATION -->
+                            <label class="community-setting-option" th:classappend="${settings.publicationMode.name() == 'PRE_MODERATION'} ? ' is-current' : ''">
+                                <input type="radio" name="publicationMode" value="PRE_MODERATION"
+                                       th:checked="${settings.publicationMode.name() == 'PRE_MODERATION'}"
+                                       class="community-setting-radio">
+                                <div class="community-setting-option-content">
+                                    <div class="community-setting-option-title">
+                                        <span>Cần quản trị viên duyệt (PRE_MODERATION)</span>
+                                        <span th:if="${settings.publicationMode.name() == 'PRE_MODERATION'}" class="admin-badge-pill status-approved" style="margin-left: 8px;">Đang áp dụng</span>
+                                    </div>
+                                    <p class="community-setting-option-desc">Mọi bài viết mới và nội dung chỉnh sửa phải được quản trị viên duyệt trước khi xuất bản công khai.</p>
+                                </div>
+                            </label>
+                        </div>
+
+                        <!-- Metadata info -->
+                        <div class="community-settings-meta">
+                            <span class="meta-item">
+                                <strong>Lần cập nhật cuối:</strong>
+                                <time th:if="${settings.updatedAt != null}" th:text="${#temporals.format(settings.updatedAt, 'dd/MM/yyyy HH:mm:ss')}">01/01/2026 12:00:00</time>
+                                <span th:unless="${settings.updatedAt != null}">Mặc định hệ thống</span>
+                            </span>
+                            <span class="meta-item" th:if="${settings.updatedBy != null}">
+                                <strong>Người cập nhật:</strong>
+                                <span th:text="${settings.updatedBy.displayName}">Quản trị viên</span>
+                                <span th:if="${settings.updatedBy.publicHandle != null}" th:text="'(@' + ${settings.updatedBy.publicHandle} + ')'">(@admin)</span>
+                            </span>
+                        </div>
+
+                        <!-- Action Submit Button -->
+                        <div class="community-settings-actions">
+                            <button type="submit" class="admin-btn admin-btn-primary">
+                                Lưu thay đổi
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+</body>
+</html>

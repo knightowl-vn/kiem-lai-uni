@@ -58,6 +58,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Deterministic MySQL integration tests covering concurrency invariants for comment report moderation,
  * comment deletion, comment editing, and report submission under race conditions.
  */
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
+import java.util.Optional;
+import java.util.List;
+
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -77,6 +81,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         ReactionPersistenceAdapter.class,
         ReactionPersistenceMapper.class,
         ResolveCommentReportUseCase.class,
+        SubmitInteractionReportUseCase.class,
         SubmitCommentReportUseCase.class,
         DeleteCommentUseCase.class,
         EditCommentUseCase.class,
@@ -101,10 +106,16 @@ class CommentReportModerationConcurrencyIntegrationTest {
         public CommentTargetEligibilityPort commentTargetEligibilityPort() {
             return target -> true;
         }
+
+        @Bean
+        public CommunityPostInteractionMutationPort communityPostInteractionMutationPort() {
+            return postId -> Optional.empty();
+        }
     }
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -213,8 +224,8 @@ class CommentReportModerationConcurrencyIntegrationTest {
     ) {
         Timestamp resolvedAtTs = resolvedAt != null ? Timestamp.from(resolvedAt) : null;
         jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at, moderation_action) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, description, content_snapshot, status, created_at, resolved_by_user_id, resolved_at, moderation_action) " +
+                        "VALUES (?, 'COMMENT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 reportId.toString(),
                 commentId.toString(),
                 reporterUserId.toString(),
@@ -622,11 +633,11 @@ class CommentReportModerationConcurrencyIntegrationTest {
                 InteractionReport report = rSubmit.result();
                 assertThat(report).isNotNull();
                 assertThat(report.getStatus()).isEqualTo(ReportStatus.PENDING);
-                assertThat(report.getReportedBodySnapshot()).isEqualTo(initialBody);
+                assertThat(report.getReportedContentSnapshot()).isEqualTo(initialBody);
 
                 // Verified in DB
                 String snapshotInDb = jdbcTemplate.queryForObject(
-                        "SELECT reported_body_snapshot FROM interaction_reports WHERE id = ?", String.class, report.getId().toString());
+                        "SELECT content_snapshot FROM interaction_reports WHERE id = ?", String.class, report.getId().toString());
                 assertThat(snapshotInDb).isEqualTo(initialBody);
             } else {
                 // Delete won: submit threw CommentNotFoundException or CommentNotReportableException
@@ -635,7 +646,7 @@ class CommentReportModerationConcurrencyIntegrationTest {
 
                 // No report in DB
                 Integer reportCount = jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM interaction_reports WHERE comment_id = ?", Integer.class, commentId.toString());
+                        "SELECT COUNT(*) FROM interaction_reports WHERE target_type = 'COMMENT' AND target_id = ?", Integer.class, commentId.toString());
                 assertThat(reportCount).isZero();
             }
 
@@ -690,7 +701,7 @@ class CommentReportModerationConcurrencyIntegrationTest {
 
             // Exactly 1 PENDING report exists in DB for this comment and reporter
             Integer reportCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM interaction_reports WHERE comment_id = ? AND reporter_user_id = ? AND status = 'PENDING'",
+                    "SELECT COUNT(*) FROM interaction_reports WHERE target_type = 'COMMENT' AND target_id = ? AND reporter_user_id = ? AND status = 'PENDING'",
                     Integer.class,
                     commentId.toString(),
                     reporterUserId.toString()

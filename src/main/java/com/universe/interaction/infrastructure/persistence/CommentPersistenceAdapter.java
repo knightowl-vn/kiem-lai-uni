@@ -4,6 +4,7 @@ import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -75,9 +76,12 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
     }
 
     @Override
-    public CommentSlice findActiveRoots(CommentTarget target, int page, int size) {
+    public CommentSlice findActiveRoots(CommentTarget target, CommentSortMode sortMode, int page, int size) {
         if (target == null) {
             throw new IllegalArgumentException("CommentTarget cannot be null.");
+        }
+        if (sortMode == null) {
+            sortMode = CommentSortMode.FEATURED;
         }
         if (page < 0) {
             throw new IllegalArgumentException("Page index cannot be negative: " + page);
@@ -87,11 +91,20 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
         }
 
         Pageable pageable = PageRequest.of(page, size);
-        Slice<CommentJpaEntity> slice = repository.findActiveRoots(
-                target.type().name(),
-                target.targetId().toString(),
-                pageable
-        );
+        Slice<CommentJpaEntity> slice;
+        if (sortMode == CommentSortMode.NEWEST) {
+            slice = repository.findActiveRoots(
+                    target.type().name(),
+                    target.targetId().toString(),
+                    pageable
+            );
+        } else {
+            slice = repository.findFeaturedRoots(
+                    target.type().name(),
+                    target.targetId().toString(),
+                    pageable
+            );
+        }
 
         List<Comment> items = slice.getContent().stream()
                 .map(mapper::toDomain)
@@ -247,5 +260,65 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
         if (!ids.isEmpty()) {
             repository.deleteAllByIds(ids);
         }
+    }
+
+    @Override
+    public List<UUID> findAllCommentIdsByTarget(com.universe.interaction.domain.CommentTargetType targetType, UUID targetId) {
+        if (targetType == null || targetId == null) {
+            return List.of();
+        }
+        List<String> idStrings = repository.findAllCommentIdsByTarget(targetType.name(), targetId.toString());
+        if (idStrings == null || idStrings.isEmpty()) {
+            return List.of();
+        }
+        return idStrings.stream().map(UUID::fromString).toList();
+    }
+
+    @Override
+    public Map<UUID, Long> countActiveCommentsByTargetIds(
+            com.universe.interaction.domain.CommentTargetType targetType,
+            Collection<UUID> targetIds
+    ) {
+        if (targetType == null || targetIds == null || targetIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<String> idStrings = targetIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (idStrings.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Object[]> rows = repository.countActiveCommentsByTargetIds(targetType.name(), idStrings);
+        Map<UUID, Long> result = new HashMap<>();
+        for (UUID targetId : targetIds) {
+            if (targetId != null) {
+                result.put(targetId, 0L);
+            }
+        }
+
+        if (rows != null) {
+            for (Object[] row : rows) {
+                if (row != null && row.length >= 2 && row[0] != null && row[1] != null) {
+                    UUID targetId = UUID.fromString((String) row[0]);
+                    long count = ((Number) row[1]).longValue();
+                    result.put(targetId, count);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<Comment> lockAllCommentsByTarget(com.universe.interaction.domain.CommentTargetType targetType, UUID targetId) {
+        if (targetType == null || targetId == null) {
+            return List.of();
+        }
+        List<CommentJpaEntity> entities = repository.findAllByTargetForUpdate(targetType.name(), targetId.toString());
+        return entities.stream().map(mapper::toDomain).toList();
     }
 }

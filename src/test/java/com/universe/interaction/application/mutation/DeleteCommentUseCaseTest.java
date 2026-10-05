@@ -9,6 +9,9 @@ import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
+import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
+import com.universe.interaction.domain.report.ReportTargetType;
+import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,6 +47,12 @@ class DeleteCommentUseCaseTest {
     @Mock
     private ReactionRepositoryPort reactionRepositoryPort;
 
+    @Mock
+    private InteractionReportRepositoryPort reportRepositoryPort;
+
+    @Mock
+    private ClockPort clockPort;
+
     private DeleteCommentUseCase useCase;
 
     private static final UUID AUTHOR_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -56,7 +65,13 @@ class DeleteCommentUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new DeleteCommentUseCase(commentRepositoryPort, commentRevisionRepositoryPort, reactionRepositoryPort);
+        useCase = new DeleteCommentUseCase(
+                commentRepositoryPort,
+                commentRevisionRepositoryPort,
+                reactionRepositoryPort,
+                reportRepositoryPort,
+                clockPort
+        );
     }
 
     @Test
@@ -67,11 +82,19 @@ class DeleteCommentUseCaseTest {
 
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
         when(commentRepositoryPort.hasDescendants(ROOT_ID)).thenReturn(false);
+        when(clockPort.now()).thenReturn(Instant.parse("2026-09-16T10:10:00Z"));
 
         useCase.execute(command);
 
         verify(commentRepositoryPort).findByIdForUpdate(ROOT_ID);
         verify(commentRepositoryPort).hasDescendants(ROOT_ID);
+
+        // Verify evidence retention stamping
+        verify(reportRepositoryPort).stampTargetDeletedAtForTargets(
+                eq(ReportTargetType.COMMENT),
+                eq(List.of(ROOT_ID)),
+                eq(Instant.parse("2026-09-16T10:10:00Z"))
+        );
 
         // Verify reaction deletion for leaf only
         @SuppressWarnings("unchecked")

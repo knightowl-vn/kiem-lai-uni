@@ -6,5 +6,6 @@ package com.universe.interaction.domain.reaction;
 public enum ReactionTargetType {
     NOVEL_CHAPTER,
     COMMENT,
-    DONGHUA_EPISODE
+    DONGHUA_EPISODE,
+    COMMUNITY_POST
 }

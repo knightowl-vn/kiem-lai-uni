@@ -68,6 +68,7 @@ class ReaderNovelPageControllerTest {
                         USER_EMAIL,
                         "Reader",
                         null,
+                        "reader_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )
@@ -212,7 +213,7 @@ class ReaderNovelPageControllerTest {
         MockHttpServletRequest request1 = new MockHttpServletRequest();
         AuthenticatedRequestIdentityTestSupport.attach(
                 request1,
-                new AuthenticatedRequestIdentity(user1Id, "user1@universe.local", "User One", null, UserStatus.ACTIVE, UserRole.USER)
+                new AuthenticatedRequestIdentity(user1Id, "user1@universe.local", "User One", null, "user_one", UserStatus.ACTIVE, UserRole.USER)
         );
         ExtendedModelMap model1 = new ExtendedModelMap();
         String view1 = controller.landingPage(request1, model1);
@@ -220,7 +221,7 @@ class ReaderNovelPageControllerTest {
         MockHttpServletRequest request2 = new MockHttpServletRequest();
         AuthenticatedRequestIdentityTestSupport.attach(
                 request2,
-                new AuthenticatedRequestIdentity(user2Id, "user2@universe.local", "User Two", null, UserStatus.ACTIVE, UserRole.USER)
+                new AuthenticatedRequestIdentity(user2Id, "user2@universe.local", "User Two", null, "user_two", UserStatus.ACTIVE, UserRole.USER)
         );
         ExtendedModelMap model2 = new ExtendedModelMap();
         String view2 = controller.landingPage(request2, model2);

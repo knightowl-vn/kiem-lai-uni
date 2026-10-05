@@ -34,6 +34,7 @@ class AuthenticatedRequestIdentityQueryAdapterTest {
         when(projection.getNormalizedEmail()).thenReturn("reader@universe.local");
         when(projection.getDisplayName()).thenReturn("Reader");
         when(projection.getAvatarUrl()).thenReturn("/media/avatar");
+        when(projection.getPublicHandle()).thenReturn("reader_handle");
         when(projection.getStatus()).thenReturn("ACTIVE");
         when(projection.getRole()).thenReturn(UserRole.USER);
         when(repository.findRequestIdentityByEmail("reader@universe.local"))
@@ -47,6 +48,7 @@ class AuthenticatedRequestIdentityQueryAdapterTest {
         assertThat(identity.normalizedEmail()).isEqualTo("reader@universe.local");
         assertThat(identity.displayName()).isEqualTo("Reader");
         assertThat(identity.avatarUrl()).isEqualTo("/media/avatar");
+        assertThat(identity.publicHandle()).isEqualTo("reader_handle");
         assertThat(identity.status()).isEqualTo(UserStatus.ACTIVE);
         assertThat(identity.role()).isEqualTo(UserRole.USER);
         verify(repository).findRequestIdentityByEmail("reader@universe.local");
@@ -59,7 +61,7 @@ class AuthenticatedRequestIdentityQueryAdapterTest {
     }
 
     @Test
-    void requestIdentityContractContainsOnlyTheSixApprovedFields() {
+    void requestIdentityContractContainsOnlyTheApprovedFields() {
         assertThat(Arrays.stream(AuthenticatedRequestIdentity.class.getRecordComponents())
                 .map(component -> component.getName()))
                 .containsExactly(
@@ -67,6 +69,7 @@ class AuthenticatedRequestIdentityQueryAdapterTest {
                         "normalizedEmail",
                         "displayName",
                         "avatarUrl",
+                        "publicHandle",
                         "status",
                         "role"
                 );
@@ -78,6 +81,7 @@ class AuthenticatedRequestIdentityQueryAdapterTest {
                         "getNormalizedEmail",
                         "getDisplayName",
                         "getAvatarUrl",
+                        "getPublicHandle",
                         "getStatus",
                         "getRole"
                 );

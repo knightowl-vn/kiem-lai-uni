@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chi tiết báo cáo bài viết | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/admin/comment-report-detail.css}">
+</head>
+
+<body>
+
+    <div class="admin-layout">
+
+        <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+        <main class="admin-main">
+
+            <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+            <section class="dashboard-content">
+
+                <!-- Navigation & Eyebrow Bar -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <a th:href="@{/admin/community/reports}" class="admin-back-link" style="margin-bottom: 0;">
+                        ← Quay lại danh sách báo cáo
+                    </a>
+                    <span class="admin-eyebrow">COMMUNITY / BÁO CÁO</span>
+                </div>
+
+                <!-- Flash Success Message -->
+                <div th:if="${successMessage != null}" class="admin-form-success alert-success" role="alert" th:text="${successMessage}">
+                    Thông báo thành công
+                </div>
+
+                <!-- Flash Error Message -->
+                <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
+                    Thông báo lỗi
+                </div>
+
+                <!-- Two-Column Moderation Layout -->
+                <div class="comment-report-detail-two-col">
+
+                    <!-- Left Column: Report & Target Content -->
+                    <div class="comment-report-detail-col-main">
+
+                        <!-- 1. Report Overview -->
+                        <section class="comment-report-detail-card">
+                            <div class="comment-report-detail-card-header">
+                                <div class="comment-report-detail-card-title">
+                                    <span class="comment-report-detail-card-icon">⚐</span>
+                                    <h3>Thông tin báo cáo</h3>
+                                </div>
+                                <div class="comment-report-detail-badges">
+                                    <span class="admin-badge-pill" th:text="${report.reason.displayName()}">SPAM</span>
+                                    <span class="admin-badge-pill"
+                                          th:classappend="${report.status.name() == 'PENDING' ? ' status-pending' :
+                                                           (report.status.name() == 'RESOLVED_ACTION_TAKEN' ? ' status-action-taken' : ' status-resolved-no-action')}"
+                                          th:text="${report.status.name() == 'PENDING' ? 'Chờ xử lý' :
+                                                   (report.status.name() == 'RESOLVED_ACTION_TAKEN' ? 'Đã ẩn' : 'Đã bỏ qua')}">
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="report-meta-grid">
+                                <div>
+                                    <strong>Thời gian gửi:</strong>
+                                    <span th:text="${#temporals.format(report.createdAt(), 'dd/MM/yyyy HH:mm:ss')}">Time</span>
+                                </div>
+                                <div>
+                                    <strong>Người báo cáo:</strong>
+                                    <span th:text="${report.reporter.displayName}">Reporter</span>
+                                    <span th:if="${report.reporter.publicHandle != null}" class="text-muted" th:text="'(@' + ${report.reporter.publicHandle} + ')'"></span>
+                                </div>
+                                <div th:if="${report.resolver != null}">
+                                    <strong>Người xử lý:</strong>
+                                    <span th:text="${report.resolver.displayName}">Admin</span>
+                                    <span th:if="${report.resolvedAt != null}" th:text="' lúc ' + ${#temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm')}"></span>
+                                </div>
+                            </div>
+
+                            <div th:if="${report.description != null and !report.description.isBlank()}" style="margin-top: 15px;">
+                                <strong>Mô tả chi tiết từ người báo cáo:</strong>
+                                <p class="description-box" th:text="${report.description}"></p>
+                            </div>
+                        </section>
+
+                        <!-- 2. One Canonical "Bài viết bị báo cáo" Section -->
+                        <section class="comment-report-detail-card" style="margin-top: 20px;">
+                            <div class="comment-report-detail-card-header">
+                                <div class="comment-report-detail-card-title">
+                                    <span class="comment-report-detail-card-icon">📄</span>
+                                    <h3>Bài viết bị báo cáo</h3>
+                                </div>
+                                <div th:if="${report.postExists}">
+                                    <span class="admin-badge-pill"
+                                          th:classappend="${report.postStatus != null and report.postStatus.name() == 'PUBLISHED' ? ' status-published' :
+                                                           (report.postStatus != null and report.postStatus.name() == 'HIDDEN' ? ' status-hidden' : ' status-pending')}"
+                                          th:text="${report.postStatus != null ? (report.postStatus.name() == 'PUBLISHED' ? 'Đã xuất bản' : (report.postStatus.name() == 'HIDDEN' ? 'Đã ẩn' : (report.postStatus.name() == 'PENDING_REVIEW' ? 'Chờ duyệt' : (report.postStatus.name() == 'REJECTED' ? 'Bị từ chối' : report.postStatus.name())))) : 'Không rõ'}">
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div th:if="${report.postExists}"
+                                 th:with="captionMatches=${report.currentCaption != null and report.currentCaption.equals(report.reportedCaptionSnapshot)},
+                                          mediaMatches=${(report.evidenceMediaAssetId == null and report.imageMediaAssetId == null) or (report.evidenceMediaAssetId != null and report.evidenceMediaAssetId.equals(report.imageMediaAssetId))},
+                                          contentUnchanged=${captionMatches and mediaMatches}">
+
+                                <div class="report-meta-grid">
+                                    <div>
+                                        <strong>Tác giả:</strong>
+                                        <span th:if="${report.postAuthor != null}" th:text="${report.postAuthor.displayName}">Author</span>
+                                        <span th:if="${report.postAuthor != null and report.postAuthor.publicHandle != null}" class="text-muted" th:text="'(@' + ${report.postAuthor.publicHandle} + ')'"></span>
+                                    </div>
+                                    <div>
+                                        <strong>Phiên bản nội dung:</strong>
+                                        <span th:text="'v' + ${report.postContentVersion}">v1</span>
+                                    </div>
+                                </div>
+
+                                <!-- Unchanged Notification -->
+                                <div th:if="${contentUnchanged}" class="community-diff-unchanged-notice" style="margin-top: 15px;">
+                                    <span>✓</span>
+                                    <span>Nội dung hiện tại không thay đổi kể từ khi được báo cáo.</span>
+                                </div>
+
+                                <!-- Caption Presentation -->
+                                <!-- 1. When content unchanged or caption unchanged -->
+                                <div th:if="${captionMatches}" style="margin-top: 15px;">
+                                    <strong>Nội dung bài viết:</strong>
+                                    <p style="white-space: pre-wrap; background: rgba(0,0,0,0.03); padding: 12px; border-radius: 6px; margin-top: 6px;"
+                                       th:text="${report.currentCaption}">Current Caption</p>
+                                </div>
+
+                                <!-- 2. When caption changed: side-by-side comparison -->
+                                <div th:unless="${captionMatches}" class="community-diff-grid" style="margin-top: 15px;">
+                                    <div class="community-diff-box">
+                                        <div class="community-diff-label">Nội dung lúc bị báo cáo</div>
+                                        <blockquote class="reported-quote" style="margin: 0;" th:text="${report.reportedCaptionSnapshot}">Caption Snapshot</blockquote>
+                                    </div>
+                                    <div class="community-diff-box">
+                                        <div class="community-diff-label">Nội dung hiện tại</div>
+                                        <p style="white-space: pre-wrap; margin: 0;" th:text="${report.currentCaption}">Current Caption</p>
+                                    </div>
+                                </div>
+
+                                <!-- Media Presentation -->
+                                <!-- 1. When media unchanged: render single image -->
+                                <div th:if="${mediaMatches}">
+                                    <div th:if="${report.imageMediaAssetId != null or report.evidenceMediaAssetId != null}" style="margin-top: 15px;">
+                                        <strong>Ảnh bài viết:</strong>
+                                        <div>
+                                            <img th:src="@{/media/assets/{id}/content(id=${report.imageMediaAssetId != null ? report.imageMediaAssetId : report.evidenceMediaAssetId})}"
+                                                 alt="Ảnh bài viết"
+                                                 style="max-width: 320px; border-radius: 8px; margin-top: 8px; border: 1px solid var(--border);">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 2. When media changed: side-by-side comparison -->
+                                <div th:unless="${mediaMatches}" class="community-diff-grid" style="margin-top: 15px;">
+                                    <div class="community-diff-box">
+                                        <div class="community-diff-label">Ảnh lúc bị báo cáo</div>
+                                        <div th:if="${report.evidenceMediaAssetId != null}">
+                                            <img th:src="@{/media/assets/{id}/content(id=${report.evidenceMediaAssetId})}"
+                                                 alt="Ảnh lúc bị báo cáo"
+                                                 style="max-width: 100%; border-radius: 6px; border: 1px solid var(--border);">
+                                        </div>
+                                        <div th:unless="${report.evidenceMediaAssetId != null}" class="text-muted small">
+                                            (Không có ảnh khi gửi báo cáo)
+                                        </div>
+                                    </div>
+                                    <div class="community-diff-box">
+                                        <div class="community-diff-label">Ảnh hiện tại</div>
+                                        <div th:if="${report.imageMediaAssetId != null}">
+                                            <img th:src="@{/media/assets/{id}/content(id=${report.imageMediaAssetId})}"
+                                                 alt="Ảnh hiện tại"
+                                                 style="max-width: 100%; border-radius: 6px; border: 1px solid var(--border);">
+                                        </div>
+                                        <div th:unless="${report.imageMediaAssetId != null}" class="text-muted small">
+                                            (Bài viết hiện không có ảnh)
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Public Permalink Link -->
+                                <div style="margin-top: 18px;">
+                                    <a th:href="@{/admin/community/reports/{id}/context(id=${report.reportId})}"
+                                       class="admin-btn admin-btn-sm admin-btn-secondary"
+                                       target="_blank">
+                                        ↗ Xem bài viết trên trang công khai
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- When Target Post Does Not Exist (Deleted) -->
+                            <div th:unless="${report.postExists}">
+                                <div style="padding: 12px; background: #fff3cd; border-radius: 6px; margin-bottom: 15px;">
+                                    <span class="admin-badge-pill status-deleted">Bài viết không còn tồn tại trên hệ thống (đã bị xóa).</span>
+                                </div>
+                                <div style="margin-top: 12px;">
+                                    <strong>Nội dung lúc bị báo cáo:</strong>
+                                    <blockquote class="reported-quote" style="margin-top: 6px;" th:text="${report.reportedCaptionSnapshot}">Caption Snapshot</blockquote>
+                                </div>
+                                <div th:if="${report.evidenceMediaAssetId != null}" style="margin-top: 15px;">
+                                    <strong>Ảnh lúc bị báo cáo:</strong>
+                                    <div>
+                                        <img th:src="@{/media/assets/{id}/content(id=${report.evidenceMediaAssetId})}"
+                                             alt="Ảnh lúc bị báo cáo"
+                                             style="max-width: 320px; border-radius: 8px; margin-top: 8px; border: 1px solid var(--border);">
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- 3. Moderation History (Human-readable activity timeline) -->
+                        <section th:if="${!report.moderationHistory.isEmpty()}" class="comment-report-detail-card" style="margin-top: 20px;">
+                            <div class="comment-report-detail-card-header">
+                                <div class="comment-report-detail-card-title">
+                                    <span class="comment-report-detail-card-icon">⏱</span>
+                                    <h3>Lịch sử kiểm duyệt bài viết</h3>
+                                </div>
+                            </div>
+                            <div class="community-timeline">
+                                <div th:each="ev : ${report.moderationHistory}" class="community-timeline-item">
+                                    <div class="community-timeline-bullet"></div>
+                                    <div class="community-timeline-content">
+                                        <div class="community-timeline-header">
+                                            <strong class="community-timeline-actor" th:text="${ev.moderator.displayName}">Admin</strong>
+                                            <span class="community-timeline-action">
+                                                <th:block th:switch="${ev.action.name()}">
+                                                    <span th:case="'HIDE'">đã ẩn bài viết</span>
+                                                    <span th:case="'APPROVE'">đã duyệt bài viết</span>
+                                                    <span th:case="'REJECT'">đã từ chối bài viết</span>
+                                                    <span th:case="'RESTORE'">đã khôi phục bài viết</span>
+                                                    <span th:case="*" th:text="'đã xử lý (' + ${ev.action} + ')'"></span>
+                                                </th:block>
+                                            </span>
+                                            <span class="community-timeline-sep">·</span>
+                                            <time class="community-timeline-time" th:text="${#temporals.format(ev.createdAt(), 'HH:mm dd/MM/yyyy')}">14:32 04/10/2026</time>
+                                        </div>
+                                        <div th:if="${ev.reason != null and !ev.reason.isBlank()}" class="community-timeline-reason">
+                                            <span>Lý do: </span><span th:text="${ev.reason}">Lý do</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                    </div>
+
+                    <!-- Right Column: Moderation Action Panel & Tech Info -->
+                    <div class="comment-report-detail-sticky-panel">
+
+                        <!-- Action Decision -->
+                        <section class="comment-report-detail-card">
+                            <div class="comment-report-detail-card-header">
+                                <div class="comment-report-detail-card-title">
+                                    <span class="comment-report-detail-card-icon">⚖</span>
+                                    <h3>Quyết định xử lý</h3>
+                                </div>
+                            </div>
+
+                            <!-- If PENDING: show actions -->
+                            <div th:if="${report.status.name() == 'PENDING'}">
+                                <p class="text-muted small" style="margin-top: 0;">Chọn hành động xử lý báo cáo này. Nếu ẩn bài viết, trạng thái bài viết sẽ chuyển sang đã ẩn.</p>
+
+                                <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 15px;">
+
+                                    <!-- Form Ẩn bài viết -->
+                                    <div th:if="${report.postExists and report.postStatus != null and report.postStatus.isPublished()}"
+                                         style="padding: 15px; border: 1px solid #f5c6cb; border-radius: 8px; background: #fffbfa;">
+                                         <h4 style="color: #721c24; margin: 0 0 6px;">Ẩn bài viết</h4>
+                                        <p class="small text-muted" style="margin-bottom: 10px;">Bài viết sẽ bị ẩn khỏi newsfeed và profile công khai.</p>
+                                        <form method="post" th:action="@{/admin/community/reports/{id}/resolve(id=${report.reportId})}">
+                                            <input type="hidden" name="action" value="CONTENT_HIDDEN">
+                                            <div class="admin-field" style="margin-bottom: 10px;">
+                                                <label for="hide-reason" class="small">Lý do xử lý (tùy chọn):</label>
+                                                <input type="text" id="hide-reason" name="reason" class="admin-input" placeholder="Ví dụ: Vi phạm quy định spam/quấy rối">
+                                            </div>
+                                            <button type="submit" class="admin-btn admin-btn-danger" style="width: 100%;"
+                                                    onclick="return confirm('Bạn có chắc chắn muốn ẩn bài viết này không?');">
+                                                Ẩn bài viết
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                    <!-- Form Bỏ qua báo cáo -->
+                                    <div style="padding: 15px; border: 1px solid #d6d8db; border-radius: 8px; background: #fafafa;">
+                                        <h4 style="margin: 0 0 6px;">Bỏ qua báo cáo</h4>
+                                        <p class="small text-muted" style="margin-bottom: 10px;">Bài viết không vi phạm hoặc báo cáo không hợp lệ. Trạng thái bài viết được giữ nguyên.</p>
+                                        <form method="post" th:action="@{/admin/community/reports/{id}/resolve(id=${report.reportId})}">
+                                            <input type="hidden" name="action" value="NO_ACTION">
+                                            <div class="admin-field" style="margin-bottom: 10px;">
+                                                <label for="noaction-reason" class="small">Lý do đóng báo cáo (tùy chọn):</label>
+                                                <input type="text" id="noaction-reason" name="reason" class="admin-input" placeholder="Ví dụ: Không đủ bằng chứng vi phạm">
+                                            </div>
+                                            <button type="submit" class="admin-btn admin-btn-secondary" style="width: 100%;"
+                                                    onclick="return confirm('Bạn có chắc chắn muốn bỏ qua báo cáo này không?');">
+                                                Bỏ qua báo cáo
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            <!-- If Terminal: show outcome -->
+                            <div th:unless="${report.status.name() == 'PENDING'}">
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                    <div>
+                                        <span class="admin-badge-pill"
+                                              th:classappend="${report.status.name() == 'RESOLVED_ACTION_TAKEN' ? ' status-action-taken' : ' status-resolved-no-action'}"
+                                              th:text="${report.status.name() == 'RESOLVED_ACTION_TAKEN' ? 'Đã ẩn bài viết' : 'Đã bỏ qua báo cáo'}">
+                                        </span>
+                                    </div>
+                                    <p class="text-muted small" style="margin: 4px 0 0;">
+                                        Xử lý bởi <strong th:text="${report.resolver != null ? report.resolver.displayName : 'Admin'}">Admin</strong>
+                                        <span th:if="${report.resolvedAt != null}" th:text="' vào ' + ${#temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm')}"></span>
+                                    </p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Collapsed Technical Information Accordion -->
+                        <details class="admin-tech-details">
+                            <summary>Thông tin kỹ thuật</summary>
+                            <div class="admin-tech-details-content">
+                                <div class="admin-tech-row">
+                                    <span class="admin-tech-label">Mã báo cáo:</span>
+                                    <code class="comment-report-detail-code" th:text="${report.reportId}">UUID</code>
+                                </div>
+                                <div class="admin-tech-row">
+                                    <span class="admin-tech-label">Mã bài viết:</span>
+                                    <code class="comment-report-detail-code" th:text="${report.targetPostId}">UUID</code>
+                                </div>
+                                <div class="admin-tech-row">
+                                    <span class="admin-tech-label">Mã người báo cáo:</span>
+                                    <code class="comment-report-detail-code" th:text="${report.reporter.userId}">UUID</code>
+                                </div>
+                                <div th:if="${report.postAuthor != null}" class="admin-tech-row">
+                                    <span class="admin-tech-label">Mã tác giả bài viết:</span>
+                                    <code class="comment-report-detail-code" th:text="${report.postAuthor.userId}">UUID</code>
+                                </div>
+                                <div th:if="${report.evidenceMediaAssetId != null}" class="admin-tech-row">
+                                    <span class="admin-tech-label">Mã ảnh bằng chứng:</span>
+                                    <code class="comment-report-detail-code" th:text="${report.evidenceMediaAssetId}">UUID</code>
+                                </div>
+                                <div th:if="${report.imageMediaAssetId != null}" class="admin-tech-row">
+                                    <span class="admin-tech-label">Mã ảnh bài viết:</span>
+                                    <code class="comment-report-detail-code" th:text="${report.imageMediaAssetId}">UUID</code>
+                                </div>
+                            </div>
+                        </details>
+
+                    </div>
+
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+</body>
+</html>

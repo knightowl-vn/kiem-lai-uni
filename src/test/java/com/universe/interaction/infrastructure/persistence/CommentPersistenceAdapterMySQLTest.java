@@ -3,6 +3,7 @@ package com.universe.interaction.infrastructure.persistence;
 import com.universe.interaction.application.ports.CommentSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.test.TestDatabaseSupport;
@@ -55,6 +56,7 @@ class CommentPersistenceAdapterMySQLTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -72,6 +74,7 @@ class CommentPersistenceAdapterMySQLTest {
     void cleanData() {
         jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0;");
         jdbcTemplate.execute("DELETE FROM interaction_comments;");
+        jdbcTemplate.execute("DELETE FROM interaction_reactions;");
         jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1;");
     }
 
@@ -247,15 +250,15 @@ class CommentPersistenceAdapterMySQLTest {
         Comment root2 = Comment.createRoot(root2Id, target2, authorId, "Target 2 active root", Instant.parse("2026-09-16T10:00:00Z"));
         adapter.save(root2);
 
-        CommentSlice sliceTarget1 = adapter.findActiveRoots(target1, 0, 10);
+        CommentSlice sliceTarget1 = adapter.findActiveRoots(target1, CommentSortMode.FEATURED, 0, 10);
         assertThat(sliceTarget1.items()).hasSize(1);
         assertThat(sliceTarget1.items().get(0).getId()).isEqualTo(root1Id);
 
-        CommentSlice sliceSameTypeDiffId = adapter.findActiveRoots(sameTypeDiffIdTarget, 0, 10);
+        CommentSlice sliceSameTypeDiffId = adapter.findActiveRoots(sameTypeDiffIdTarget, CommentSortMode.FEATURED, 0, 10);
         assertThat(sliceSameTypeDiffId.items()).hasSize(1);
         assertThat(sliceSameTypeDiffId.items().get(0).getId()).isEqualTo(sameTypeDiffIdRootId);
 
-        CommentSlice sliceTarget2 = adapter.findActiveRoots(target2, 0, 10);
+        CommentSlice sliceTarget2 = adapter.findActiveRoots(target2, CommentSortMode.FEATURED, 0, 10);
         assertThat(sliceTarget2.items()).hasSize(1);
         assertThat(sliceTarget2.items().get(0).getId()).isEqualTo(root2Id);
     }
@@ -282,7 +285,7 @@ class CommentPersistenceAdapterMySQLTest {
         adapter.save(Comment.createRoot(idTieHigh, target, authorId, "Tie High", t2));
         adapter.save(Comment.createRoot(idNewest, target, authorId, "Newest", t3));
 
-        CommentSlice slice = adapter.findActiveRoots(target, 0, 10);
+        CommentSlice slice = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 0, 10);
 
         // Expected order:
         // 1. idNewest (t3)
@@ -291,6 +294,221 @@ class CommentPersistenceAdapterMySQLTest {
         // 4. idOld     (t1)
         List<UUID> orderedIds = slice.items().stream().map(Comment::getId).toList();
         assertThat(orderedIds).containsExactly(idNewest, idTieHigh, idTieLow, idOld);
+    }
+
+    // =========================================================================
+    // 2.1 FEATURED & NEWEST SORTING WITH REAL ENGAGEMENT
+    // =========================================================================
+
+    private void insertReaction(UUID commentId, UUID userId) {
+        jdbcTemplate.update(
+                "INSERT INTO interaction_reactions (id, user_id, target_type, target_id, reaction_type, created_at, updated_at) " +
+                        "VALUES (?, ?, 'COMMENT', ?, 'LIKE', NOW(), NOW())",
+                UUID.randomUUID().toString(),
+                userId.toString(),
+                commentId.toString()
+        );
+    }
+
+    @Test
+    @DisplayName("Should sort roots by FEATURED engagement (reactions + replies) and NEWEST chronologically")
+    void shouldSortFeaturedAndNewestRoots() {
+        CommentTarget target = CommentTarget.communityPost(UUID.randomUUID());
+        UUID authorId = UUID.randomUUID();
+
+        Instant t1 = Instant.parse("2026-09-16T10:00:00Z");
+        Instant t2 = Instant.parse("2026-09-16T11:00:00Z");
+        Instant t3 = Instant.parse("2026-09-16T12:00:00Z");
+        Instant t4 = Instant.parse("2026-09-16T13:00:00Z");
+
+        UUID idRootA = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        UUID idRootB = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        UUID idRootC = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        UUID idRootD = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        UUID idRootE = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+        Comment rootA = adapter.save(Comment.createRoot(idRootA, target, authorId, "Root A", t1));
+        Comment rootB = adapter.save(Comment.createRoot(idRootB, target, authorId, "Root B", t2));
+        Comment rootC = adapter.save(Comment.createRoot(idRootC, target, authorId, "Root C", t3));
+        Comment rootD = adapter.save(Comment.createRoot(idRootD, target, authorId, "Root D", t4));
+        Comment rootE = adapter.save(Comment.createRoot(idRootE, target, authorId, "Root E", t4));
+
+        // Root A: 2 reactions + 2 replies = score 4
+        insertReaction(idRootA, UUID.randomUUID());
+        insertReaction(idRootA, UUID.randomUUID());
+        adapter.save(Comment.createReply(UUID.randomUUID(), rootA, authorId, "Reply A1", t1.plusSeconds(60)));
+        adapter.save(Comment.createReply(UUID.randomUUID(), rootA, authorId, "Reply A2", t1.plusSeconds(120)));
+
+        // Root B: 0 reactions + 3 replies = score 3
+        adapter.save(Comment.createReply(UUID.randomUUID(), rootB, authorId, "Reply B1", t2.plusSeconds(60)));
+        adapter.save(Comment.createReply(UUID.randomUUID(), rootB, authorId, "Reply B2", t2.plusSeconds(120)));
+        adapter.save(Comment.createReply(UUID.randomUUID(), rootB, authorId, "Reply B3", t2.plusSeconds(180)));
+
+        // Root C: 1 reaction + 0 replies = score 1
+        insertReaction(idRootC, UUID.randomUUID());
+
+        // Roots D and E: score 0, timestamp t4 (D > E in tie-breaker)
+
+        // Test FEATURED sorting
+        CommentSlice featuredSlice = adapter.findActiveRoots(target, CommentSortMode.FEATURED, 0, 10);
+        List<UUID> featuredIds = featuredSlice.items().stream().map(Comment::getId).toList();
+        assertThat(featuredIds).containsExactly(idRootA, idRootB, idRootC, idRootD, idRootE);
+
+        // Test NEWEST sorting
+        CommentSlice newestSlice = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 0, 10);
+        List<UUID> newestIds = newestSlice.items().stream().map(Comment::getId).toList();
+        assertThat(newestIds).containsExactly(idRootD, idRootE, idRootC, idRootB, idRootA);
+    }
+
+    @Test
+    @DisplayName("FEATURED must exclude tombstone replies and reply reactions from root score")
+    void shouldExcludeTombstoneRepliesAndReplyReactionsFromFeaturedScore() {
+        CommentTarget target = CommentTarget.wikiArticle(UUID.randomUUID());
+        UUID authorId = UUID.randomUUID();
+
+        Instant t1 = Instant.parse("2026-09-16T10:00:00Z");
+        Instant t2 = Instant.parse("2026-09-16T11:00:00Z");
+
+        UUID idRootA = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        UUID idRootB = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+        Comment rootA = adapter.save(Comment.createRoot(idRootA, target, authorId, "Root A", t1));
+        Comment rootB = adapter.save(Comment.createRoot(idRootB, target, authorId, "Root B", t2));
+
+        // Root A has:
+        // - 1 active reaction on Root A
+        // - 1 active reply
+        // - 2 tombstoned/deleted replies
+        // - 3 reactions on the reply (must NOT count towards Root A score)
+        insertReaction(idRootA, UUID.randomUUID());
+        UUID activeReplyId = UUID.randomUUID();
+        Comment activeReply = adapter.save(Comment.createReply(activeReplyId, rootA, authorId, "Active reply", t1.plusSeconds(60)));
+        insertReaction(activeReplyId, UUID.randomUUID());
+        insertReaction(activeReplyId, UUID.randomUUID());
+        insertReaction(activeReplyId, UUID.randomUUID());
+
+        UUID deletedReply1Id = UUID.randomUUID();
+        Comment deletedReply1 = adapter.save(Comment.createReply(deletedReply1Id, rootA, authorId, "To delete 1", t1.plusSeconds(70)));
+        deletedReply1.delete(t1.plusSeconds(80));
+        adapter.save(deletedReply1);
+
+        UUID deletedReply2Id = UUID.randomUUID();
+        Comment deletedReply2 = adapter.save(Comment.createReply(deletedReply2Id, rootA, authorId, "To delete 2", t1.plusSeconds(90)));
+        deletedReply2.delete(t1.plusSeconds(100));
+        adapter.save(deletedReply2);
+
+        // Score of Root A = 1 (reaction) + 1 (active reply) = 2.
+
+        // Root B has:
+        // - 3 active reactions on Root B
+        // - 0 replies
+        // Score of Root B = 3.
+        insertReaction(idRootB, UUID.randomUUID());
+        insertReaction(idRootB, UUID.randomUUID());
+        insertReaction(idRootB, UUID.randomUUID());
+
+        CommentSlice featuredSlice = adapter.findActiveRoots(target, CommentSortMode.FEATURED, 0, 10);
+        List<UUID> featuredIds = featuredSlice.items().stream().map(Comment::getId).toList();
+        // Root B (score 3) must rank BEFORE Root A (score 2)
+        assertThat(featuredIds).containsExactly(idRootB, idRootA);
+    }
+
+    @Test
+    @DisplayName("FEATURED ranking must occur globally before pagination slicing")
+    void shouldProveGlobalRankingBeforePaginationSlicing() {
+        CommentTarget target = CommentTarget.novelChapter(UUID.randomUUID());
+        UUID authorId = UUID.randomUUID();
+
+        Instant base = Instant.parse("2026-09-16T10:00:00Z");
+
+        // Create 12 roots:
+        // Root 1 created at t=0, has 10 reactions (score 10)
+        // Root 2 created at t=1, has 9 reactions (score 9)
+        // Roots 3..12 created at t=2..11 with 0 reactions
+        UUID idRoot1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID idRoot2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+
+        adapter.save(Comment.createRoot(idRoot1, target, authorId, "Root 1 (Score 10)", base));
+        for (int r = 0; r < 10; r++) {
+            insertReaction(idRoot1, UUID.randomUUID());
+        }
+
+        adapter.save(Comment.createRoot(idRoot2, target, authorId, "Root 2 (Score 9)", base.plusSeconds(60)));
+        for (int r = 0; r < 9; r++) {
+            insertReaction(idRoot2, UUID.randomUUID());
+        }
+
+        for (int i = 3; i <= 12; i++) {
+            UUID id = UUID.fromString(String.format("00000000-0000-0000-0000-0000000000%02d", i));
+            adapter.save(Comment.createRoot(id, target, authorId, "Root " + i, base.plusSeconds(i * 60)));
+        }
+
+        // Query Page 0, size 5:
+        // Global ranking must place Root 1 (score 10) and Root 2 (score 9) on Page 0,
+        // followed by Root 12, Root 11, Root 10 (score 0, ordered by newest createdAt DESC).
+        CommentSlice page0 = adapter.findActiveRoots(target, CommentSortMode.FEATURED, 0, 5);
+        assertThat(page0.page()).isEqualTo(0);
+        assertThat(page0.size()).isEqualTo(5);
+        assertThat(page0.hasNext()).isTrue();
+
+        List<UUID> page0Ids = page0.items().stream().map(Comment::getId).toList();
+        UUID idRoot12 = UUID.fromString("00000000-0000-0000-0000-000000000012");
+        UUID idRoot11 = UUID.fromString("00000000-0000-0000-0000-000000000011");
+        UUID idRoot10 = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        assertThat(page0Ids).containsExactly(idRoot1, idRoot2, idRoot12, idRoot11, idRoot10);
+
+        // Query Page 1, size 5:
+        // Must contain Roots 9, 8, 7, 6, 5
+        CommentSlice page1 = adapter.findActiveRoots(target, CommentSortMode.FEATURED, 1, 5);
+        assertThat(page1.page()).isEqualTo(1);
+        assertThat(page1.size()).isEqualTo(5);
+        assertThat(page1.hasNext()).isTrue();
+
+        List<UUID> page1Ids = page1.items().stream().map(Comment::getId).toList();
+        UUID idRoot9 = UUID.fromString("00000000-0000-0000-0000-000000000009");
+        UUID idRoot8 = UUID.fromString("00000000-0000-0000-0000-000000000008");
+        UUID idRoot7 = UUID.fromString("00000000-0000-0000-0000-000000000007");
+        UUID idRoot6 = UUID.fromString("00000000-0000-0000-0000-000000000006");
+        UUID idRoot5 = UUID.fromString("00000000-0000-0000-0000-000000000005");
+        assertThat(page1Ids).containsExactly(idRoot9, idRoot8, idRoot7, idRoot6, idRoot5);
+
+        // Contrast proof: in NEWEST sort mode, the oldest roots (Root 1 and Root 2) DO NOT appear on page 0:
+        CommentSlice newestPage0 = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 0, 5);
+        List<UUID> newestPage0Ids = newestPage0.items().stream().map(Comment::getId).toList();
+        assertThat(newestPage0Ids).containsExactly(idRoot12, idRoot11, idRoot10, idRoot9, idRoot8);
+        assertThat(newestPage0Ids).doesNotContain(idRoot1, idRoot2);
+    }
+
+    @Test
+    @DisplayName("Should strictly isolate targets under both FEATURED and NEWEST sort modes")
+    void shouldStrictlyIsolateTargetsUnderBothSortModes() {
+        CommentTarget commTarget = CommentTarget.communityPost(UUID.randomUUID());
+        CommentTarget wikiTarget = CommentTarget.wikiArticle(UUID.randomUUID());
+        CommentTarget novelTarget = CommentTarget.novelChapter(UUID.randomUUID());
+        UUID authorId = UUID.randomUUID();
+
+        UUID commRootId = UUID.randomUUID();
+        UUID wikiRootId = UUID.randomUUID();
+        UUID novelRootId = UUID.randomUUID();
+
+        adapter.save(Comment.createRoot(commRootId, commTarget, authorId, "Community root", Instant.now()));
+        adapter.save(Comment.createRoot(wikiRootId, wikiTarget, authorId, "Wiki root", Instant.now()));
+        adapter.save(Comment.createRoot(novelRootId, novelTarget, authorId, "Novel root", Instant.now()));
+
+        insertReaction(commRootId, UUID.randomUUID());
+        insertReaction(wikiRootId, UUID.randomUUID());
+        insertReaction(novelRootId, UUID.randomUUID());
+
+        for (CommentSortMode mode : List.of(CommentSortMode.FEATURED, CommentSortMode.NEWEST)) {
+            CommentSlice commSlice = adapter.findActiveRoots(commTarget, mode, 0, 10);
+            assertThat(commSlice.items()).extracting(Comment::getId).containsExactly(commRootId);
+
+            CommentSlice wikiSlice = adapter.findActiveRoots(wikiTarget, mode, 0, 10);
+            assertThat(wikiSlice.items()).extracting(Comment::getId).containsExactly(wikiRootId);
+
+            CommentSlice novelSlice = adapter.findActiveRoots(novelTarget, mode, 0, 10);
+            assertThat(novelSlice.items()).extracting(Comment::getId).containsExactly(novelRootId);
+        }
     }
 
     // =========================================================================
@@ -311,7 +529,7 @@ class CommentPersistenceAdapterMySQLTest {
         }
 
         // Page 0 (size 2) -> roots 5, 4; hasNext = true
-        CommentSlice page0 = adapter.findActiveRoots(target, 0, 2);
+        CommentSlice page0 = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 0, 2);
         assertThat(page0.page()).isEqualTo(0);
         assertThat(page0.size()).isEqualTo(2);
         assertThat(page0.hasNext()).isTrue();
@@ -320,7 +538,7 @@ class CommentPersistenceAdapterMySQLTest {
         assertThat(page0.items().get(1).getBody()).isEqualTo("Root 4");
 
         // Page 1 (size 2) -> roots 3, 2; hasNext = true
-        CommentSlice page1 = adapter.findActiveRoots(target, 1, 2);
+        CommentSlice page1 = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 1, 2);
         assertThat(page1.page()).isEqualTo(1);
         assertThat(page1.size()).isEqualTo(2);
         assertThat(page1.hasNext()).isTrue();
@@ -329,7 +547,7 @@ class CommentPersistenceAdapterMySQLTest {
         assertThat(page1.items().get(1).getBody()).isEqualTo("Root 2");
 
         // Page 2 (size 2) -> root 1; hasNext = false (last page)
-        CommentSlice page2 = adapter.findActiveRoots(target, 2, 2);
+        CommentSlice page2 = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 2, 2);
         assertThat(page2.page()).isEqualTo(2);
         assertThat(page2.size()).isEqualTo(2);
         assertThat(page2.hasNext()).isFalse();
@@ -337,7 +555,7 @@ class CommentPersistenceAdapterMySQLTest {
         assertThat(page2.items().get(0).getBody()).isEqualTo("Root 1");
 
         // Page 3 (size 2) -> beyond total items -> empty list; hasNext = false
-        CommentSlice page3 = adapter.findActiveRoots(target, 3, 2);
+        CommentSlice page3 = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 3, 2);
         assertThat(page3.page()).isEqualTo(3);
         assertThat(page3.size()).isEqualTo(2);
         assertThat(page3.hasNext()).isFalse();
@@ -349,19 +567,19 @@ class CommentPersistenceAdapterMySQLTest {
     void shouldValidatePaginationArguments() {
         CommentTarget target = CommentTarget.novelChapter(UUID.randomUUID());
 
-        assertThatThrownBy(() -> adapter.findActiveRoots(null, 0, 10))
+        assertThatThrownBy(() -> adapter.findActiveRoots(null, CommentSortMode.FEATURED, 0, 10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("CommentTarget cannot be null");
 
-        assertThatThrownBy(() -> adapter.findActiveRoots(target, -1, 10))
+        assertThatThrownBy(() -> adapter.findActiveRoots(target, CommentSortMode.FEATURED, -1, 10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page index cannot be negative");
 
-        assertThatThrownBy(() -> adapter.findActiveRoots(target, 0, 0))
+        assertThatThrownBy(() -> adapter.findActiveRoots(target, CommentSortMode.FEATURED, 0, 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page size must be greater than zero");
 
-        assertThatThrownBy(() -> adapter.findActiveRoots(target, 0, -5))
+        assertThatThrownBy(() -> adapter.findActiveRoots(target, CommentSortMode.FEATURED, 0, -5))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page size must be greater than zero");
     }
@@ -601,6 +819,206 @@ class CommentPersistenceAdapterMySQLTest {
         assertThat(finalComment.isDeleted()).isTrue();
         assertThat(finalComment.getStatus()).isEqualTo(CommentStatus.DELETED);
         assertThat(finalComment.getBody()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should fail fast with IllegalTransactionStateException when lockAllCommentsByTarget is called without an active transaction")
+    void shouldFailFastWhenLockAllCommentsByTargetCalledWithoutActiveTransaction() {
+        UUID targetId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> adapter.lockAllCommentsByTarget(com.universe.interaction.domain.CommentTargetType.COMMUNITY_POST, targetId))
+                .isInstanceOf(IllegalTransactionStateException.class)
+                .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
+    }
+
+    @Test
+    @DisplayName("Should return all comments for target locked in canonical id ASC order")
+    void shouldLockAllCommentsByTargetInAscendingOrder() {
+        UUID targetId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.communityPost(targetId);
+        UUID authorId = UUID.randomUUID();
+
+        // Deliberately create timestamps in reverse order compared to UUID string order
+        UUID id1 = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID id2 = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID id3 = UUID.fromString("33333333-3333-3333-3333-333333333333");
+
+        Instant t1 = Instant.parse("2026-09-16T10:10:00Z"); // id1 created latest
+        Instant t2 = Instant.parse("2026-09-16T10:05:00Z"); // id2 created middle
+        Instant t3 = Instant.parse("2026-09-16T10:00:00Z"); // id3 created earliest
+
+        Comment root3 = Comment.createRoot(id3, target, authorId, "Root 3", t3);
+        adapter.save(root3);
+
+        Comment root1 = Comment.createRoot(id1, target, authorId, "Root 1", t1);
+        adapter.save(root1);
+
+        Comment reply2 = Comment.createReply(id2, root3, authorId, "Reply 2", t2);
+        adapter.save(reply2);
+
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        List<Comment> locked = txTemplate.execute(status ->
+                adapter.lockAllCommentsByTarget(com.universe.interaction.domain.CommentTargetType.COMMUNITY_POST, targetId)
+        );
+
+        assertThat(locked).hasSize(3);
+        assertThat(locked.get(0).getId()).isEqualTo(id1);
+        assertThat(locked.get(1).getId()).isEqualTo(id2);
+        assertThat(locked.get(2).getId()).isEqualTo(id3);
+    }
+
+    @Test
+    @DisplayName("Should physically acquire locks in ascending ID order during multi-row lockAllCommentsByTarget")
+    void shouldPhysicallyAcquireLocksInAscendingIdOrder() throws Exception {
+        UUID targetId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.communityPost(targetId);
+        UUID authorId = UUID.randomUUID();
+
+        UUID lowerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID higherId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+
+        // Seed lowerId with LATER timestamp and higherId with EARLIER timestamp
+        // to prove physical acquisition follows canonical id ASC order (not createdAt or insertion order)
+        Comment rootHigher = Comment.createRoot(higherId, target, authorId, "Higher ID Root", Instant.parse("2026-09-16T10:00:00Z"));
+        adapter.save(rootHigher);
+
+        Comment rootLower = Comment.createRoot(lowerId, target, authorId, "Lower ID Root", Instant.parse("2026-09-16T10:30:00Z"));
+        adapter.save(rootLower);
+
+        CountDownLatch holdLockedLowerIdLatch = new CountDownLatch(1);
+        CountDownLatch bulkAttemptingLatch = new CountDownLatch(1);
+        CountDownLatch probeFinishedLatch = new CountDownLatch(1);
+        AtomicBoolean higherIdProbeAcquired = new AtomicBoolean(false);
+
+        TransactionTemplate txHold = new TransactionTemplate(transactionManager);
+        txHold.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        TransactionTemplate txBulk = new TransactionTemplate(transactionManager);
+        txBulk.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        TransactionTemplate txProbe = new TransactionTemplate(transactionManager);
+        txProbe.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try {
+            // Thread 1: Tx HOLD acquires exclusive lock on lowerId
+            Future<?> fHold = executor.submit(() -> {
+                txHold.execute(status -> {
+                    Comment lockedLower = adapter.findByIdForUpdate(lowerId).orElseThrow();
+                    holdLockedLowerIdLatch.countDown();
+                    try {
+                        probeFinishedLatch.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return lockedLower;
+                });
+            });
+
+            assertThat(holdLockedLowerIdLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // Thread 2: Tx BULK calls lockAllCommentsByTarget (which scans via idx_interaction_comments_target_id in id ASC)
+            // It encounters lowerId first, and BLOCKS on Tx HOLD. It has NOT yet reached or locked higherId!
+            Future<?> fBulk = executor.submit(() -> {
+                bulkAttemptingLatch.countDown();
+                txBulk.execute(status ->
+                        adapter.lockAllCommentsByTarget(com.universe.interaction.domain.CommentTargetType.COMMUNITY_POST, targetId)
+                );
+            });
+
+            assertThat(bulkAttemptingLatch.await(5, TimeUnit.SECONDS)).isTrue();
+            // Allow brief pause to ensure Tx BULK is waiting inside InnoDB for lowerId
+            Thread.sleep(200);
+
+            // Thread 3: Tx PROBE attempts to acquire findByIdForUpdate on higherId
+            // Because Tx BULK is blocked on lowerId and has not yet acquired higherId, Tx PROBE succeeds immediately!
+            Future<?> fProbe = executor.submit(() -> {
+                txProbe.execute(status -> {
+                    Optional<Comment> probedHigher = adapter.findByIdForUpdate(higherId);
+                    if (probedHigher.isPresent()) {
+                        higherIdProbeAcquired.set(true);
+                    }
+                    return null;
+                });
+            });
+
+            fProbe.get(2, TimeUnit.SECONDS);
+            assertThat(higherIdProbeAcquired.get()).isTrue();
+
+            // Release Tx HOLD so Tx BULK can complete
+            probeFinishedLatch.countDown();
+
+            fHold.get(5, TimeUnit.SECONDS);
+            fBulk.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("Should verify EXPLAIN plan forces idx_interaction_comments_target_id and eliminates filesort")
+    void shouldVerifyExplainPlanForcesTargetIdIndexWithoutFilesort() {
+        UUID targetId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.communityPost(targetId);
+        UUID authorId = UUID.randomUUID();
+
+        // Seed rows with inverted timestamps vs ID order
+        for (int i = 1; i <= 5; i++) {
+            UUID id = UUID.fromString(String.format("%d%d%d%d%d%d%d%d-%d%d%d%d-%d%d%d%d-%d%d%d%d-%d%d%d%d%d%d%d%d%d%d%d%d", i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i));
+            Instant ts = Instant.parse("2026-09-16T10:00:00Z").minusSeconds(i * 60);
+            adapter.save(Comment.createRoot(id, target, authorId, "Root " + i, ts));
+        }
+
+        // 1. Without FORCE INDEX (optimizer choice)
+        List<java.util.Map<String, Object>> unforcedExplain = jdbcTemplate.queryForList(
+                "EXPLAIN SELECT * FROM interaction_comments WHERE target_type = ? AND target_id = ? ORDER BY id ASC FOR UPDATE",
+                "COMMUNITY_POST", targetId.toString()
+        );
+        System.out.println("=== UNFORCED EXPLAIN OUTPUT ===");
+        unforcedExplain.forEach(System.out::println);
+
+        // 2. Production query with FORCE INDEX (idx_interaction_comments_target_id)
+        List<java.util.Map<String, Object>> forcedExplain = jdbcTemplate.queryForList(
+                "EXPLAIN SELECT * FROM interaction_comments FORCE INDEX (idx_interaction_comments_target_id) WHERE target_type = ? AND target_id = ? ORDER BY id ASC FOR UPDATE",
+                "COMMUNITY_POST", targetId.toString()
+        );
+        System.out.println("=== FORCED EXPLAIN OUTPUT ===");
+        forcedExplain.forEach(System.out::println);
+
+        assertThat(forcedExplain).isNotEmpty();
+        java.util.Map<String, Object> row = forcedExplain.get(0);
+        assertThat(row.get("key")).isEqualTo("idx_interaction_comments_target_id");
+        String extra = (String) row.get("Extra");
+        if (extra != null) {
+            assertThat(extra).doesNotContain("Using filesort");
+        }
+    }
+
+    @Test
+    @DisplayName("Audit indexes and EXPLAIN access path for FEATURED query")
+    void shouldAuditIndexesAndExplainForFeaturedQuery() {
+        System.out.println("=== SHOW INDEX FROM interaction_comments ===");
+        jdbcTemplate.queryForList("SHOW INDEX FROM interaction_comments")
+                .forEach(row -> System.out.println("comments index: " + row.get("Key_name") + " | col: " + row.get("Column_name") + " | seq: " + row.get("Seq_in_index")));
+
+        System.out.println("=== SHOW INDEX FROM interaction_reactions ===");
+        jdbcTemplate.queryForList("SHOW INDEX FROM interaction_reactions")
+                .forEach(row -> System.out.println("reactions index: " + row.get("Key_name") + " | col: " + row.get("Column_name") + " | seq: " + row.get("Seq_in_index")));
+
+        System.out.println("=== EXPLAIN FEATURED QUERY ===");
+        List<java.util.Map<String, Object>> explainRows = jdbcTemplate.queryForList(
+                "EXPLAIN SELECT c.id FROM interaction_comments c " +
+                "WHERE c.target_type = 'COMMUNITY_POST' AND c.target_id = '00000000-0000-0000-0000-000000000001' " +
+                "  AND c.parent_comment_id IS NULL AND c.status = 'ACTIVE' " +
+                "ORDER BY ( " +
+                "  (SELECT COUNT(r.id) FROM interaction_reactions r WHERE r.target_type = 'COMMENT' AND r.target_id = c.id) + " +
+                "  (SELECT COUNT(rep.id) FROM interaction_comments rep WHERE rep.thread_root_comment_id = c.id AND rep.status = 'ACTIVE') " +
+                ") DESC, c.created_at DESC, c.id DESC LIMIT 10"
+        );
+        explainRows.forEach(System.out::println);
+        assertThat(explainRows).isNotEmpty();
     }
 
     // =========================================================================

@@ -3,63 +3,51 @@ package com.universe.identity.application.oauth;
 import com.universe.identity.application.ports.UserRepositoryPort;
 import com.universe.identity.domain.AuthProvider;
 import com.universe.identity.domain.Email;
+import com.universe.identity.domain.PublicHandleGenerator;
 import com.universe.identity.domain.User;
+import com.universe.identity.domain.exceptions.DuplicatePublicHandleException;
 import com.universe.shared.id.IdGeneratorPort;
-import com.universe.shared.messaging.OutboxPort;
 import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
 public class GoogleOAuthUserService {
 
-    private static final String AGGREGATE_TYPE =
-            "User";
-
-    private static final String SOURCE_MODULE =
-            "Identity";
-
-    private final UserRepositoryPort
-            userRepository;
-
-    private final IdGeneratorPort
-            idGenerator;
-
-    private final ClockPort
-            clock;
-
-    private final OutboxPort
-            outboxPort;
+    private final UserRepositoryPort userRepository;
+    private final IdGeneratorPort idGenerator;
+    private final ClockPort clock;
+    private final GoogleOAuthNewUserAttemptExecutor newUserAttemptExecutor;
+    private final GoogleOAuthExistingUserExecutor existingUserExecutor;
 
     public GoogleOAuthUserService(
             UserRepositoryPort userRepository,
             IdGeneratorPort idGenerator,
             ClockPort clock,
-            OutboxPort outboxPort
+            GoogleOAuthNewUserAttemptExecutor newUserAttemptExecutor,
+            GoogleOAuthExistingUserExecutor existingUserExecutor
     ) {
         this.userRepository =
-                userRepository;
-
+                Objects.requireNonNull(userRepository, "userRepository cannot be null");
         this.idGenerator =
-                idGenerator;
-
+                Objects.requireNonNull(idGenerator, "idGenerator cannot be null");
         this.clock =
-                clock;
-
-        this.outboxPort =
-                outboxPort;
+                Objects.requireNonNull(clock, "clock cannot be null");
+        this.newUserAttemptExecutor =
+                Objects.requireNonNull(newUserAttemptExecutor, "newUserAttemptExecutor cannot be null");
+        this.existingUserExecutor =
+                Objects.requireNonNull(existingUserExecutor, "existingUserExecutor cannot be null");
     }
 
     /**
      * Tìm hoặc tạo tài khoản dựa trên thông tin
      * đã được đọc từ Google OAuth.
      */
-    @Transactional
     public User findOrCreateGoogleUser(
             GoogleUserInfo googleUserInfo
     ) {
@@ -79,8 +67,7 @@ public class GoogleOAuthUserService {
 
         String normalizedDisplayName =
                 normalizeDisplayName(
-                        googleUserInfo.displayName(),
-                        normalizedEmail
+                        googleUserInfo.displayName()
                 );
 
         String normalizedAvatarUrl =
@@ -103,24 +90,18 @@ public class GoogleOAuthUserService {
                         .orElse(null);
 
         if (existingGoogleUser != null) {
-            existingGoogleUser
-                    .updateOAuthProfileIfMissing(
-                            normalizedDisplayName,
-                            normalizedAvatarUrl
-                    );
-
-            saveUserAndDomainEvents(
-                    existingGoogleUser
+            return existingUserExecutor.updateByProviderSubject(
+                    existingGoogleUser,
+                    normalizedDisplayName,
+                    normalizedAvatarUrl
             );
-
-            return existingGoogleUser;
         }
 
         User existingEmailUser =
                 userRepository
                         .findByEmail(
                                 new Email(
-                                        normalizedEmail
+                                         normalizedEmail
                                 )
                         )
                         .orElse(null);
@@ -136,21 +117,12 @@ public class GoogleOAuthUserService {
                 );
             }
 
-            existingEmailUser.linkGoogleAccount(
-                    subject
+            return existingUserExecutor.linkAndProfileUpdate(
+                    existingEmailUser,
+                    subject,
+                    normalizedDisplayName,
+                    normalizedAvatarUrl
             );
-
-            existingEmailUser
-                    .updateOAuthProfileIfMissing(
-                            normalizedDisplayName,
-                            normalizedAvatarUrl
-                    );
-
-            saveUserAndDomainEvents(
-                    existingEmailUser
-            );
-
-            return existingEmailUser;
         }
 
         UUID userId =
@@ -159,48 +131,45 @@ public class GoogleOAuthUserService {
         Instant now =
                 clock.now();
 
-        User newUser =
-                User.createGoogle(
+        int finalAttemptIndex =
+                PublicHandleGenerator.MAX_COLLISION_ATTEMPTS + 1;
+
+        for (int attempt = 0; attempt <= finalAttemptIndex; attempt++) {
+            String candidateHandle =
+                    PublicHandleGenerator.candidateForAttempt(
+                            googleUserInfo.displayName(),
+                            userId,
+                            attempt
+                    );
+
+            if (attempt <= PublicHandleGenerator.MAX_COLLISION_ATTEMPTS
+                    && userRepository.existsByPublicHandle(candidateHandle)) {
+                continue;
+            }
+
+            try {
+                return newUserAttemptExecutor.executeAttempt(
                         userId,
                         new Email(normalizedEmail),
                         normalizedDisplayName,
                         normalizedAvatarUrl,
                         subject,
+                        candidateHandle,
                         now
                 );
+            } catch (DuplicatePublicHandleException ex) {
+                if (attempt >= finalAttemptIndex) {
+                    throw new IllegalStateException(
+                            "Không thể cấp phát public handle duy nhất sau " + (finalAttemptIndex + 1) + " lần thử.",
+                            ex
+                    );
+                }
+            }
+        }
 
-        saveUserAndDomainEvents(
-                newUser
+        throw new IllegalStateException(
+                "Không thể cấp phát public handle duy nhất."
         );
-
-        return newUser;
-    }
-
-    /**
-     * Lưu User và các domain event trong cùng transaction.
-     *
-     * Với tài khoản Google mới, User.createGoogle()
-     * đã tạo UserRegisteredEvent.
-     *
-     * Với user đã tồn tại, danh sách event hiện tại thường rỗng,
-     * nên vòng lặp không tạo thêm UserRegisteredEvent.
-     */
-    private void saveUserAndDomainEvents(
-            User user
-    ) {
-        userRepository.save(user);
-
-        user.domainEventsSnapshot()
-                .forEach(event ->
-                        outboxPort.saveEvent(
-                                event,
-                                AGGREGATE_TYPE,
-                                user.getAggregateVersion(),
-                                SOURCE_MODULE
-                        )
-                );
-
-        user.clearDomainEvents();
     }
 
     private void validateGoogleUserInfo(
@@ -256,8 +225,7 @@ public class GoogleOAuthUserService {
     }
 
     private String normalizeDisplayName(
-            String displayName,
-            String email
+            String displayName
     ) {
         if (displayName != null
                 && !displayName.isBlank()) {
@@ -282,7 +250,7 @@ public class GoogleOAuthUserService {
                             .replaceAll(
                                     "[^\\p{L}0-9_\\s]",
                                     ""
-                            )
+                              )
                             .trim();
 
             if (safeName.length() >= 3) {
@@ -293,34 +261,6 @@ public class GoogleOAuthUserService {
                                 50
                         );
             }
-        }
-
-        int separatorIndex =
-                email.indexOf('@');
-
-        String emailPrefix =
-                separatorIndex > 0
-                        ? email.substring(
-                                0,
-                                separatorIndex
-                        )
-                        : "";
-
-        String safePrefix =
-                emailPrefix
-                        .replaceAll(
-                                "[^\\p{L}0-9_\\s]",
-                                ""
-                        )
-                        .trim();
-
-        if (safePrefix.length() >= 3) {
-            return safePrefix.length() <= 50
-                    ? safePrefix
-                    : safePrefix.substring(
-                            0,
-                            50
-                    );
         }
 
         return "Người dùng Google";

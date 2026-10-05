@@ -27,6 +27,7 @@ public class UserPersistenceMapper {
 		}
 
 		UserJpaEntity entity = new UserJpaEntity();
+		entity.setPublicHandle(user.getPublicHandle());
 
 		updateJpaEntity(user, entity);
 
@@ -66,6 +67,10 @@ public class UserPersistenceMapper {
 		entity.setPasswordHash(user.getPasswordHash());
 
 		entity.setDisplayName(user.getDisplayName());
+
+		if (entity.getPublicHandle() == null) {
+			entity.setPublicHandle(user.getPublicHandle());
+		}
 
 		entity.setAvatarUrl(user.getAvatarUrl());
 
@@ -117,7 +122,8 @@ public class UserPersistenceMapper {
 		return User.rehydrate(userId, jpaEntity.getEmail(), jpaEntity.getPasswordHash(), jpaEntity.getDisplayName(),
 				avatarMediaAssetId, jpaEntity.getAvatarUrl(), jpaEntity.isAvatarCustomized(),
 				jpaEntity.getBio(), status, role, authProvider, jpaEntity.getProviderSubject(),
-				Math.max(jpaEntity.getAggregateVersion(), 1L), jpaEntity.getCreatedAt());
+				Math.max(jpaEntity.getAggregateVersion(), 1L), jpaEntity.getCreatedAt(),
+				jpaEntity.getPublicHandle());
 	}
 
 	private UUID parseNullableUuid(String raw) {

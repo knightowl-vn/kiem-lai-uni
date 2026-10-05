@@ -651,6 +651,7 @@ class PublicWikiControllerTest {
                         "reader@universe.local",
                         "Reader",
                         null,
+                        "reader_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )
@@ -761,6 +762,7 @@ class PublicWikiControllerTest {
                         "reader@universe.local",
                         "Reader",
                         null,
+                        "reader_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )
@@ -891,7 +893,7 @@ class PublicWikiControllerTest {
         when(getWikiAppreciationDetailStateUseCase.execute(any(), any()))
                 .thenReturn(new WikiAppreciationDetailState(null, 0L, null));
         when(userIdentityContract.findPublicProfilesByIds(java.util.Set.of(editorId)))
-                .thenReturn(Map.of(editorId, new com.universe.identity.contracts.dto.UserPublicProfileDTO(editorId, "Biên tập viên A", null)));
+                .thenReturn(Map.of(editorId, new com.universe.identity.contracts.dto.UserPublicProfileDTO(editorId, "Biên tập viên A", null, "bien_tap_vien_a")));
 
         ExtendedModelMap model = new ExtendedModelMap();
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -926,7 +928,7 @@ class PublicWikiControllerTest {
         when(getWikiAppreciationDetailStateUseCase.execute(any(), any()))
                 .thenReturn(new WikiAppreciationDetailState(null, 0L, null));
         when(userIdentityContract.findPublicProfilesByIds(java.util.Set.of(creatorId)))
-                .thenReturn(Map.of(creatorId, new com.universe.identity.contracts.dto.UserPublicProfileDTO(creatorId, "Tác giả gốc", null)));
+                .thenReturn(Map.of(creatorId, new com.universe.identity.contracts.dto.UserPublicProfileDTO(creatorId, "Tác giả gốc", null, "tac_gia_goc")));
 
         ExtendedModelMap model = new ExtendedModelMap();
         MockHttpServletRequest request = new MockHttpServletRequest();

@@ -117,7 +117,7 @@ class CommentReadDTOTest {
     @Test
     @DisplayName("Constructor sanitization ensures tombstone privacy even if fields are directly supplied")
     void shouldSanitizeTombstoneEvenWhenDirectConstructorIsInvoked() {
-        CommentAuthorDTO mockAuthor = new CommentAuthorDTO(OWNER_ID, "Leaked Name", null);
+        CommentAuthorDTO mockAuthor = new CommentAuthorDTO(OWNER_ID, "Leaked Name", null, "leaked_handle");
         CommentReadDTO directDto = new CommentReadDTO(
                 TOMBSTONE_ID,
                 OWNER_ID,

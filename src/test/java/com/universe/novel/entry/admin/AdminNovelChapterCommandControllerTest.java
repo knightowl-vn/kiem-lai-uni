@@ -360,7 +360,7 @@ class AdminNovelChapterCommandControllerTest {
 		when(authentication.isAuthenticated()).thenReturn(true);
 		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL,
-				"Admin", null, "ACTIVE", "ADMIN", NOW)));
+				"Admin", null, "admin_handle", "ACTIVE", "ADMIN", NOW)));
 	}
 
 	/*
@@ -385,7 +385,7 @@ class AdminNovelChapterCommandControllerTest {
 		lenient().when(authentication.getName()).thenReturn("104829374019283746152");
 
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL,
-				"Admin", null, "ACTIVE", "ADMIN", NOW)));
+				"Admin", null, "admin_handle", "ACTIVE", "ADMIN", NOW)));
 
 		when(createChapterUseCase.execute(any(CreateChapterCommand.class)))
 				.thenReturn(chapterDto("DRAFT"));
@@ -418,7 +418,7 @@ class AdminNovelChapterCommandControllerTest {
 		when(authentication.getPrincipal()).thenReturn(ADMIN_EMAIL);
 
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL,
-				"Admin", null, "ACTIVE", "ADMIN", NOW)));
+				"Admin", null, "admin_handle", "ACTIVE", "ADMIN", NOW)));
 
 		when(createChapterUseCase.execute(any(CreateChapterCommand.class)))
 				.thenReturn(chapterDto("DRAFT"));

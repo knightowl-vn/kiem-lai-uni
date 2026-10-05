@@ -93,6 +93,14 @@
     white-space: nowrap;
 }
 
+.profile-dropdown-header .profile-dropdown-handle {
+    margin-top: 1px;
+    margin-bottom: 2px;
+    color: #6c757d;
+    font-size: 13px;
+    font-weight: 500;
+}
+
 .profile-dropdown-divider {
     height: 1px;
     margin: 5px 0;
@@ -245,7 +253,8 @@
 
 .navbar-home-link,
 .navbar-wiki-link,
-.navbar-novel-link {
+.navbar-novel-link,
+.navbar-community-link {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -261,16 +270,20 @@
 .navbar-wiki-link:hover,
 .navbar-wiki-link:focus-visible,
 .navbar-novel-link:hover,
-.navbar-novel-link:focus-visible {
+.navbar-novel-link:focus-visible,
+.navbar-community-link:hover,
+.navbar-community-link:focus-visible {
     color: #ffffff;
 }
 
 .navbar-home-link.active,
 .navbar-wiki-link.active,
 .navbar-novel-link.active,
+.navbar-community-link.active,
 .navbar-home-link[aria-current="page"],
 .navbar-wiki-link[aria-current="page"],
-.navbar-novel-link[aria-current="page"] {
+.navbar-novel-link[aria-current="page"],
+.navbar-community-link[aria-current="page"] {
     color: #ffffff;
     font-weight: 700;
 }
@@ -413,7 +426,8 @@
 
     .navbar-home-link,
     .navbar-wiki-link,
-    .navbar-novel-link {
+    .navbar-novel-link,
+    .navbar-community-link {
         display: inline-flex;
         align-items: center;
         font-size: 13.5px;

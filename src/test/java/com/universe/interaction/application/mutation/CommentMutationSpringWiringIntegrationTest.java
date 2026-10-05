@@ -10,8 +10,12 @@ import com.universe.interaction.infrastructure.persistence.CommentPersistenceAda
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceMapper;
+import com.universe.interaction.infrastructure.persistence.InteractionReportPersistenceAdapter;
+import com.universe.interaction.infrastructure.persistence.InteractionReportPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
+import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.notification.infrastructure.persistence.NotificationPersistenceAdapter;
 import com.universe.novel.infrastructure.persistence.reader.ReaderChapterAccessQueryPersistenceAdapter;
 import com.universe.shared.id.UuidGeneratorAdapter;
@@ -25,6 +29,7 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -57,6 +62,8 @@ import static org.mockito.Mockito.when;
         CommentRevisionPersistenceMapper.class,
         ReactionPersistenceAdapter.class,
         ReactionPersistenceMapper.class,
+        InteractionReportPersistenceAdapter.class,
+        InteractionReportPersistenceMapper.class,
         CommentTargetEligibilityAdapter.class,
         ReaderChapterAccessQueryPersistenceAdapter.class,
         NotificationPersistenceAdapter.class,
@@ -94,8 +101,14 @@ class CommentMutationSpringWiringIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @org.springframework.boot.test.mock.mockito.MockBean
+    @MockBean
     private com.universe.wiki.application.ports.WikiArticleQueryPort wikiArticleQueryPort;
+
+    @MockBean
+    private CommunityPostQueryPort communityPostQueryPort;
+
+    @MockBean
+    private CommunityPostInteractionMutationPort communityPostInteractionMutationPort;
 
     @Autowired
     private CommentRepositoryPort commentRepositoryPort;
@@ -153,13 +166,13 @@ class CommentMutationSpringWiringIntegrationTest {
 
         // 1. Users
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'novel-comm-user1@universe.local', '$2a$10$hash', 'Comm User 1', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'novel-comm-user1@universe.local', '$2a$10$hash', 'Comm User 1', 'comm_user_1', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_1_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'novel-comm-user2@universe.local', '$2a$10$hash', 'Comm User 2', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'novel-comm-user2@universe.local', '$2a$10$hash', 'Comm User 2', 'comm_user_2', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_2_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
 

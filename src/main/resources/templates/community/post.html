@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title th:text="'Bài viết của ' + (${item.authorDisplayName != null and !item.authorDisplayName.isBlank()} ? ${item.authorDisplayName} : 'người dùng') + ' - Kiếm Lai Universe'">Bài viết - Kiếm Lai Universe</title>
+<link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+<!-- CSRF Meta Tags for AJAX / Reactions -->
+<meta th:if="${_csrf != null}" name="_csrf" th:content="${_csrf.token}">
+<meta th:if="${_csrf != null}" name="_csrf_header" th:content="${_csrf.headerName}">
+<meta th:if="${currentUser != null}" name="current-user-id" th:content="${currentUser.id}">
+
+<link
+	href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+	rel="stylesheet">
+<link rel="stylesheet"
+	href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+<link rel="stylesheet" th:href="@{/css/theme.css}">
+<link rel="stylesheet" th:href="@{/css/navbar.css}">
+<link rel="stylesheet" th:href="@{/css/community/community.css}">
+<link rel="stylesheet" th:href="@{/css/shared/comments.css}">
+<link rel="stylesheet" th:href="@{/css/shared/interaction-reactions.css}">
+<link rel="stylesheet" th:href="@{/css/shared/comment-report-modal.css}">
+</head>
+
+<body>
+
+	<div th:replace="~{fragments/navbar :: navbar(activeNav='community')}"></div>
+
+	<main class="community-permalink-container"
+		th:attr="data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},data-current-user-id=${currentUser != null ? currentUser.id : ''}">
+
+		<div class="community-permalink-content">
+			<th:block th:replace="~{community/fragments/post-card :: postCard(${item})}"/>
+		</div>
+
+	</main>
+
+	<script th:src="@{/js/theme.js}"></script>
+	<script th:src="@{/js/shared/relative-time.js}"></script>
+	<script th:src="@{/js/shared/comment-presentation.js}"></script>
+	<script th:src="@{/js/shared/interaction-reactions.js}" defer></script>
+	<script th:src="@{/js/shared/ephemeral-draft-store.js}"></script>
+	<script th:src="@{/js/shared/comment-report-modal.js}"></script>
+	<script th:src="@{/js/community/community-comments.js}"></script>
+	<script th:src="@{/js/community/community-post-card.js}"></script>
+</body>
+</html>

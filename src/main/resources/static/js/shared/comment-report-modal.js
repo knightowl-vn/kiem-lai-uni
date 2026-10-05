@@ -1143,6 +1143,10 @@
             isSubmitting = false;
             currentGeneration++;
             clearStatus();
+            const titleEl = (doc && doc.getElementById) ? doc.getElementById(TITLE_ID) : null;
+            if (titleEl) {
+                titleEl.textContent = 'Báo cáo bình luận';
+            }
 
             teardownDocumentListeners();
             restoreFocus();
@@ -1234,6 +1238,10 @@
             previousFocusedElement = p.triggerEl || (doc && doc.activeElement ? doc.activeElement : null);
 
             ensureModal(doc);
+            const titleEl = (doc && doc.getElementById) ? doc.getElementById(TITLE_ID) : null;
+            if (titleEl) {
+                titleEl.textContent = activeContextLabel ? ('Báo cáo ' + activeContextLabel) : 'Báo cáo bình luận';
+            }
             clearStatus();
             isSubmitting = false;
 

@@ -17,4 +17,15 @@ public enum ReportReason {
     public boolean requiresDescription() {
         return this == OTHER;
     }
+
+    public String displayName() {
+        return switch (this) {
+            case SPAM -> "Spam";
+            case HARASSMENT -> "Quấy rối";
+            case HATE_SPEECH -> "Phát ngôn thù hằn";
+            case SEXUAL_OR_OBSCENE -> "Khiêu dâm / Thô tục";
+            case SPOILER -> "Tiết lộ nội dung (Spoiler)";
+            case OTHER -> "Lý do khác";
+        };
+    }
 }

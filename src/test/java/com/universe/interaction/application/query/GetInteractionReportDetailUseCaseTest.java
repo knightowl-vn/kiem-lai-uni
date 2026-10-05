@@ -11,6 +11,7 @@ import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,13 +59,16 @@ class GetInteractionReportDetailUseCaseTest {
     void shouldReturnDetailWithActiveComment() {
         InteractionReport report = InteractionReport.reconstitute(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.SPAM,
                 "Quảng cáo cờ bạc trái phép",
                 "Mua acc vip tại web abc.xyz",
+                null,
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null
@@ -121,16 +125,19 @@ class GetInteractionReportDetailUseCaseTest {
 
         InteractionReport report = InteractionReport.reconstitute(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.HARASSMENT,
                 "Xúc phạm thành viên khác",
                 "Nội dung xúc phạm nặng nề",
+                null,
                 ReportStatus.RESOLVED_ACTION_TAKEN,
                 baseTime,
                 resolverUserId,
                 resolvedAt,
-                ReportModerationAction.DELETE_COMMENT
+                ReportModerationAction.DELETE_COMMENT,
+                null
         );
 
         Instant commentCreatedAt = baseTime.minusSeconds(1200);
@@ -181,13 +188,16 @@ class GetInteractionReportDetailUseCaseTest {
     void shouldReturnDetailWhenCurrentCommentIsMissing() {
         InteractionReport report = InteractionReport.reconstitute(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.OTHER,
                 "Lý do khác",
                 "Bằng chứng lịch sử của bình luận",
+                null,
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null
@@ -248,13 +258,16 @@ class GetInteractionReportDetailUseCaseTest {
 
         InteractionReport report = InteractionReport.reconstitute(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.HARASSMENT,
                 "Quấy rối trong phản hồi",
                 "Nội dung phản hồi vi phạm",
+                null,
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null
@@ -285,5 +298,39 @@ class GetInteractionReportDetailUseCaseTest {
 
         verify(reportRepositoryPort, times(1)).findById(reportId);
         verify(commentRepositoryPort, times(1)).findById(commentId);
+    }
+
+    @Test
+    @DisplayName("Case G: COMMUNITY_POST report - report returned with liveCommentAvailable = false and zero commentRepository calls")
+    void shouldReturnDetailForCommunityPostReportWithoutCommentLookup() {
+        UUID postId = UUID.randomUUID();
+        InteractionReport report = InteractionReport.createPending(
+                reportId,
+                com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporterUserId,
+                ReportReason.HARASSMENT,
+                "Inappropriate caption",
+                "Community post caption snapshot",
+                null,
+                baseTime
+        );
+
+        when(reportRepositoryPort.findById(reportId)).thenReturn(Optional.of(report));
+
+        InteractionReportDetailResult result = useCase.execute(reportId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.reportId()).isEqualTo(reportId);
+        assertThat(result.reportTargetType()).isEqualTo(com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST);
+        assertThat(result.reportTargetId()).isEqualTo(postId);
+        assertThat(result.reportedContentSnapshot()).isEqualTo("Community post caption snapshot");
+        assertThat(result.liveCommentAvailable()).isFalse();
+        assertThat(result.commentAuthorUserId()).isNull();
+        assertThat(result.contentTargetType()).isNull();
+        assertThat(result.contentTargetId()).isNull();
+
+        verify(reportRepositoryPort, times(1)).findById(reportId);
+        verifyNoInteractions(commentRepositoryPort);
     }
 }

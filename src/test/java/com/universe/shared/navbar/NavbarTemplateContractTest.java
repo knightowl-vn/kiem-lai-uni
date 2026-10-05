@@ -39,10 +39,16 @@ class NavbarTemplateContractTest {
         assertThat(navbar).contains("th:href=\"@{/wiki}\"");
         assertThat(navbar).contains("Wiki");
 
+        // 4b. Community link to /community
+        assertThat(navbar).contains("class=\"navbar-community-link\"");
+        assertThat(navbar).contains("th:href=\"@{/community}\"");
+        assertThat(navbar).contains("Cộng đồng");
+
         // 5. Active state evaluation
         assertThat(navbar).contains("activeNav == 'home'");
         assertThat(navbar).contains("activeNav == 'novel'");
         assertThat(navbar).contains("activeNav == 'wiki'");
+        assertThat(navbar).contains("activeNav == 'community'");
         assertThat(navbar).contains("aria-current");
 
         // 6. Search control
@@ -65,6 +71,13 @@ class NavbarTemplateContractTest {
         // 1. Profile link
         assertThat(navbar).contains("th:href=\"@{/profile}\"");
         assertThat(navbar).contains("Xem hồ sơ");
+
+        // 1b. Public community profile link and handle presentation
+        assertThat(navbar).contains("th:if=\"${currentUser != null and currentUser.publicHandle != null and !currentUser.publicHandle.isBlank()}\"");
+        assertThat(navbar).contains("th:href=\"@{'/community/@' + ${currentUser.publicHandle}}\"");
+        assertThat(navbar).contains("Trang cá nhân công khai");
+        assertThat(navbar).contains("class=\"profile-dropdown-handle\"");
+        assertThat(navbar).contains("th:text=\"'@' + ${currentUser.publicHandle}\"");
 
         // 2. Novel personal entry point
         assertThat(navbar).contains("th:href=\"@{/novel/history}\"");
@@ -101,14 +114,18 @@ class NavbarTemplateContractTest {
         assertThat(css).contains(".navbar-home-link");
         assertThat(css).contains(".navbar-novel-link");
         assertThat(css).contains(".navbar-wiki-link");
+        assertThat(css).contains(".navbar-community-link");
 
         // Active state styling
         assertThat(css).contains(".navbar-home-link.active");
         assertThat(css).contains(".navbar-novel-link.active");
         assertThat(css).contains(".navbar-wiki-link.active");
+        assertThat(css).contains(".navbar-community-link.active");
         assertThat(css).contains(".navbar-home-link[aria-current=\"page\"]");
         assertThat(css).contains(".navbar-novel-link[aria-current=\"page\"]");
         assertThat(css).contains(".navbar-wiki-link[aria-current=\"page\"]");
+        assertThat(css).contains(".navbar-community-link[aria-current=\"page\"]");
+        assertThat(css).contains(".profile-dropdown-handle");
 
         // Mobile breakpoint keeps links visible and compact
         assertThat(css).contains("@media (max-width: 767.98px)");
@@ -118,6 +135,7 @@ class NavbarTemplateContractTest {
         assertThat(mobileCss).contains(".navbar-home-link");
         assertThat(mobileCss).contains(".navbar-novel-link");
         assertThat(mobileCss).contains(".navbar-wiki-link");
+        assertThat(mobileCss).contains(".navbar-community-link");
         assertThat(mobileCss).contains("display: inline-flex");
         assertThat(mobileCss).contains("flex-wrap: nowrap");
     }
@@ -132,7 +150,10 @@ class NavbarTemplateContractTest {
                 "src/main/resources/templates/wiki/public/index.html",
                 "src/main/resources/templates/wiki/public/detail.html",
                 "src/main/resources/templates/wiki/public/not-found.html",
-                "src/main/resources/templates/identity/profile.html"
+                "src/main/resources/templates/identity/profile.html",
+                "src/main/resources/templates/community/index.html",
+                "src/main/resources/templates/community/post.html",
+                "src/main/resources/templates/community/profile.html"
         );
 
         for (String templatePath : publicTemplates) {

@@ -15,6 +15,7 @@ import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
@@ -105,11 +106,11 @@ class WikiArticleDiscussionQueryCoordinatorTest {
     void shouldGateUnpublishedArticleBeforeInteractionQueryOnFeed() {
         when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(false);
 
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(ARTICLE_ID, 0, 20))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED))
                 .isInstanceOf(PublishedWikiArticleNotFoundException.class);
 
         verify(getCommentTargetMetricsUseCase, never()).execute(any());
-        verify(listCommentRootsUseCase, never()).execute(any(), any(Integer.class), any(Integer.class));
+        verify(listCommentRootsUseCase, never()).execute(any(), any(), any(Integer.class), any(Integer.class));
     }
 
     @Test
@@ -131,10 +132,10 @@ class WikiArticleDiscussionQueryCoordinatorTest {
         CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
 
         when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(CommentTargetMetrics.EMPTY);
-        when(listCommentRootsUseCase.execute(target, 0, 20))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentReadSlice(List.of(), 0, 20, false));
 
-        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 20);
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(response.threads()).isEmpty();
         assertThat(response.threadCount()).isZero();
@@ -161,7 +162,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
         CommentReadItem root2Item = CommentReadItem.fromRoot(root2);
 
         // Slice order: root2 then root1
-        when(listCommentRootsUseCase.execute(target, 0, 2))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 2))
                 .thenReturn(new CommentReadSlice(List.of(root2Item, root1Item), 0, 2, false));
 
         CommentThreadView thread2View = new CommentThreadView(root2Item, List.of());
@@ -173,11 +174,11 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
 
-        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 2, null);
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 2, null, CommentSortMode.FEATURED);
 
         assertThat(response.threadCount()).isEqualTo(2);
         assertThat(response.commentCount()).isEqualTo(5);
@@ -197,7 +198,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1 Body", NOW);
         CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
-        when(listCommentRootsUseCase.execute(target, 0, 10))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
                 .thenReturn(new CommentReadSlice(List.of(root1Item), 0, 10, false));
 
         // Reply 1 is active
@@ -216,11 +217,11 @@ class WikiArticleDiscussionQueryCoordinatorTest {
         // Batch profile lookup must contain ONLY active author IDs (AUTHOR_1_ID and AUTHOR_2_ID), NEVER TOMBSTONE_AUTHOR_ID
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", "/a1.png"),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", "/a2.png")
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", "/a1.png", "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", "/a2.png", "author_two")
                 ));
 
-        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, null);
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Set<UUID>> profileCaptor = ArgumentCaptor.forClass(Set.class);
@@ -253,7 +254,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
         CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
         CommentReadItem root2Item = CommentReadItem.fromRoot(root2);
 
-        when(listCommentRootsUseCase.execute(target, 0, 2))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 2))
                 .thenReturn(new CommentReadSlice(List.of(root1Item, root2Item), 0, 2, false));
 
         // Authoritative batch returns only root1 (root2 was concurrently deleted)
@@ -262,9 +263,9 @@ class WikiArticleDiscussionQueryCoordinatorTest {
                 .thenReturn(List.of(thread1View));
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
-                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null)));
+                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
 
-        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 2, null);
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 2, null, CommentSortMode.FEATURED);
 
         assertThat(response.threads()).hasSize(1);
         assertThat(response.threads().get(0).root().id()).isEqualTo(ROOT_1_ID);
@@ -296,7 +297,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1 Body", NOW);
         CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
-        when(listCommentRootsUseCase.execute(target, 0, 10))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
                 .thenReturn(new CommentReadSlice(List.of(root1Item), 0, 10, false));
 
         Comment reply1 = Comment.createReply(REPLY_1_ID, root1, AUTHOR_2_ID, "Active reply", NOW.plusSeconds(5));
@@ -312,8 +313,8 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(any()))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
 
         ReactionSummary rootSummary = ReactionSummary.of(
@@ -333,7 +334,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
                         REPLY_1_ID, reply1Summary
                 ));
 
-        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, AUTHOR_1_ID);
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, AUTHOR_1_ID, CommentSortMode.FEATURED);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<UUID>> activeCommentsCaptor = ArgumentCaptor.forClass(List.class);
@@ -369,8 +370,8 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(any()))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
 
         ReactionSummary rootSummary = ReactionSummary.of(
@@ -397,7 +398,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1 Body", NOW);
         CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
-        when(listCommentRootsUseCase.execute(target, 0, 10))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
                 .thenReturn(new CommentReadSlice(List.of(root1Item), 0, 10, false));
 
         CommentThreadView thread1View = new CommentThreadView(root1Item, List.of());
@@ -405,12 +406,12 @@ class WikiArticleDiscussionQueryCoordinatorTest {
                 .thenReturn(List.of(thread1View));
 
         when(userIdentityContract.findPublicProfilesByIds(any()))
-                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null)));
+                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
 
         when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
                 .thenThrow(new RuntimeException("Transient DB timeout"));
 
-        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, null);
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
         assertThat(response.threads()).hasSize(1);
         assertThat(response.threads().get(0).root().reactionSummary()).isNull();

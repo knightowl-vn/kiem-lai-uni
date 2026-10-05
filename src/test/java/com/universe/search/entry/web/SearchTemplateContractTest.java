@@ -93,17 +93,19 @@ class SearchTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Scope navigation tabs định nghĩa 3 scope (all, wiki, novel), bảo toàn normalized query và aria-current")
+    @DisplayName("Scope navigation tabs định nghĩa 4 scope (all, wiki, novel, community), bảo toàn normalized query và aria-current")
     void scopeNavigationContract() throws Exception {
         String template = read("src/main/resources/templates/search/index.html");
 
         assertThat(template).contains("th:href=\"@{/search(q=${query}, scope='all')}\"");
         assertThat(template).contains("th:href=\"@{/search(q=${query}, scope='wiki')}\"");
         assertThat(template).contains("th:href=\"@{/search(q=${query}, scope='novel')}\"");
+        assertThat(template).contains("th:href=\"@{/search(q=${query}, scope='community')}\"");
 
         assertThat(template).contains("th:attr=\"aria-current=${scope == 'all' ? 'page' : null}\"");
         assertThat(template).contains("th:attr=\"aria-current=${scope == 'wiki' ? 'page' : null}\"");
         assertThat(template).contains("th:attr=\"aria-current=${scope == 'novel' ? 'page' : null}\"");
+        assertThat(template).contains("th:attr=\"aria-current=${scope == 'community' ? 'page' : null}\"");
     }
 
     @Test
@@ -118,10 +120,11 @@ class SearchTemplateContractTest {
         // Non-blank area
         assertThat(template).contains("th:if=\"${query != null and !query.isBlank()}\"");
         assertThat(template).contains("class=\"search-empty-state\"");
+        assertThat(template).contains("th:if=\"${scope == 'community' and searchResult.community.items.isEmpty()}\"");
     }
 
     @Test
-    @DisplayName("Wiki và Novel results được render thành 2 nhóm riêng biệt, liên kết chuẩn canonical")
+    @DisplayName("Wiki, Novel và Community results được render thành các nhóm riêng biệt, liên kết chuẩn canonical")
     void resultGroupsAndCanonicalLinksContract() throws Exception {
         String template = read("src/main/resources/templates/search/index.html");
 
@@ -132,6 +135,12 @@ class SearchTemplateContractTest {
         // Novel section
         assertThat(template).contains("search-group-novel");
         assertThat(template).contains("th:href=\"@{/novel/chapters/{slug}(slug=${ch.slug})}\"");
+
+        // Community section
+        assertThat(template).contains("search-group-community");
+        assertThat(template).contains("class=\"community-search-card-grid\"");
+        assertThat(template).contains("class=\"community-search-card\"");
+        assertThat(template).contains("th:href=\"${item.profileUrl}\"");
     }
 
     @Test
@@ -143,7 +152,7 @@ class SearchTemplateContractTest {
         assertThat(navbar).contains("name=\"q\"");
         assertThat(navbar).contains("th:if=\"${activeNav != 'novel'}\"");
         assertThat(navbar).contains("name=\"scope\"");
-        assertThat(navbar).contains("th:value=\"${navbarSearchScope != null and !navbarSearchScope.isBlank() ? navbarSearchScope : (activeNav == 'wiki' ? 'wiki' : 'all')}\"");
+        assertThat(navbar).contains("th:value=\"${navbarSearchScope != null and !navbarSearchScope.isBlank() ? navbarSearchScope : (activeNav == 'wiki' ? 'wiki' : (activeNav == 'community' ? 'community' : 'all'))}\"");
         assertThat(navbar).contains("th:value=\"${navbarSearchQuery != null ? navbarSearchQuery : ''}\"");
     }
 

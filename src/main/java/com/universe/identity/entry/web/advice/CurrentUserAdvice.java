@@ -55,6 +55,7 @@ public class CurrentUserAdvice {
                 identity.normalizedEmail(),
                 identity.displayName(),
                 identity.avatarUrl(),
+                identity.publicHandle(),
                 null,
                 identity.status().name(),
                 identity.role().name(),

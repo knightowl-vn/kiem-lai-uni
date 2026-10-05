@@ -1,5 +1,7 @@
 package com.universe.interaction.infrastructure.eligibility;
 
+import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
@@ -31,13 +33,17 @@ class ReactionTargetEligibilityAdapterTest {
     @Mock
     private CommentRepositoryPort commentRepositoryPort;
 
+    @Mock
+    private CommunityPostQueryPort communityPostQueryPort;
+
     private ReactionTargetEligibilityAdapter adapter;
 
     @BeforeEach
     void setUp() {
         adapter = new ReactionTargetEligibilityAdapter(
                 readerChapterAccessQueryPort,
-                commentRepositoryPort
+                commentRepositoryPort,
+                communityPostQueryPort
         );
     }
 
@@ -187,6 +193,45 @@ class ReactionTargetEligibilityAdapterTest {
         boolean eligible = adapter.isEligible(target);
 
         assertThat(eligible).isFalse();
+        verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(commentRepositoryPort);
+    }
+
+    // =========================================================================
+    // COMMUNITY_POST ELIGIBILITY
+    // =========================================================================
+
+    @Test
+    @DisplayName("COMMUNITY_POST: existing community post is eligible")
+    void shouldReturnTrueForExistingCommunityPost() {
+        UUID postId = UUID.randomUUID();
+        ReactionTarget target = ReactionTarget.communityPost(postId);
+        CommunityPostPublicDTO mockPost = new CommunityPostPublicDTO(
+                postId, UUID.randomUUID(), "Caption", null, 0, Instant.now(), Instant.now()
+        );
+
+        when(communityPostQueryPort.findPublicPostById(postId)).thenReturn(Optional.of(mockPost));
+
+        boolean eligible = adapter.isEligible(target);
+
+        assertThat(eligible).isTrue();
+        verify(communityPostQueryPort).findPublicPostById(postId);
+        verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(commentRepositoryPort);
+    }
+
+    @Test
+    @DisplayName("COMMUNITY_POST: missing community post is not eligible")
+    void shouldReturnFalseForMissingCommunityPost() {
+        UUID postId = UUID.randomUUID();
+        ReactionTarget target = ReactionTarget.communityPost(postId);
+
+        when(communityPostQueryPort.findPublicPostById(postId)).thenReturn(Optional.empty());
+
+        boolean eligible = adapter.isEligible(target);
+
+        assertThat(eligible).isFalse();
+        verify(communityPostQueryPort).findPublicPostById(postId);
         verifyNoInteractions(readerChapterAccessQueryPort);
         verifyNoInteractions(commentRepositoryPort);
     }

@@ -13,6 +13,7 @@ import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseC
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
@@ -98,28 +99,24 @@ public class WikiArticleDiscussionQueryCoordinator {
         );
     }
 
-    /**
-     * Resolves a paginated slice of Wiki article discussion feed items for anonymous guests.
-     *
-     * @param articleId scalar UUID of the Wiki article
-     * @param page zero-based page index
-     * @param size page size
-     * @return immutable {@link WikiDiscussionFeedResponseDTO}
-     */
-    public WikiDiscussionFeedResponseDTO getDiscussionFeed(UUID articleId, int page, int size) {
-        return getDiscussionFeed(articleId, page, size, null);
-    }
 
     /**
-     * Resolves a paginated slice of Wiki article discussion feed items with optional viewer capabilities.
+     * Resolves a paginated slice of Wiki article discussion feed items with optional viewer capabilities and sort mode.
      *
      * @param articleId scalar UUID of the Wiki article
      * @param page zero-based page index
      * @param size page size
      * @param viewerUserId optional scalar UUID of the authenticated viewer (null for guests)
+     * @param sortMode comment sort mode (defaults to FEATURED if null)
      * @return immutable {@link WikiDiscussionFeedResponseDTO}
      */
-    public WikiDiscussionFeedResponseDTO getDiscussionFeed(UUID articleId, int page, int size, UUID viewerUserId) {
+    public WikiDiscussionFeedResponseDTO getDiscussionFeed(
+            UUID articleId,
+            int page,
+            int size,
+            UUID viewerUserId,
+            CommentSortMode sortMode
+    ) {
         if (articleId == null) {
             throw new IllegalArgumentException("articleId cannot be null");
         }
@@ -135,6 +132,7 @@ public class WikiArticleDiscussionQueryCoordinator {
             throw new PublishedWikiArticleNotFoundException(articleId);
         }
 
+        CommentSortMode effectiveSortMode = (sortMode != null) ? sortMode : CommentSortMode.FEATURED;
         CommentTarget target = CommentTarget.wikiArticle(articleId);
 
         // 2. Direct persistence aggregate: compute article metrics without loading root IDs or replies
@@ -143,7 +141,7 @@ public class WikiArticleDiscussionQueryCoordinator {
         int commentCount = metrics.commentCount();
 
         // 3. Interaction query: load active root comments slice for this article
-        CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, page, size);
+        CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, effectiveSortMode, page, size);
         if (rootSlice.items().isEmpty()) {
             return new WikiDiscussionFeedResponseDTO(
                     List.of(),
@@ -245,7 +243,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                     ? authorsMap.get(authoritativeRoot.authorUserId())
                     : null;
             CommentAuthorDTO rootAuthorDTO = (rootProfile != null)
-                    ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
+                    ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl(), rootProfile.publicHandle())
                     : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
             ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(rootId);
@@ -264,7 +262,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                                 ? authorsMap.get(replyItem.authorUserId())
                                 : null;
                         CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
-                                ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
+                                ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
                                 : CommentAuthorDTO.fallback(replyItem.authorUserId());
                         ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
                         replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));
@@ -363,7 +361,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                 ? authorsMap.get(authoritativeRoot.authorUserId())
                 : null;
         CommentAuthorDTO rootAuthorDTO = (rootProfile != null)
-                ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
+                ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl(), rootProfile.publicHandle())
                 : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
         ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(authoritativeRoot.id());
@@ -382,7 +380,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                             ? authorsMap.get(replyItem.authorUserId())
                             : null;
                     CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
-                            ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
+                            ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
                             : CommentAuthorDTO.fallback(replyItem.authorUserId());
                     ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
                     replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));

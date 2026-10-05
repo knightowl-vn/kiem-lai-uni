@@ -73,7 +73,8 @@ class UpdateAvatarServiceTest {
                 AuthProvider.LOCAL,
                 null,
                 1L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 
@@ -92,7 +93,8 @@ class UpdateAvatarServiceTest {
                 AuthProvider.GOOGLE,
                 "google-sub",
                 1L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 
@@ -111,7 +113,8 @@ class UpdateAvatarServiceTest {
                 AuthProvider.LOCAL,
                 null,
                 2L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 
@@ -130,7 +133,8 @@ class UpdateAvatarServiceTest {
                 AuthProvider.LOCAL,
                 null,
                 2L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 

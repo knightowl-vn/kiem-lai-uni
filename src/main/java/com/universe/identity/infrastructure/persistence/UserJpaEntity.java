@@ -35,6 +35,9 @@ public class UserJpaEntity {
 	@Column(name = "display_name", nullable = false, length = 50)
 	private String displayName;
 
+	@Column(name = "public_handle", nullable = false, unique = true, length = 40, updatable = false)
+	private String publicHandle;
+
 	@Column(name = "avatar_url", length = 1000)
 	private String avatarUrl;
 
@@ -90,12 +93,13 @@ public class UserJpaEntity {
 	/*
 	 * Constructor dành cho tài khoản đăng ký bằng email/mật khẩu.
 	 */
-	public UserJpaEntity(String id, String email, String passwordHash, String displayName, String status, UserRole role,
+	public UserJpaEntity(String id, String email, String passwordHash, String displayName, String publicHandle, String status, UserRole role,
 			long aggregateVersion, Instant createdAt, Instant updatedAt) {
 		this.id = id;
 		this.email = email;
 		this.passwordHash = passwordHash;
 		this.displayName = displayName;
+		this.publicHandle = publicHandle;
 		this.status = status;
 		this.authProvider = "LOCAL";
 		this.providerSubject = null;
@@ -119,6 +123,14 @@ public class UserJpaEntity {
 
 	public String getDisplayName() {
 		return displayName;
+	}
+
+	public String getPublicHandle() {
+		return publicHandle;
+	}
+
+	public void setPublicHandle(String publicHandle) {
+		this.publicHandle = publicHandle;
 	}
 
 	public String getAvatarUrl() {

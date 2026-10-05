@@ -17,6 +17,7 @@ import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
 import com.universe.shared.time.ClockPort;
@@ -231,11 +232,13 @@ class CommentHardDeleteMySQLTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 rootId,
                 USER_B,
                 ReportReason.SPAM,
                 "Looks like spam",
                 "Reported snapshot body",
+                null,
                 T0
         );
         reportRepositoryPort.save(report);

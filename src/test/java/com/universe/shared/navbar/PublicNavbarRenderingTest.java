@@ -36,7 +36,11 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.universe.identity.contracts.currentuser.CurrentUserView;
+
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -139,8 +143,10 @@ class PublicNavbarRenderingTest {
                 .andExpect(content().string(containsString("aria-current=\"page\"")))
                 .andExpect(content().string(containsString("href=\"/novel\"")))
                 .andExpect(content().string(containsString("href=\"/wiki\"")))
+                .andExpect(content().string(containsString("href=\"/community\"")))
                 .andExpect(content().string(containsString("navbar-novel-link")))
-                .andExpect(content().string(containsString("navbar-wiki-link")));
+                .andExpect(content().string(containsString("navbar-wiki-link")))
+                .andExpect(content().string(containsString("navbar-community-link")));
     }
 
     @Test
@@ -210,10 +216,28 @@ class PublicNavbarRenderingTest {
     @WithMockUser(username = "reader@universe.local", roles = "USER")
     @DisplayName("Navbar renders authenticated personal navigation dropdown with context entry points")
     void navbarRendersAuthenticatedPersonalNavigationDropdown() throws Exception {
+        when(currentUserQueryPort.findByEmail("reader@universe.local"))
+                .thenReturn(Optional.of(new CurrentUserView(
+                        UUID.randomUUID().toString(),
+                        "reader@universe.local",
+                        "Reader User",
+                        "https://example.com/avatar.jpg",
+                        "reader_one",
+                        "Reader Bio",
+                        "ACTIVE",
+                        "USER",
+                        null,
+                        null,
+                        false
+                )));
+
         mockMvc.perform(get("/home"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/profile\"")))
                 .andExpect(content().string(containsString("Xem hồ sơ")))
+                .andExpect(content().string(containsString("href=\"/community/@reader_one\"")))
+                .andExpect(content().string(containsString("Trang cá nhân công khai")))
+                .andExpect(content().string(containsString("@reader_one")))
                 .andExpect(content().string(containsString("href=\"/novel/history\"")))
                 .andExpect(content().string(containsString("Novel của tôi")))
                 .andExpect(content().string(containsString("href=\"/wiki/saved\"")))

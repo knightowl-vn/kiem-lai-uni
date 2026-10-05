@@ -45,6 +45,10 @@
                    class="search-scope-tab"
                    th:classappend="${scope == 'novel'} ? ' is-active' : ''"
                    th:attr="aria-current=${scope == 'novel' ? 'page' : null}">Novel</a>
+                <a th:href="@{/search(q=${query}, scope='community')}"
+                   class="search-scope-tab"
+                   th:classappend="${scope == 'community'} ? ' is-active' : ''"
+                   th:attr="aria-current=${scope == 'community' ? 'page' : null}">Cộng đồng</a>
             </nav>
         </header>
 
@@ -60,12 +64,12 @@
         <div th:if="${query != null and !query.isBlank()}" class="search-results-area">
 
             <!-- EMPTY STATE FOR SCOPE ALL -->
-            <section th:if="${scope == 'all' and searchResult.wiki.items.isEmpty() and searchResult.novel.items.isEmpty()}"
+            <section th:if="${scope == 'all' and searchResult.wiki.items.isEmpty() and searchResult.novel.items.isEmpty() and searchResult.community.items.isEmpty()}"
                      class="search-empty-state">
                 <div class="search-empty-icon" aria-hidden="true">∅</div>
                 <span class="search-empty-eyebrow">KHÔNG CÓ KẾT QUẢ</span>
                 <h2>Không tìm thấy kết quả phù hợp</h2>
-                <p>Không tìm thấy bài viết Wiki hoặc chương truyện Novel nào khớp với từ khóa “<strong th:text="${query}">từ khóa</strong>”.</p>
+                <p>Không tìm thấy bài viết Wiki, chương truyện Novel hoặc người dùng Cộng đồng nào khớp với từ khóa “<strong th:text="${query}">từ khóa</strong>”.</p>
             </section>
 
             <!-- EMPTY STATE FOR SCOPE WIKI -->
@@ -84,6 +88,15 @@
                 <span class="search-empty-eyebrow">KHÔNG CÓ KẾT QUẢ</span>
                 <h2>Không tìm thấy chương truyện phù hợp</h2>
                 <p>Không tìm thấy chương truyện nào khớp với từ khóa “<strong th:text="${query}">từ khóa</strong>”.</p>
+            </section>
+
+            <!-- EMPTY STATE FOR SCOPE COMMUNITY -->
+            <section th:if="${scope == 'community' and searchResult.community.items.isEmpty()}"
+                     class="search-empty-state">
+                <div class="search-empty-icon" aria-hidden="true">∅</div>
+                <span class="search-empty-eyebrow">KHÔNG CÓ KẾT QUẢ</span>
+                <h2>Không tìm thấy người dùng phù hợp</h2>
+                <p>Không tìm thấy người dùng Cộng đồng nào khớp với từ khóa “<strong th:text="${query}">từ khóa</strong>”.</p>
             </section>
 
             <!-- GROUP 1: WIKI RESULTS (REUSING EXISTING WIKI CARD STRUCTURE) -->
@@ -225,6 +238,45 @@
                         <span class="novel-reader-chapter-title"
                               th:text="${ch.title}">Tên chương</span>
                     </a>
+                </div>
+            </section>
+
+            <!-- GROUP 3: COMMUNITY PROFILE RESULTS -->
+            <section th:if="${(scope == 'all' or scope == 'community') and !searchResult.community.items.isEmpty()}"
+                     class="search-group search-group-community">
+                <header class="search-group-header">
+                    <h2 class="search-group-title">
+                        <span class="search-group-badge">Cộng đồng</span>
+                        Người dùng Cộng đồng
+                    </h2>
+                    <span class="search-group-count"
+                          th:text="${searchResult.community.items.size() + ' kết quả'}">0 kết quả</span>
+                </header>
+
+                <div class="community-search-card-grid">
+                    <article th:each="item : ${searchResult.community.items}"
+                             class="community-search-card">
+                        <a class="community-search-card-link"
+                           th:href="${item.profileUrl}">
+                            <div class="community-search-card-avatar-wrap">
+                                <img th:if="${item.avatarUrl != null and !item.avatarUrl.isBlank()}"
+                                     class="community-search-card-avatar"
+                                     th:src="${item.avatarUrl}"
+                                     th:alt="${item.displayName}"
+                                     loading="lazy"
+                                     onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+                                <img th:unless="${item.avatarUrl != null and !item.avatarUrl.isBlank()}"
+                                     class="community-search-card-avatar"
+                                     th:src="@{/images/default_avatar.jpg}"
+                                     th:alt="${item.displayName}"
+                                     loading="lazy">
+                            </div>
+                            <div class="community-search-card-info">
+                                <h3 class="community-search-card-name" th:text="${item.displayName}">Tên người dùng</h3>
+                                <span class="community-search-card-handle" th:text="${'@' + item.publicHandle}">@handle</span>
+                            </div>
+                        </a>
+                    </article>
                 </div>
             </section>
 

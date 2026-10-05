@@ -30,6 +30,7 @@ import com.universe.interaction.application.mutation.SubmitCommentReportUseCase;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
@@ -44,6 +45,7 @@ import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentRevision;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
@@ -217,6 +219,7 @@ class NovelChapterCommentControllerTest {
                 "reader@universe.local",
                 "Reader User",
                 null,
+                "reader_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -242,7 +245,7 @@ class NovelChapterCommentControllerTest {
         CommentReadItem item = CommentReadItem.fromRoot(root);
         CommentReadSlice slice = new CommentReadSlice(List.of(item), 0, 20, false);
 
-        when(listCommentRootsUseCase.execute(target, 0, 20)).thenReturn(slice);
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20)).thenReturn(slice);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
                         .param("page", "0")
@@ -271,7 +274,7 @@ class NovelChapterCommentControllerTest {
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments"))
                 .andExpect(status().isNotFound());
 
-        verify(listCommentRootsUseCase, never()).execute(any(), any(int.class), any(int.class));
+        verify(listCommentRootsUseCase, never()).execute(any(), any(), any(int.class), any(int.class));
     }
 
     @Test
@@ -367,7 +370,7 @@ class NovelChapterCommentControllerTest {
         CommentReadItem item = CommentReadItem.fromRoot(root);
         CommentReadSlice slice = new CommentReadSlice(List.of(item), 0, 20, false);
 
-        when(listCommentRootsUseCase.execute(target, 0, 20)).thenReturn(slice);
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20)).thenReturn(slice);
 
         ReactionSummary summary = ReactionSummary.of(
                 ReactionTarget.comment(ROOT_COMMENT_ID),
@@ -486,7 +489,7 @@ class NovelChapterCommentControllerTest {
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
 
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
-        when(listCommentRootsUseCase.execute(target, 0, 50))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 50))
                 .thenReturn(new CommentReadSlice(List.of(), 0, 50, false));
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
@@ -494,7 +497,7 @@ class NovelChapterCommentControllerTest {
                         .param("size", "100"))
                 .andExpect(status().isOk());
 
-        verify(listCommentRootsUseCase).execute(target, 0, 50);
+        verify(listCommentRootsUseCase).execute(target, CommentSortMode.FEATURED, 0, 50);
     }
 
     @Test
@@ -509,7 +512,7 @@ class NovelChapterCommentControllerTest {
         CommentReadItem item = CommentReadItem.fromRoot(root);
         CommentReadSlice slice = new CommentReadSlice(List.of(item), 0, 20, false);
 
-        when(listCommentRootsUseCase.execute(target, 0, 20)).thenReturn(slice);
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20)).thenReturn(slice);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
                         .with(authenticatedIdentity(USER_1_ID))
@@ -533,7 +536,7 @@ class NovelChapterCommentControllerTest {
         CommentReadItem item = CommentReadItem.fromRoot(root);
         CommentReadSlice slice = new CommentReadSlice(List.of(item), 0, 20, false);
 
-        when(listCommentRootsUseCase.execute(target, 0, 20)).thenReturn(slice);
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20)).thenReturn(slice);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
                         .with(authenticatedIdentity(USER_2_ID))
@@ -1825,13 +1828,13 @@ class NovelChapterCommentControllerTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_2_ID, "Author Two", null),
+                new CommentAuthorDTO(USER_2_ID, "Author Two", null, "author_two"),
                 false,
                 false
         );
         ChapterDiscussionFeedItemDTO item = new ChapterDiscussionFeedItemDTO(
                 ROOT_COMMENT_ID,
-                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png", "author_one"),
                 "Feed root comment body",
                 NOW,
                 NOW,
@@ -1851,7 +1854,7 @@ class NovelChapterCommentControllerTest {
                 false
         );
 
-        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, null))
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, null, CommentSortMode.FEATURED))
                 .thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed"))
@@ -1875,7 +1878,37 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.items[0].replies[0].canEdit").value(false))
                 .andExpect(jsonPath("$.items[0].replies[0].canDelete").value(false));
 
-        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, null);
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, null, CommentSortMode.FEATURED);
+    }
+
+    @Test
+    @DisplayName("GET discussion feed: forwards sort mode and rejects invalid sort with 400")
+    void shouldForwardSortModeOnDiscussionFeed() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        ChapterDiscussionFeedResponseDTO responseDTO = new ChapterDiscussionFeedResponseDTO(
+                List.of(), 0, 20, false
+        );
+
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, null, CommentSortMode.NEWEST))
+                .thenReturn(responseDTO);
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, null, CommentSortMode.FEATURED))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
+                        .param("sort", "NEWEST"))
+                .andExpect(status().isOk());
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, null, CommentSortMode.NEWEST);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
+                        .param("sort", "FEATURED"))
+                .andExpect(status().isOk());
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, null, CommentSortMode.FEATURED);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
+                        .param("sort", "INVALID_SORT"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -1893,13 +1926,13 @@ class NovelChapterCommentControllerTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png", "author_one"),
                 true,
                 true
         );
         ChapterDiscussionFeedItemDTO item = new ChapterDiscussionFeedItemDTO(
                 ROOT_COMMENT_ID,
-                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png", "author_one"),
                 "Feed root comment body",
                 NOW,
                 NOW,
@@ -1919,7 +1952,7 @@ class NovelChapterCommentControllerTest {
                 false
         );
 
-        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, USER_1_ID))
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, USER_1_ID, CommentSortMode.FEATURED))
                 .thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
@@ -1930,7 +1963,7 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.items[0].replies[0].canEdit").value(true))
                 .andExpect(jsonPath("$.items[0].replies[0].canDelete").value(true));
 
-        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, USER_1_ID);
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, USER_1_ID, CommentSortMode.FEATURED);
     }
 
     @Test
@@ -1947,7 +1980,7 @@ class NovelChapterCommentControllerTest {
                 true
         );
 
-        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 1, 50, null))
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 1, 50, null, CommentSortMode.FEATURED))
                 .thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
@@ -1958,7 +1991,7 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.size").value(50))
                 .andExpect(jsonPath("$.hasNext").value(true));
 
-        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 1, 50, null);
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 1, 50, null, CommentSortMode.FEATURED);
     }
 
     @Test
@@ -1973,7 +2006,7 @@ class NovelChapterCommentControllerTest {
                         .param("size", "0"))
                 .andExpect(status().isBadRequest());
 
-        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class), any());
+        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class), any(), any());
     }
 
     @Test
@@ -1986,7 +2019,7 @@ class NovelChapterCommentControllerTest {
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed"))
                 .andExpect(status().isNotFound());
 
-        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class), any());
+        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class), any(), any());
     }
 
     // =========================================================================
@@ -2187,11 +2220,13 @@ class NovelChapterCommentControllerTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.SPAM,
                 "Spam comment description",
                 "Authoritative body snapshot",
+                null,
                 NOW
         );
 
@@ -2237,11 +2272,13 @@ class NovelChapterCommentControllerTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.HARASSMENT,
                 "Valid description",
                 "Real server snapshot",
+                null,
                 NOW
         );
 

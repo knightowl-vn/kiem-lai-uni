@@ -89,6 +89,7 @@ class UserAuthoredCommentControllerTest {
                         USER_EMAIL,
                         "Author User",
                         null,
+                        "author_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )

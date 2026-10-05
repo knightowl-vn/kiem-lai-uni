@@ -80,7 +80,7 @@ class AdminNovelChapterWikiReferenceCommandControllerTest {
     private void mockAuthenticatedAdmin() {
         when(authenticatedEmailResolver.require(authentication)).thenReturn(ADMIN_EMAIL);
         UserDTO adminUser = new UserDTO(
-                ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "ACTIVE", "ADMIN", Instant.now()
+                ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "admin_user", "ACTIVE", "ADMIN", Instant.now()
         );
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(adminUser));
     }

@@ -571,8 +571,8 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
 
         assert.strictEqual(
             requestedUrl,
-            '/api/novel/chapters/c100/comments/feed?page=0&size=20',
-            'Must issue fetch with page=0&size=20'
+            '/api/novel/chapters/c100/comments/feed?page=0&size=20&sort=NEWEST',
+            'Must issue fetch with page=0&size=20&sort=NEWEST'
         );
     });
 
@@ -594,8 +594,8 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
 
         assert.strictEqual(
             requestedUrl,
-            '/api/novel/chapters/c200/comments/feed?page=0&size=20',
-            'Must resolve chapterId from .novel-reader-chapter-body'
+            '/api/novel/chapters/c200/comments/feed?page=0&size=20&sort=NEWEST',
+            'Must resolve chapterId from .novel-reader-chapter-body with sort=NEWEST'
         );
     });
 
@@ -5612,6 +5612,230 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             } finally {
                 commentsModule.setCommentPresentationImplementation(undefined);
             }
+        });
+    });
+
+    describe('MS-07B8.2.3 Novel Chapter Comments Sorting (FEATURED + NEWEST)', () => {
+        afterEach(() => {
+            commentsModule.destroy();
+            commentsModule.setFetchImplementation(null);
+            commentsModule.setCommentPresentationImplementation(undefined);
+        });
+
+        test('SORT-1: Initial page-0 fetch defaults to NEWEST and appends &sort=NEWEST and mounts dropdown above statusEl', async () => {
+            const { doc, status, list } = createStandardFixture('chap-sort-1');
+            let requestedUrl = null;
+            const fakeFetch = (url) => {
+                requestedUrl = url;
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.ok(requestedUrl.includes('&sort=NEWEST'), 'Must request sort=NEWEST by default: ' + requestedUrl);
+            assert.strictEqual(commentsModule.getCurrentSort(), 'NEWEST');
+
+            const sortDropdown = doc.querySelector('.kl-sort-dropdown');
+            assert.ok(sortDropdown, 'Sort dropdown must be rendered');
+            const parent = sortDropdown.parentNode;
+            const dropdownIndex = parent.childNodes.indexOf(sortDropdown);
+            const statusIndex = parent.childNodes.indexOf(status);
+            const listIndex = parent.childNodes.indexOf(list);
+            assert.ok(dropdownIndex < statusIndex, 'Dropdown must be mounted before statusEl');
+            assert.ok(statusIndex < listIndex, 'Status must be before listEl');
+        });
+
+        test('SORT-2: Switching to FEATURED triggers fetch with &sort=FEATURED and updates sort state', async () => {
+            const { doc } = createStandardFixture('chap-sort-2');
+            const requestedUrls = [];
+            const fakeFetch = (url) => {
+                requestedUrls.push(url);
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([
+                        {
+                            rootCommentId: 'root-featured-1',
+                            author: { userId: 'u1', displayName: 'User 1' },
+                            body: 'Featured comment',
+                            createdAt: '2026-09-18T10:00:00Z',
+                            updatedAt: '2026-09-18T10:00:00Z',
+                            replies: []
+                        }
+                    ]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 1);
+            assert.ok(requestedUrls[0].includes('&sort=NEWEST'));
+
+            await commentsModule.switchSort('FEATURED', doc);
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.strictEqual(requestedUrls.length, 2);
+            assert.ok(requestedUrls[1].includes('&sort=FEATURED'));
+            assert.strictEqual(commentsModule.getCurrentSort(), 'FEATURED');
+        });
+
+        test('SORT-3: Switching back to NEWEST serves from cache with 0 network calls', async () => {
+            const { doc } = createStandardFixture('chap-sort-3');
+            const requestedUrls = [];
+            const fakeFetch = (url) => {
+                requestedUrls.push(url);
+                const isFeatured = url.includes('sort=FEATURED');
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([
+                        {
+                            rootCommentId: isFeatured ? 'root-f' : 'root-n',
+                            author: { userId: 'u1', displayName: 'User 1' },
+                            body: isFeatured ? 'Featured' : 'Newest',
+                            createdAt: '2026-09-18T10:00:00Z',
+                            updatedAt: '2026-09-18T10:00:00Z',
+                            replies: []
+                        }
+                    ]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 1);
+
+            // Switch to FEATURED (cache miss -> 1 fetch)
+            await commentsModule.switchSort('FEATURED', doc);
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // Switch back to NEWEST (cache hit -> 0 fetch calls!)
+            await commentsModule.switchSort('NEWEST', doc);
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 2, 'Must not issue another network fetch for cached NEWEST');
+            assert.strictEqual(commentsModule.getCurrentSort(), 'NEWEST');
+        });
+
+        test('SORT-4: Reaction update event invalidates FEATURED cache', async () => {
+            const { doc } = createStandardFixture('chap-sort-4');
+            const requestedUrls = [];
+            const fakeFetch = (url) => {
+                requestedUrls.push(url);
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([
+                        {
+                            rootCommentId: 'root-1',
+                            author: { userId: 'u1', displayName: 'User 1' },
+                            body: 'Comment',
+                            createdAt: '2026-09-18T10:00:00Z',
+                            updatedAt: '2026-09-18T10:00:00Z',
+                            replies: []
+                        }
+                    ]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 1);
+
+            // Switch to FEATURED (fetch 2)
+            await commentsModule.switchSort('FEATURED', doc);
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // Switch to NEWEST (cache hit, fetch remains 2)
+            await commentsModule.switchSort('NEWEST', doc);
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // Dispatch reaction update on doc
+            doc.dispatchEvent({
+                type: 'kiemlai:reaction-updated',
+                detail: { targetType: 'COMMENT', targetId: 'root-1' }
+            });
+
+            // FEATURED cache is now invalidated. Switching to FEATURED should refetch!
+            await commentsModule.switchSort('FEATURED', doc);
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 3, 'Must refetch FEATURED after reaction invalidation');
+        });
+
+        test('SORT-5: refreshFromPageZero clears all sort caches', async () => {
+            const { doc } = createStandardFixture('chap-sort-5');
+            const requestedUrls = [];
+            const fakeFetch = (url) => {
+                requestedUrls.push(url);
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 1);
+
+            // Switch to FEATURED (fetch 2)
+            await commentsModule.switchSort('FEATURED', doc);
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // refreshFromPageZero clears both caches and refetches current sort (FEATURED) -> fetch 3
+            await commentsModule.refreshFromPageZero();
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 3);
+
+            // Now switch to NEWEST -> cache was cleared, so it issues fetch 4!
+            await commentsModule.switchSort('NEWEST', doc);
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 4);
+        });
+
+        test('SORT-6: Sort dropdown item click invokes switchSort and chapter change resets to NEWEST', async () => {
+            const { doc } = createStandardFixture('chap-sort-6');
+            const requestedUrls = [];
+            const fakeFetch = (url) => {
+                requestedUrls.push(url);
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(requestedUrls.length, 1);
+
+            const sortControls = doc.querySelector('.kl-sort-dropdown');
+            assert.ok(sortControls);
+            const featuredItem = sortControls.querySelector('[data-sort-mode="FEATURED"]');
+            assert.ok(featuredItem);
+
+            // Dispatch click on doc targeting the dropdown item
+            doc.dispatchEvent({
+                type: 'click',
+                target: featuredItem,
+                preventDefault() {}
+            });
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.strictEqual(commentsModule.getCurrentSort(), 'FEATURED');
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // Chapter change resets sort to NEWEST
+            doc.dispatchEvent({
+                type: 'kiemlai:chapter-changed',
+                detail: { chapterId: 'chap-sort-6-next' }
+            });
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(commentsModule.getCurrentSort(), 'NEWEST');
+            assert.strictEqual(requestedUrls.length, 3);
+            assert.ok(requestedUrls[2].includes('&sort=NEWEST'));
         });
     });
 });

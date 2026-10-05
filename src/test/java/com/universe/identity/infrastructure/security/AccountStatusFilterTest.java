@@ -170,6 +170,7 @@ class AccountStatusFilterTest {
                 EMAIL,
                 "Reader",
                 null,
+                "reader_one",
                 status,
                 role
         );
