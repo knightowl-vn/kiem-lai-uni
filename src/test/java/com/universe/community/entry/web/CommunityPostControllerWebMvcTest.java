@@ -13,6 +13,7 @@ import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostStatus;
+import com.universe.community.domain.exception.CommunityPostCreationRateLimitException;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostPendingEditConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -67,6 +68,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -354,6 +356,91 @@ class CommunityPostControllerWebMvcTest {
                         .with(authenticatedIdentity(USER_ID)))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.message").value("Failed to persist community post"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Creation rate limit cooldown -> 429 Too Many Requests with Retry-After header")
+    void shouldReturn429WhenCreationRateLimitCooldownTriggered() throws Exception {
+        when(createCommunityPostWithImageUseCase.execute(any(), any(), any(), anyLong(), any(), any()))
+                .thenThrow(new CommunityPostCreationRateLimitException(
+                        CommunityPostCreationRateLimitException.Reason.COOLDOWN,
+                        45L
+                ));
+
+        mockMvc.perform(multipart("/api/community/posts")
+                        .param("caption", "Fast posting")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "45"))
+                .andExpect(jsonPath("$.reason").value("COOLDOWN"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(45))
+                .andExpect(jsonPath("$.message").value("Bạn đang đăng bài quá nhanh. Vui lòng thử lại sau."));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Creation rate limit duplicate caption -> 429 Too Many Requests with Retry-After header")
+    void shouldReturn429WhenCreationRateLimitDuplicateCaptionTriggered() throws Exception {
+        when(createCommunityPostWithImageUseCase.execute(any(), any(), any(), anyLong(), any(), any()))
+                .thenThrow(new CommunityPostCreationRateLimitException(
+                        CommunityPostCreationRateLimitException.Reason.DUPLICATE_CAPTION,
+                        86400L,
+                        "Bạn đã đăng nội dung tương tự trong 24 giờ qua."
+                ));
+
+        mockMvc.perform(multipart("/api/community/posts")
+                        .param("caption", "Repeated caption")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "86400"))
+                .andExpect(jsonPath("$.reason").value("DUPLICATE_CAPTION"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(86400))
+                .andExpect(jsonPath("$.message").value("Bạn đã đăng nội dung tương tự trong 24 giờ qua."));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Creation rate limit hourly limit -> 429 Too Many Requests with Retry-After header")
+    void shouldReturn429WhenCreationRateLimitHourlyLimitTriggered() throws Exception {
+        when(createCommunityPostWithImageUseCase.execute(any(), any(), any(), anyLong(), any(), any()))
+                .thenThrow(new CommunityPostCreationRateLimitException(
+                        CommunityPostCreationRateLimitException.Reason.HOURLY_LIMIT,
+                        1200L
+                ));
+
+        mockMvc.perform(multipart("/api/community/posts")
+                        .param("caption", "11th post in hour")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "1200"))
+                .andExpect(jsonPath("$.reason").value("HOURLY_LIMIT"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(1200))
+                .andExpect(jsonPath("$.message").value("Bạn đã đạt giới hạn đăng bài trong giờ này."));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Creation rate limit daily limit -> 429 Too Many Requests with Retry-After header")
+    void shouldReturn429WhenCreationRateLimitDailyLimitTriggered() throws Exception {
+        when(createCommunityPostWithImageUseCase.execute(any(), any(), any(), anyLong(), any(), any()))
+                .thenThrow(new CommunityPostCreationRateLimitException(
+                        CommunityPostCreationRateLimitException.Reason.DAILY_LIMIT,
+                        14400L
+                ));
+
+        mockMvc.perform(multipart("/api/community/posts")
+                        .param("caption", "31st post in day")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "14400"))
+                .andExpect(jsonPath("$.reason").value("DAILY_LIMIT"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(14400))
+                .andExpect(jsonPath("$.message").value("Bạn đã đạt giới hạn đăng bài trong 24 giờ."));
     }
 
     // =========================================================================

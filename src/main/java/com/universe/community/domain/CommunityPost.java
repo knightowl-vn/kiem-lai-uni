@@ -406,6 +406,16 @@ public final class CommunityPost {
         return trimmed;
     }
 
+    /**
+     * Canonical caption validator and normalizer shared across domain creation, editing, and anti-spam guard.
+     *
+     * @param rawCaption raw input caption
+     * @return trimmed non-blank caption within max length
+     */
+    public static String validateAndNormalizeCaption(String rawCaption) {
+        return validateCaption(rawCaption);
+    }
+
     public UUID getId() {
         return id;
     }

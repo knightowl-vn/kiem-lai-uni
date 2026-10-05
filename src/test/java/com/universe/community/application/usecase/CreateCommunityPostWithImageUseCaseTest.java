@@ -1,9 +1,13 @@
 package com.universe.community.application.usecase;
 
 import com.universe.community.application.command.CreateCommunityPostCommand;
+import com.universe.community.application.service.CommunityPostCreationGuardService;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostStatus;
+import com.universe.community.domain.exception.CommunityPostCreationRateLimitException;
+import com.universe.community.domain.exception.CommunityPostCreationRateLimitException.Reason;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,22 +23,46 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import static org.mockito.Mockito.when;
 
 class CreateCommunityPostWithImageUseCaseTest {
 
     private CreateCommunityPostUseCase createCommunityPostUseCase;
     private CommunityPostImageUploadUseCase imageUploadUseCase;
+    private CommunityPostCreationGuardService creationGuardService;
+    private ClockPort clockPort;
+    private TransactionTemplate transactionTemplate;
     private CreateCommunityPostWithImageUseCase orchestrator;
+
+    private static final Instant FIXED_NOW = Instant.parse("2026-09-29T10:00:00Z");
 
     @BeforeEach
     void setUp() {
         createCommunityPostUseCase = mock(CreateCommunityPostUseCase.class);
         imageUploadUseCase = mock(CommunityPostImageUploadUseCase.class);
-        orchestrator = new CreateCommunityPostWithImageUseCase(createCommunityPostUseCase, imageUploadUseCase);
+        creationGuardService = mock(CommunityPostCreationGuardService.class);
+        clockPort = mock(ClockPort.class);
+        when(clockPort.now()).thenReturn(FIXED_NOW);
+        transactionTemplate = mock(TransactionTemplate.class);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
+        orchestrator = new CreateCommunityPostWithImageUseCase(
+                createCommunityPostUseCase,
+                imageUploadUseCase,
+                creationGuardService,
+                clockPort,
+                transactionTemplate
+        );
     }
 
     @Test
@@ -42,7 +70,7 @@ class CreateCommunityPostWithImageUseCaseTest {
     void shouldCreateCaptionOnlyPostWhenImageNull() {
         UUID actorUserId = UUID.randomUUID();
         String caption = "Caption only post test";
-        Instant now = Instant.now();
+        Instant now = FIXED_NOW;
         UUID postId = UUID.randomUUID();
 
         CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, null, CommunityPostStatus.PUBLISHED, now, now, null);
@@ -60,6 +88,9 @@ class CreateCommunityPostWithImageUseCaseTest {
         assertThat(actualPost).isEqualTo(expectedPost);
         assertThat(actualPost.getImageMediaAssetId()).isNull();
 
+        verify(creationGuardService).acquireAuthorLock(actorUserId);
+        verify(creationGuardService).evaluateEligibility(actorUserId, caption, FIXED_NOW);
+
         ArgumentCaptor<CreateCommunityPostCommand> captor = ArgumentCaptor.forClass(CreateCommunityPostCommand.class);
         verify(createCommunityPostUseCase).execute(captor.capture());
         assertThat(captor.getValue().imageMediaAssetId()).isNull();
@@ -76,7 +107,7 @@ class CreateCommunityPostWithImageUseCaseTest {
         String caption = "Post with image";
         UUID assetId = UUID.randomUUID();
         UUID postId = UUID.randomUUID();
-        Instant now = Instant.now();
+        Instant now = FIXED_NOW;
         byte[] imageData = "valid-jpeg-bytes".getBytes();
 
         when(imageUploadUseCase.uploadImage(any(InputStream.class), eq((long) imageData.length), eq("image/jpeg"), eq("test.jpg")))
@@ -97,23 +128,26 @@ class CreateCommunityPostWithImageUseCaseTest {
         assertThat(actualPost).isEqualTo(expectedPost);
         assertThat(actualPost.getImageMediaAssetId()).isEqualTo(assetId);
 
+        verify(creationGuardService).acquireAuthorLock(actorUserId);
+        verify(creationGuardService).evaluateEligibility(actorUserId, caption, FIXED_NOW);
+
         ArgumentCaptor<CreateCommunityPostCommand> captor = ArgumentCaptor.forClass(CreateCommunityPostCommand.class);
         verify(createCommunityPostUseCase).execute(captor.capture());
         assertThat(captor.getValue().imageMediaAssetId()).isEqualTo(assetId);
         assertThat(captor.getValue().caption()).isEqualTo(caption);
-
-        verify(imageUploadUseCase, never()).compensateUpload(any(), any());
+        assertThat(captor.getValue().actorUserId()).isEqualTo(actorUserId);
     }
 
     @Test
-    @DisplayName("Should not call post creation when image upload fails")
-    void shouldNotCallPostCreationWhenImageUploadFails() {
+    @DisplayName("Should short-circuit and NEVER upload image when COOLDOWN rate limit is violated (MS-07B8.5.5 Section 15)")
+    void shouldShortCircuitAndNeverUploadImageWhenCooldownViolated() {
         UUID actorUserId = UUID.randomUUID();
-        String caption = "Post image upload fails";
-        byte[] imageData = "bad-bytes".getBytes();
+        String caption = "Image post under cooldown";
+        byte[] imageData = "valid-jpeg-bytes".getBytes();
 
-        when(imageUploadUseCase.uploadImage(any(), any(Long.class), any(), any()))
-                .thenThrow(new RuntimeException("Cloudinary upload failed"));
+        CommunityPostCreationRateLimitException cooldownEx =
+                new CommunityPostCreationRateLimitException(Reason.COOLDOWN, 45L);
+        doThrow(cooldownEx).when(creationGuardService).evaluateEligibility(actorUserId, caption, FIXED_NOW);
 
         assertThatThrownBy(() -> orchestrator.execute(
                 actorUserId,
@@ -123,21 +157,49 @@ class CreateCommunityPostWithImageUseCaseTest {
                 "image/jpeg",
                 "test.jpg"
         ))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Cloudinary upload failed");
+                .isSameAs(cooldownEx)
+                .hasMessageContaining("Bạn đang đăng bài quá nhanh. Vui lòng thử lại sau.");
 
+        // Guaranteed: uploadImage is NEVER called!
+        verify(imageUploadUseCase, never()).uploadImage(any(), any(Long.class), any(), any());
         verify(createCommunityPostUseCase, never()).execute(any());
-        verify(imageUploadUseCase, never()).compensateUpload(any(), any());
     }
 
     @Test
-    @DisplayName("Should compensate uploaded image when post creation fails")
+    @DisplayName("Should short-circuit and NEVER upload image when DUPLICATE_CAPTION rate limit is violated (MS-07B8.5.5 Section 15)")
+    void shouldShortCircuitAndNeverUploadImageWhenDuplicateCaptionViolated() {
+        UUID actorUserId = UUID.randomUUID();
+        String caption = "Duplicate caption attempt";
+        byte[] imageData = "valid-jpeg-bytes".getBytes();
+
+        CommunityPostCreationRateLimitException duplicateEx =
+                new CommunityPostCreationRateLimitException(Reason.DUPLICATE_CAPTION, 80000L);
+        doThrow(duplicateEx).when(creationGuardService).evaluateEligibility(actorUserId, caption, FIXED_NOW);
+
+        assertThatThrownBy(() -> orchestrator.execute(
+                actorUserId,
+                caption,
+                new ByteArrayInputStream(imageData),
+                imageData.length,
+                "image/jpeg",
+                "test.jpg"
+        ))
+                .isSameAs(duplicateEx)
+                .hasMessageContaining("Bạn đã đăng nội dung tương tự trong 24 giờ qua.");
+
+        // Guaranteed: uploadImage is NEVER called!
+        verify(imageUploadUseCase, never()).uploadImage(any(), any(Long.class), any(), any());
+        verify(createCommunityPostUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Should compensate uploaded image when subsequent post creation throws exception")
     void shouldCompensateUploadedImageWhenPostCreationFails() {
         UUID actorUserId = UUID.randomUUID();
-        String caption = "Post creation fails after upload";
+        String caption = "Post creation fails";
         UUID assetId = UUID.randomUUID();
         byte[] imageData = "bytes".getBytes();
-        RuntimeException dbException = new RuntimeException("Database unique constraint violation");
+        RuntimeException dbException = new RuntimeException("Database error saving post");
 
         when(imageUploadUseCase.uploadImage(any(), any(Long.class), any(), any())).thenReturn(assetId);
         when(createCommunityPostUseCase.execute(any(CreateCommunityPostCommand.class))).thenThrow(dbException);
@@ -228,7 +290,13 @@ class CreateCommunityPostWithImageUseCaseTest {
 
         CommunityPostImageUploadUseCase realImageUploadUseCase = new CommunityPostImageUploadUseCase(realMediaContract);
         CreateCommunityPostWithImageUseCase realOrchestrator =
-                new CreateCommunityPostWithImageUseCase(createCommunityPostUseCase, realImageUploadUseCase);
+                new CreateCommunityPostWithImageUseCase(
+                        createCommunityPostUseCase,
+                        realImageUploadUseCase,
+                        creationGuardService,
+                        clockPort,
+                        transactionTemplate
+                );
 
         // Non-JPEG bytes (e.g. text / garbage) declared as image/jpeg
         byte[] invalidBytes = "This is not a JPEG file at all".getBytes();

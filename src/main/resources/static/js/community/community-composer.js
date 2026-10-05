@@ -84,6 +84,38 @@
         if (response.status === 403) {
             throw new Error('Bạn không có quyền thực hiện hành động này.');
         }
+        if (response.status === 429) {
+            let msg = '';
+            let retrySeconds = null;
+            if (isJson && !isHtml) {
+                try {
+                    const errData = await response.json();
+                    if (errData && typeof errData.message === 'string' && errData.message.trim().length > 0) {
+                        msg = errData.message.trim();
+                    }
+                    if (errData && errData.retryAfterSeconds) {
+                        retrySeconds = Number(errData.retryAfterSeconds);
+                    }
+                } catch (_) {
+                }
+            }
+            if (!msg) {
+                msg = 'Bạn đang đăng bài quá nhanh. Vui lòng thử lại sau.';
+            }
+            if (retrySeconds === null) {
+                const retryHeader = getHeaderValue(response.headers, 'retry-after');
+                if (retryHeader && !isNaN(Number(retryHeader))) {
+                    retrySeconds = Number(retryHeader);
+                }
+            }
+            if (retrySeconds && !isNaN(retrySeconds) && retrySeconds > 0) {
+                const ceilSec = Math.ceil(retrySeconds);
+                if (!msg.includes('khoảng ' + ceilSec + ' giây')) {
+                    msg += ' Thử lại sau khoảng ' + ceilSec + ' giây.';
+                }
+            }
+            throw new Error(msg);
+        }
 
         if (isJson && !isHtml) {
             let errJson = null;

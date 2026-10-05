@@ -7,6 +7,7 @@ import com.universe.community.domain.CommunitySettings;
 import com.universe.test.TestDatabaseSupport;
 import com.universe.community.application.command.CreateCommunityPostCommand;
 import com.universe.community.application.command.UpdateCommunitySettingsCommand;
+import com.universe.community.application.service.CommunityPostCreationGuardService;
 import com.universe.community.application.usecase.CreateCommunityPostUseCase;
 import com.universe.community.application.usecase.UpdateCommunitySettingsUseCase;
 import com.universe.community.domain.exception.CommunitySettingsOptimisticLockException;
@@ -58,6 +59,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         CommunityPostPersistenceAdapter.class,
         CommunityPostPersistenceMapper.class,
         CommunityPostRevisionPersistenceMapper.class,
+        CommunityPostCreationGuardPersistenceAdapter.class,
+        CommunityPostCreationGuardService.class,
         UuidGeneratorAdapter.class,
         SystemClockAdapter.class,
         CreateCommunityPostUseCase.class,
@@ -97,6 +100,8 @@ class CommunityPublicationSettingsMySQLIntegrationTest {
 
     @AfterEach
     void cleanUp() {
+        jdbcTemplate.execute("DELETE FROM community_post_creation_events");
+        jdbcTemplate.execute("DELETE FROM community_post_creation_guard");
         jdbcTemplate.execute("DELETE FROM community_post_moderation_events");
         jdbcTemplate.execute("DELETE FROM community_post_revisions");
         jdbcTemplate.execute("DELETE FROM community_posts");
@@ -407,10 +412,10 @@ class CommunityPublicationSettingsMySQLIntegrationTest {
         CountDownLatch startLatch = new CountDownLatch(1);
 
         List<Future<CommunityPost>> postFutures = new ArrayList<>();
-        UUID authorId = UUID.randomUUID();
 
         for (int i = 0; i < 6; i++) {
             final int idx = i;
+            final UUID authorId = UUID.randomUUID();
             postFutures.add(executor.submit(() -> {
                 startLatch.await();
                 return createPostUseCase.execute(new CreateCommunityPostCommand(authorId, "Racing post " + idx, null));

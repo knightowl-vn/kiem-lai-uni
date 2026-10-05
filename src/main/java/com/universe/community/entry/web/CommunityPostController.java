@@ -14,6 +14,7 @@ import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.contracts.dto.EditCommunityPostCaptionRequestDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.exception.CommunityPostCreationRateLimitException;
 import com.universe.community.domain.exception.CommunityPostHiddenDeleteForbiddenException;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostPendingEditConflictException;
@@ -307,6 +308,17 @@ public class CommunityPostController {
     public ResponseEntity<Map<String, String>> handlePendingEditConflictException(CommunityPostPendingEditConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "Bản chỉnh sửa hiện tại đang chờ quản trị viên duyệt."));
+    }
+
+    @ExceptionHandler(CommunityPostCreationRateLimitException.class)
+    public ResponseEntity<Map<String, Object>> handleRateLimitException(CommunityPostCreationRateLimitException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                .body(Map.of(
+                        "message", ex.getUserMessage(),
+                        "reason", ex.getReason().name(),
+                        "retryAfterSeconds", ex.getRetryAfterSeconds()
+                ));
     }
 
     @ExceptionHandler(IllegalStateException.class)

@@ -1420,4 +1420,94 @@ describe('CommunityComposer Module Tests (MS-07B8.1 / MS-07B8-RETRO-CORRECTIVE)'
             assert.strictEqual(list.hidden, true);
         });
     });
+
+    describe('CommunityComposer Anti-Spam / 429 Rate Limiting Tests (MS-07B8.5.5)', () => {
+        test('1. parseComposerResponse parses 429 with JSON body message and retryAfterSeconds', async () => {
+            const mockResponse = {
+                status: 429,
+                ok: false,
+                headers: {
+                    get: (header) => (header.toLowerCase() === 'content-type' ? 'application/json' : (header.toLowerCase() === 'retry-after' ? '45' : null))
+                },
+                json: async () => ({
+                    message: 'Bạn đang đăng bài quá nhanh. Vui lòng thử lại sau.',
+                    reason: 'COOLDOWN',
+                    retryAfterSeconds: 45
+                })
+            };
+
+            await assert.rejects(
+                async () => {
+                    await CommunityComposer.parseComposerResponse(mockResponse);
+                },
+                (err) => {
+                    assert.strictEqual(err.message, 'Bạn đang đăng bài quá nhanh. Vui lòng thử lại sau. Thử lại sau khoảng 45 giây.');
+                    return true;
+                }
+            );
+        });
+
+        test('2. parseComposerResponse parses 429 with Retry-After header fallback', async () => {
+            const mockResponse = {
+                status: 429,
+                ok: false,
+                headers: {
+                    get: (header) => (header.toLowerCase() === 'content-type' ? 'text/plain' : (header.toLowerCase() === 'retry-after' ? '120' : null))
+                },
+                json: async () => ({})
+            };
+
+            await assert.rejects(
+                async () => {
+                    await CommunityComposer.parseComposerResponse(mockResponse);
+                },
+                (err) => {
+                    assert.strictEqual(err.message, 'Bạn đang đăng bài quá nhanh. Vui lòng thử lại sau. Thử lại sau khoảng 120 giây.');
+                    return true;
+                }
+            );
+        });
+
+        test('3. Form submission receiving 429 keeps composer expanded and preserves caption and image', async () => {
+            const mockFetch = async () => ({
+                status: 429,
+                ok: false,
+                headers: {
+                    get: (header) => (header.toLowerCase() === 'content-type' ? 'application/json' : (header.toLowerCase() === 'retry-after' ? '60' : null))
+                },
+                json: async () => ({
+                    message: 'Bạn đã đăng nội dung tương tự trong 24 giờ qua.',
+                    reason: 'DUPLICATE_CAPTION',
+                    retryAfterSeconds: 86400
+                })
+            });
+
+            const composer = CommunityComposer.init({ document: doc, fetch: mockFetch });
+            composer.expandComposer({ focusInput: false });
+
+            const dummyFile = { name: 'spam.png', type: 'image/png', size: 2048 };
+            captionInput.value = 'Spam identical content';
+            imageInput.files = [dummyFile];
+
+            form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+            await new Promise(r => setTimeout(r, 20));
+
+            // Error alert is visible and contains duplicate caption message and retry time
+            assert.strictEqual(errorAlert.hidden, false);
+            assert.ok(errorAlert.textContent.includes('Bạn đã đăng nội dung tương tự trong 24 giờ qua.'));
+            assert.ok(errorAlert.textContent.includes('86400'));
+
+            // Composer remains expanded
+            assert.strictEqual(composer.isExpanded(), true);
+            assert.strictEqual(composerPanel.hidden, false);
+            assert.strictEqual(composerTrigger.hidden, true);
+
+            // Draft caption and selected image are strictly preserved
+            assert.strictEqual(captionInput.value, 'Spam identical content');
+            assert.strictEqual(captionInput.disabled, false);
+            assert.strictEqual(imageInput.files.length, 1);
+            assert.strictEqual(imageInput.files[0].name, 'spam.png');
+            assert.strictEqual(submitBtn.disabled, false);
+        });
+    });
 });
