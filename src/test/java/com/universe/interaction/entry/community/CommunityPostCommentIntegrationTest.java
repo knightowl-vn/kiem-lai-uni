@@ -172,9 +172,9 @@ class CommunityPostCommentIntegrationTest {
 
     private void insertPost(UUID id, UUID authorId, String caption, Instant now) {
         jdbcTemplate.update("""
-                INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, created_at, updated_at)
-                VALUES (?, ?, ?, NULL, 0, ?, ?)
-                """, id.toString(), authorId.toString(), caption, Timestamp.from(now), Timestamp.from(now));
+                INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, status, published_at, review_requested_at, created_at, updated_at)
+                VALUES (?, ?, ?, NULL, 0, 'PUBLISHED', ?, NULL, ?, ?)
+                """, id.toString(), authorId.toString(), caption, Timestamp.from(now), Timestamp.from(now), Timestamp.from(now));
     }
 
     private void insertForeignComment(UUID id, String targetType, UUID targetId, UUID authorId, UUID parentId, UUID rootId, String body, Instant now) {
