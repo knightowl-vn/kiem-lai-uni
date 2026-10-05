@@ -1,7 +1,5 @@
 package com.universe.community.entry.admin;
 
-import com.universe.community.application.command.ResolveCommunityPostReportCommand;
-import com.universe.community.application.usecase.ResolveCommunityPostReportUseCase;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;

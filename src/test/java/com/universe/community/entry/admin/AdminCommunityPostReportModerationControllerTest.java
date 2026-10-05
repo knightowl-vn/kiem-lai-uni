@@ -1,7 +1,5 @@
 package com.universe.community.entry.admin;
 
-import com.universe.community.application.command.ResolveCommunityPostReportCommand;
-import com.universe.community.application.usecase.ResolveCommunityPostReportUseCase;
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.domain.UserRole;
 import com.universe.identity.domain.UserStatus;

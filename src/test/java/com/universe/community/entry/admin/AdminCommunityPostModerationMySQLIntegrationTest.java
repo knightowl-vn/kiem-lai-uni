@@ -4,7 +4,6 @@ import com.universe.community.application.command.ApproveCommunityPostCommand;
 import com.universe.community.application.command.HideCommunityPostCommand;
 import com.universe.community.application.command.EditCommunityPostCaptionCommand;
 import com.universe.community.application.command.RejectCommunityPostCommand;
-import com.universe.community.application.command.ResolveCommunityPostReportCommand;
 import com.universe.community.application.command.RestoreCommunityPostCommand;
 import com.universe.community.application.port.out.CommunityPostModerationEventRepositoryPort;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
@@ -14,8 +13,9 @@ import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.HideCommunityPostUseCase;
 import com.universe.community.application.usecase.RejectCommunityPostUseCase;
-import com.universe.community.application.usecase.ResolveCommunityPostReportUseCase;
 import com.universe.community.application.usecase.RestoreCommunityPostUseCase;
+import com.universe.interaction.application.mutation.ResolveInteractionReportUseCase;
+import com.universe.interaction.application.query.GetInteractionReportDetailUseCase;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.domain.exception.CommunityPostHiddenDeleteForbiddenException;
@@ -122,6 +122,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         InteractionCommunityPostCleanupAdapter.class,
         InteractionCommunityPostReportQueryAdapter.class,
         CleanupCommunityPostInteractionsUseCase.class,
+        GetInteractionReportDetailUseCase.class,
+        ResolveInteractionReportUseCase.class,
         ResolveCommunityPostReportUseCase.class,
         ApproveCommunityPostUseCase.class,
         RejectCommunityPostUseCase.class,

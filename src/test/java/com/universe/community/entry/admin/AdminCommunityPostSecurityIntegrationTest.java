@@ -15,7 +15,6 @@ import com.universe.identity.infrastructure.security.SafeReturnToValidator;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.community.application.usecase.ApproveCommunityPostUseCase;
 import com.universe.community.application.usecase.RejectCommunityPostUseCase;
-import com.universe.community.application.usecase.ResolveCommunityPostReportUseCase;
 import com.universe.community.application.usecase.RestoreCommunityPostUseCase;
 import com.universe.community.entry.admin.dto.AdminCommunityPostHiddenPageDTO;
 import com.universe.community.entry.admin.dto.AdminCommunityPostPendingPageDTO;
