@@ -32,8 +32,12 @@ public final class ScreenEntryCompatibility {
         Objects.requireNonNull(entryType, "ScreenEntryType cannot be null.");
 
         return switch (structure) {
-            case SERIES -> entryType != ScreenEntryType.FEATURE;
-            case FEATURE -> entryType != ScreenEntryType.EPISODE;
+            case SERIES -> entryType == ScreenEntryType.EPISODE
+                    || entryType == ScreenEntryType.SPECIAL
+                    || entryType == ScreenEntryType.TRAILER;
+            case FEATURE -> entryType == ScreenEntryType.FEATURE
+                    || entryType == ScreenEntryType.SPECIAL
+                    || entryType == ScreenEntryType.TRAILER;
         };
     }
 
