@@ -4,9 +4,11 @@ import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
@@ -23,12 +25,15 @@ public class UploadMediaAssetUseCase {
     private final StorageProviderResolverPort storageProviderResolverPort;
     private final RegisterMediaAssetUseCase registerMediaAssetUseCase;
     private final RasterContentSignatureValidator rasterContentSignatureValidator;
+    private final VideoUploadValidator videoUploadValidator;
 
+    @Autowired
     public UploadMediaAssetUseCase(
             MediaStorageRoutingService mediaStorageRoutingService,
             StorageProviderResolverPort storageProviderResolverPort,
             RegisterMediaAssetUseCase registerMediaAssetUseCase,
-            RasterContentSignatureValidator rasterContentSignatureValidator
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            VideoUploadValidator videoUploadValidator
     ) {
         this.mediaStorageRoutingService = Objects.requireNonNull(
                 mediaStorageRoutingService,
@@ -46,6 +51,25 @@ public class UploadMediaAssetUseCase {
                 rasterContentSignatureValidator,
                 "RasterContentSignatureValidator cannot be null."
         );
+        this.videoUploadValidator = Objects.requireNonNull(
+                videoUploadValidator,
+                "VideoUploadValidator cannot be null."
+        );
+    }
+
+    public UploadMediaAssetUseCase(
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RegisterMediaAssetUseCase registerMediaAssetUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator
+    ) {
+        this(
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                registerMediaAssetUseCase,
+                rasterContentSignatureValidator,
+                new VideoUploadValidator()
+        );
     }
 
     public UploadMediaAssetResult execute(
@@ -54,11 +78,17 @@ public class UploadMediaAssetUseCase {
         Objects.requireNonNull(command, "UploadMediaAssetCommand cannot be null.");
 
         MimeType mimeType = MimeType.of(command.mimeType());
-        InputStream validatedContent = rasterContentSignatureValidator.validateAndPrepareStream(
-                command.content(),
-                command.sizeBytes(),
-                mimeType
-        );
+        InputStream validatedContent;
+        if (command.mediaType() == MediaType.VIDEO) {
+            videoUploadValidator.validate(command.mediaType(), command.sizeBytes(), mimeType);
+            validatedContent = command.content();
+        } else {
+            validatedContent = rasterContentSignatureValidator.validateAndPrepareStream(
+                    command.content(),
+                    command.sizeBytes(),
+                    mimeType
+            );
+        }
 
         StorageProviderId providerId = mediaStorageRoutingService.resolveWriteProvider(
                 command.mediaType(),

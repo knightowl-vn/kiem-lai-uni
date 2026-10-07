@@ -17,6 +17,7 @@ public class MediaStorageRoutingService {
 
     public static final StorageProviderId CLOUDINARY_PROVIDER = StorageProviderId.of("cloudinary");
     public static final StorageProviderId R2_PROVIDER = StorageProviderId.of("r2");
+    public static final StorageProviderId B2_PROVIDER = StorageProviderId.of("b2");
 
     public static final String WIKI_ARTICLE_COVER_TAG_PREFIX = "wiki.article.cover";
     public static final String IDENTITY_AVATAR_TAG_PREFIX = "identity.avatar";
@@ -35,7 +36,8 @@ public class MediaStorageRoutingService {
         return switch (mediaType) {
             case IMAGE -> CLOUDINARY_PROVIDER;
             case AUDIO -> R2_PROVIDER;
-            case VIDEO, DOCUMENT -> throw new StorageException(
+            case VIDEO -> B2_PROVIDER;
+            case DOCUMENT -> throw new StorageException(
                     "Unsupported MediaType for storage write routing: " + mediaType
             );
         };

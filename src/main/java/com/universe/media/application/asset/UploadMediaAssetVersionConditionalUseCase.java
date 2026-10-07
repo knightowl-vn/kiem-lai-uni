@@ -2,6 +2,7 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
@@ -9,9 +10,11 @@ import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -35,6 +38,24 @@ public class UploadMediaAssetVersionConditionalUseCase {
     private final StorageProviderResolverPort storageProviderResolverPort;
     private final RasterContentSignatureValidator rasterContentSignatureValidator;
     private final RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase;
+    private final VideoUploadValidator videoUploadValidator;
+
+    @Autowired
+    public UploadMediaAssetVersionConditionalUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
+            VideoUploadValidator videoUploadValidator
+    ) {
+        this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
+        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
+        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
+        this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
+        this.registerMediaAssetVersionUseCase = Objects.requireNonNull(registerMediaAssetVersionUseCase, "RegisterMediaAssetVersionUseCase cannot be null.");
+        this.videoUploadValidator = Objects.requireNonNull(videoUploadValidator, "VideoUploadValidator cannot be null.");
+    }
 
     public UploadMediaAssetVersionConditionalUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
@@ -43,22 +64,40 @@ public class UploadMediaAssetVersionConditionalUseCase {
             RasterContentSignatureValidator rasterContentSignatureValidator,
             RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase
     ) {
-        this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
-        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
-        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
-        this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
-        this.registerMediaAssetVersionUseCase = Objects.requireNonNull(registerMediaAssetVersionUseCase, "RegisterMediaAssetVersionUseCase cannot be null.");
+        this(
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                rasterContentSignatureValidator,
+                registerMediaAssetVersionUseCase,
+                new VideoUploadValidator()
+        );
     }
 
     public UploadMediaAssetVersionConditionalResult execute(UploadMediaAssetVersionCommand command) {
         Objects.requireNonNull(command, "UploadMediaAssetVersionCommand cannot be null.");
 
         MimeType mimeType = MimeType.of(command.mimeType());
-        InputStream validatedContent = rasterContentSignatureValidator.validateAndPrepareStream(
-                command.content(),
-                command.sizeBytes(),
-                mimeType
-        );
+        MediaAsset asset = mediaAssetRepositoryPort.findById(command.assetId())
+                .orElseThrow(() -> new MediaAssetNotFoundException(command.assetId()));
+
+        InputStream validatedContent;
+        if (asset.getMediaType() == MediaType.VIDEO) {
+            videoUploadValidator.validate(MediaType.VIDEO, command.sizeBytes(), mimeType);
+            validatedContent = command.content();
+        } else {
+            String mimeValue = mimeType.value().toLowerCase(java.util.Locale.ROOT);
+            if (mimeValue.startsWith("video/")) {
+                throw new UploadContentMimeMismatchException(
+                        "Cannot upload video to non-VIDEO asset of type: " + asset.getMediaType()
+                );
+            }
+            validatedContent = rasterContentSignatureValidator.validateAndPrepareStream(
+                    command.content(),
+                    command.sizeBytes(),
+                    mimeType
+            );
+        }
 
         Path spoolFile = null;
         try {
@@ -115,9 +154,6 @@ public class UploadMediaAssetVersionConditionalUseCase {
             }
 
             // Hashes differ (or current version has no hash) -> execute normal storage write
-            MediaAsset asset = mediaAssetRepositoryPort.findById(command.assetId())
-                    .orElseThrow(() -> new MediaAssetNotFoundException(command.assetId()));
-
             StorageProviderId providerId = mediaStorageRoutingService.resolveWriteProvider(asset.getMediaType(), asset.getClientTag());
             StorageKey storageKey = mediaStorageRoutingService.generateStorageKey(
                     asset.getMediaType(),
@@ -161,11 +197,7 @@ public class UploadMediaAssetVersionConditionalUseCase {
 
             if (registerResult.outcome() == MediaVersionUploadOutcome.UNCHANGED) {
                 // Concurrent race resolution: another worker committed this identical hash in the interim
-                try {
-                    binaryStoragePort.delete(stored.location().key());
-                } catch (RuntimeException cleanupException) {
-                    // best-effort cleanup
-                }
+                binaryStoragePort.delete(stored.location().key());
                 return UploadMediaAssetVersionConditionalResult.unchanged(
                         registerResult.assetId(),
                         registerResult.versionNumber()

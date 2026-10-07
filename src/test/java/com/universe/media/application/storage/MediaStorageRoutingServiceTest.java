@@ -23,8 +23,8 @@ class MediaStorageRoutingServiceTest {
     }
 
     @Test
-    @DisplayName("routes IMAGE to cloudinary and AUDIO to r2")
-    void shouldRouteImagesToCloudinaryAndAudioToR2() {
+    @DisplayName("routes IMAGE to cloudinary, AUDIO to r2, and VIDEO to b2")
+    void shouldRouteImagesToCloudinaryAudioToR2AndVideoToB2() {
         assertThat(routingService.resolveWriteProvider(MediaType.IMAGE, null))
                 .isEqualTo(StorageProviderId.of("cloudinary"));
         assertThat(routingService.resolveWriteProvider(MediaType.IMAGE, "wiki.article.cover"))
@@ -34,15 +34,16 @@ class MediaStorageRoutingServiceTest {
                 .isEqualTo(StorageProviderId.of("r2"));
         assertThat(routingService.resolveWriteProvider(MediaType.AUDIO, "novel.chapter.audio"))
                 .isEqualTo(StorageProviderId.of("r2"));
+
+        assertThat(routingService.resolveWriteProvider(MediaType.VIDEO, null))
+                .isEqualTo(StorageProviderId.of("b2"));
+        assertThat(routingService.resolveWriteProvider(MediaType.VIDEO, "screen.entry"))
+                .isEqualTo(StorageProviderId.of("b2"));
     }
 
     @Test
-    @DisplayName("throws StorageException for unsupported media types (VIDEO, DOCUMENT)")
+    @DisplayName("throws StorageException for unsupported media types (DOCUMENT)")
     void shouldThrowForUnsupportedMediaTypes() {
-        assertThatThrownBy(() -> routingService.resolveWriteProvider(MediaType.VIDEO, null))
-                .isInstanceOf(StorageException.class)
-                .hasMessageContaining("Unsupported MediaType for storage write routing: VIDEO");
-
         assertThatThrownBy(() -> routingService.resolveWriteProvider(MediaType.DOCUMENT, null))
                 .isInstanceOf(StorageException.class)
                 .hasMessageContaining("Unsupported MediaType for storage write routing: DOCUMENT");
@@ -165,5 +166,27 @@ class MediaStorageRoutingServiceTest {
                 1
         );
         assertThat(novelImageKey.value()).startsWith("kiemlai/novel/" + assetId + "_v1_");
+    }
+
+    @Test
+    @DisplayName("generates storage keys in objects folder for VIDEO assets")
+    void shouldGenerateStorageKeysForVideo() {
+        UUID assetId = UUID.randomUUID();
+
+        StorageKey initialKey = routingService.generateStorageKey(
+                MediaType.VIDEO,
+                null,
+                null,
+                1
+        );
+        assertThat(initialKey.value()).startsWith("objects/");
+
+        StorageKey versionKey = routingService.generateStorageKey(
+                MediaType.VIDEO,
+                "screen.entry",
+                assetId,
+                2
+        );
+        assertThat(versionKey.value()).startsWith("objects/" + assetId + "_v2_");
     }
 }

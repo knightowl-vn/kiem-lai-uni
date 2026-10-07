@@ -1,6 +1,7 @@
 package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
@@ -38,8 +39,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,6 +72,7 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
     @Mock
     private RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase;
 
+    private RasterContentSignatureValidator rasterValidator;
     private UploadMediaAssetVersionConditionalUseCase useCase;
 
     private static byte[] createPngBytes(String text) {
@@ -91,7 +95,7 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        RasterContentSignatureValidator validator = new RasterContentSignatureValidator();
+        rasterValidator = spy(new RasterContentSignatureValidator());
         lenient().when(mediaStorageRoutingService.resolveWriteProvider(any(), any())).thenReturn(LOCAL_PROVIDER);
         lenient().when(mediaStorageRoutingService.generateStorageKey(any(), any(), any(), anyInt()))
                 .thenAnswer(inv -> StorageKey.of("objects/" + UUID.randomUUID()));
@@ -103,12 +107,18 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
                     return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
                 });
 
+        MediaAsset defaultImageAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        lenient().when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(defaultImageAsset));
+
+        VideoUploadValidator videoUploadValidator = new VideoUploadValidator();
+
         useCase = new UploadMediaAssetVersionConditionalUseCase(
                 mediaAssetRepositoryPort,
                 mediaStorageRoutingService,
                 storageProviderResolverPort,
-                validator,
-                registerMediaAssetVersionUseCase
+                rasterValidator,
+                registerMediaAssetVersionUseCase,
+                videoUploadValidator
         );
     }
 
@@ -247,8 +257,7 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
     @Test
     @DisplayName("Test E: Missing asset throws MediaAssetNotFoundException")
     void shouldThrowMediaAssetNotFoundExceptionWhenAssetDoesNotExist() {
-        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(eq(ASSET_ID), any()))
-                .thenThrow(new MediaAssetNotFoundException(ASSET_ID));
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.empty());
 
         UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
                 ASSET_ID,
@@ -262,6 +271,7 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
                 .isInstanceOf(MediaAssetNotFoundException.class)
                 .hasMessageContaining(ASSET_ID.toString());
 
+        verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
         verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
     }
 
@@ -353,6 +363,45 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
     }
 
     @Test
+    @DisplayName("Concurrent race reconciliation: if registerConditionalVersion returns UNCHANGED and cleanup fails, storage failure reaches caller")
+    void shouldFailAndNotReturnUnchangedWhenConcurrentRaceCleanupFails() {
+        String hash2 = sha256Hex(VALID_PNG_BYTES_2);
+
+        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash2))
+                .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+
+        // Simulate concurrent worker already committed hash2 in DB:
+        RegisterMediaAssetVersionConditionalResult concurrentUnchanged =
+                RegisterMediaAssetVersionConditionalResult.unchanged(ASSET_ID, 2, NOW);
+        when(registerMediaAssetVersionUseCase.registerConditionalVersion(any(RegisterMediaAssetVersionCommand.class)))
+                .thenReturn(concurrentUnchanged);
+
+        StorageKey expectedKey = StorageKey.of("kiemlai/images/" + ASSET_ID + "_v2.png");
+        when(mediaStorageRoutingService.generateStorageKey(any(), any(), any(), eq(2)))
+                .thenReturn(expectedKey);
+        doThrow(new StorageException("Simulated B2 delete network failure on race cleanup"))
+                .when(binaryStoragePort).delete(expectedKey);
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(VALID_PNG_BYTES_2),
+                VALID_PNG_BYTES_2.length,
+                "image/png",
+                "cover.png"
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Simulated B2 delete network failure on race cleanup");
+
+        verify(binaryStoragePort).store(eq(expectedKey), any(InputStream.class), eq((long) VALID_PNG_BYTES_2.length), eq(MimeType.of("image/png")));
+        verify(binaryStoragePort).delete(expectedKey);
+    }
+
+    @Test
     @DisplayName("Storage compensation deletes stored binary when registerConditionalVersion throws RuntimeException")
     void shouldCompensateStorageWhenRegistrationFails() {
         String hash2 = sha256Hex(VALID_PNG_BYTES_2);
@@ -413,5 +462,204 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
         assertThat(result.outcome()).isEqualTo(MediaVersionUploadOutcome.VERSION_CREATED);
         verify(mediaStorageRoutingService).resolveWriteProvider(MediaType.IMAGE, clientTag);
         verify(mediaStorageRoutingService).generateStorageKey(MediaType.IMAGE, clientTag, ASSET_ID, 2);
+    }
+
+    @Test
+    @DisplayName("Conditional VIDEO version upload succeeds for valid video/mp4 when content differs")
+    void shouldUploadConditionalVideoVersionWhenContentDiffers() {
+        byte[] videoBytes = "simulated-video-v2-mp4-payload".getBytes(StandardCharsets.UTF_8);
+        String hash = sha256Hex(videoBytes);
+
+        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash))
+                .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+
+        RegisterMediaAssetVersionConditionalResult registerResult =
+                RegisterMediaAssetVersionConditionalResult.versionCreated(ASSET_ID, VERSION_2_ID, 2, NOW);
+        when(registerMediaAssetVersionUseCase.registerConditionalVersion(any(RegisterMediaAssetVersionCommand.class)))
+                .thenReturn(registerResult);
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(videoBytes),
+                videoBytes.length,
+                "video/mp4",
+                "episode1_v2.mp4"
+        );
+
+        UploadMediaAssetVersionConditionalResult result = useCase.execute(command);
+
+        assertThat(result.outcome()).isEqualTo(MediaVersionUploadOutcome.VERSION_CREATED);
+        assertThat(result.versionNumber()).isEqualTo(2);
+        verify(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) videoBytes.length), eq(MimeType.of("video/mp4")));
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("Conditional VIDEO version upload rejects non-mp4 MIME before storage write")
+    void shouldRejectConditionalVideoVersionWhenMimeIsNotMp4() {
+        MediaAsset videoAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(new byte[16]),
+                16L,
+                "video/webm",
+                "episode1.webm"
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(com.universe.media.application.exceptions.UploadContentMimeMismatchException.class)
+                .hasMessageContaining("Unsupported MIME type 'video/webm' for VIDEO");
+
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
+    }
+
+    @Test
+    @DisplayName("Conditional VIDEO version upload rejects size exceeding 4 GiB before storage write")
+    void shouldRejectConditionalVideoVersionWhenSizeExceeds4GiB() {
+        MediaAsset videoAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(new byte[16]),
+                4_294_967_297L,
+                "video/mp4",
+                "huge_episode.mp4"
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exceeds maximum allowed size of 4294967296 bytes (4 GiB)");
+
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
+    }
+
+    @Test
+    @DisplayName("Conditional VIDEO version upload rejects image/png before storage write and never calls raster validator")
+    void shouldRejectConditionalVideoVersionWithImagePng() {
+        MediaAsset videoAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}),
+                8L,
+                "image/png",
+                "v2.png"
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(com.universe.media.application.exceptions.UploadContentMimeMismatchException.class)
+                .hasMessageContaining("Unsupported MIME type 'image/png' for VIDEO");
+
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
+    }
+
+    @Test
+    @DisplayName("Conditional VIDEO version upload rejects audio/mpeg before storage write and never calls raster validator")
+    void shouldRejectConditionalVideoVersionWithAudioMpeg() {
+        MediaAsset videoAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(new byte[16]),
+                16L,
+                "audio/mpeg",
+                "v2.mp3"
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(com.universe.media.application.exceptions.UploadContentMimeMismatchException.class)
+                .hasMessageContaining("Unsupported MIME type 'audio/mpeg' for VIDEO");
+
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
+    }
+
+    @Test
+    @DisplayName("Conditional duplicate-content path with invalid VIDEO MIME rejects upfront and never probes duplicate")
+    void shouldRejectConditionalDuplicateWhenMimeIsInvalidForVideoAsset() {
+        MediaAsset videoAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(new byte[16]),
+                16L,
+                "video/webm",
+                "duplicate.webm"
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(com.universe.media.application.exceptions.UploadContentMimeMismatchException.class)
+                .hasMessageContaining("Unsupported MIME type 'video/webm' for VIDEO");
+
+        verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("Valid VIDEO conditional duplicate with video/mp4 returns UNCHANGED with zero storage writes")
+    void shouldReturnUnchangedForValidVideoDuplicate() {
+        byte[] videoBytes = "sample-mp4-video-duplicate-bytes".getBytes(StandardCharsets.UTF_8);
+        String hash = sha256Hex(videoBytes);
+
+        MediaAsset videoAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash))
+                .thenReturn(AuthoritativeDuplicateProbeResult.duplicate(1));
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(videoBytes),
+                videoBytes.length,
+                "video/mp4",
+                "duplicate.mp4"
+        );
+
+        UploadMediaAssetVersionConditionalResult result = useCase.execute(command);
+
+        assertThat(result.outcome()).isEqualTo(MediaVersionUploadOutcome.UNCHANGED);
+        assertThat(result.versionNumber()).isEqualTo(1);
+        verify(registerMediaAssetVersionUseCase).probeAuthoritativeDuplicate(ASSET_ID, hash);
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("Conditional upload on IMAGE asset rejects video/mp4 MIME before spooling and duplicate probe")
+    void shouldRejectVideoMimeOnConditionalImageAssetUpload() {
+        MediaAsset imageAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(imageAsset));
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(new byte[16]),
+                16L,
+                "video/mp4",
+                "movie.mp4"
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(com.universe.media.application.exceptions.UploadContentMimeMismatchException.class)
+                .hasMessageContaining("Cannot upload video to non-VIDEO asset of type: IMAGE");
+
+        verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
     }
 }

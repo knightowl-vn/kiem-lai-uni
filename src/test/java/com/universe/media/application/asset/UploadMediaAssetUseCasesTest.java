@@ -49,6 +49,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -73,11 +74,14 @@ class UploadMediaAssetUseCasesTest {
     @Mock
     private RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase;
 
+    private RasterContentSignatureValidator rasterValidator;
     private UploadMediaAssetUseCase uploadMediaAssetUseCase;
     private UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase;
 
     private static final StorageProviderId LOCAL_PROVIDER =
             StorageProviderId.of("local");
+    private static final StorageProviderId B2_PROVIDER =
+            StorageProviderId.of("b2");
 
     private static final byte[] VALID_JPEG_HEADER = new byte[]{
             (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0
@@ -111,7 +115,8 @@ class UploadMediaAssetUseCasesTest {
 
     @BeforeEach
     void setUp() {
-        RasterContentSignatureValidator validator = new RasterContentSignatureValidator();
+        rasterValidator = spy(new RasterContentSignatureValidator());
+        VideoUploadValidator videoUploadValidator = new VideoUploadValidator();
         lenient().when(mediaStorageRoutingService.resolveWriteProvider(any(), any())).thenReturn(LOCAL_PROVIDER);
         lenient().when(mediaStorageRoutingService.generateStorageKey(any(), any(), any(), anyInt()))
                 .thenAnswer(inv -> StorageKey.of("objects/" + UUID.randomUUID()));
@@ -122,14 +127,16 @@ class UploadMediaAssetUseCasesTest {
                 mediaStorageRoutingService,
                 storageProviderResolverPort,
                 registerMediaAssetUseCase,
-                validator
+                rasterValidator,
+                videoUploadValidator
         );
         uploadMediaAssetVersionUseCase = new UploadMediaAssetVersionUseCase(
                 mediaAssetRepositoryPort,
                 mediaStorageRoutingService,
                 storageProviderResolverPort,
                 registerMediaAssetVersionUseCase,
-                validator
+                rasterValidator,
+                videoUploadValidator
         );
     }
 
@@ -569,6 +576,214 @@ class UploadMediaAssetUseCasesTest {
             )).isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("sizeBytes must be positive");
         }
+
+        @Test
+        @DisplayName("successful VIDEO initial upload routes to B2, stores binary, and persists asset")
+        void shouldUploadVideoInitialAssetSuccessfully() throws Exception {
+            byte[] data = "mp4-video-content-stream".getBytes(StandardCharsets.UTF_8);
+            String expectedSha256 = computeSha256(data);
+
+            when(mediaStorageRoutingService.resolveWriteProvider(MediaType.VIDEO, null)).thenReturn(B2_PROVIDER);
+            when(storageProviderResolverPort.resolve(B2_PROVIDER)).thenReturn(binaryStoragePort);
+
+            doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(B2_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            UUID assetId = UUID.randomUUID();
+            UUID versionId = UUID.randomUUID();
+            Instant now = Instant.now();
+
+            when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
+                    .thenReturn(new RegisterMediaAssetResult(
+                            assetId,
+                            versionId,
+                            1,
+                            MediaType.VIDEO,
+                            MediaVisibility.PUBLIC,
+                            MediaAssetStatus.ACTIVE,
+                            now
+                    ));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "video/mp4",
+                    MediaType.VIDEO,
+                    MediaVisibility.PUBLIC,
+                    "episode1.mp4"
+            );
+
+            UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
+
+            assertThat(result).isNotNull();
+            assertThat(result.assetId()).isEqualTo(assetId);
+            assertThat(result.mediaType()).isEqualTo(MediaType.VIDEO);
+
+            verify(mediaStorageRoutingService).resolveWriteProvider(MediaType.VIDEO, null);
+            verify(storageProviderResolverPort).resolve(B2_PROVIDER);
+            verify(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), eq(MimeType.of("video/mp4")));
+
+            ArgumentCaptor<RegisterMediaAssetCommand> registerCaptor = ArgumentCaptor.forClass(RegisterMediaAssetCommand.class);
+            verify(registerMediaAssetUseCase).execute(registerCaptor.capture());
+            assertThat(registerCaptor.getValue().mediaType()).isEqualTo(MediaType.VIDEO);
+            assertThat(registerCaptor.getValue().storageProviderId()).isEqualTo("b2");
+            assertThat(registerCaptor.getValue().contentHash()).isEqualTo(expectedSha256);
+            assertThat(registerCaptor.getValue().mimeType()).isEqualTo("video/mp4");
+        }
+
+        @Test
+        @DisplayName("VIDEO initial upload succeeds at exact 4 GiB upper boundary without buffering into memory")
+        void shouldAcceptVideoInitialAssetAtExact4GiBUpperBoundary() throws Exception {
+            long exact4GiB = 4_294_967_296L;
+            InputStream emptyStream = new ByteArrayInputStream(new byte[0]);
+
+            when(mediaStorageRoutingService.resolveWriteProvider(MediaType.VIDEO, null)).thenReturn(B2_PROVIDER);
+            when(storageProviderResolverPort.resolve(B2_PROVIDER)).thenReturn(binaryStoragePort);
+
+            when(binaryStoragePort.store(any(StorageKey.class), any(InputStream.class), eq(exact4GiB), any(MimeType.class)))
+                    .thenAnswer(inv -> {
+                        StorageKey key = inv.getArgument(0);
+                        return new StoredBinaryObject(StorageLocation.of(B2_PROVIDER, key), null);
+                    });
+
+            UUID assetId = UUID.randomUUID();
+            when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
+                    .thenReturn(new RegisterMediaAssetResult(
+                            assetId,
+                            UUID.randomUUID(),
+                            1,
+                            MediaType.VIDEO,
+                            MediaVisibility.PUBLIC,
+                            MediaAssetStatus.ACTIVE,
+                            Instant.now()
+                    ));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    emptyStream,
+                    exact4GiB,
+                    "video/mp4",
+                    MediaType.VIDEO,
+                    MediaVisibility.PUBLIC,
+                    "huge_video.mp4"
+            );
+
+            UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
+            assertThat(result.assetId()).isEqualTo(assetId);
+            verify(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq(exact4GiB), eq(MimeType.of("video/mp4")));
+        }
+
+        @Test
+        @DisplayName("VIDEO initial upload succeeds at 1 byte lower boundary")
+        void shouldAcceptVideoInitialAssetAt1ByteLowerBoundary() throws Exception {
+            byte[] data = new byte[]{0x01};
+
+            when(mediaStorageRoutingService.resolveWriteProvider(MediaType.VIDEO, null)).thenReturn(B2_PROVIDER);
+            when(storageProviderResolverPort.resolve(B2_PROVIDER)).thenReturn(binaryStoragePort);
+
+            when(binaryStoragePort.store(any(StorageKey.class), any(InputStream.class), eq(1L), any(MimeType.class)))
+                    .thenAnswer(inv -> {
+                        StorageKey key = inv.getArgument(0);
+                        return new StoredBinaryObject(StorageLocation.of(B2_PROVIDER, key), null);
+                    });
+
+            UUID assetId = UUID.randomUUID();
+            when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
+                    .thenReturn(new RegisterMediaAssetResult(
+                            assetId,
+                            UUID.randomUUID(),
+                            1,
+                            MediaType.VIDEO,
+                            MediaVisibility.PUBLIC,
+                            MediaAssetStatus.ACTIVE,
+                            Instant.now()
+                    ));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    1L,
+                    "video/mp4",
+                    MediaType.VIDEO,
+                    MediaVisibility.PUBLIC,
+                    "one_byte.mp4"
+            );
+
+            UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
+            assertThat(result.assetId()).isEqualTo(assetId);
+            verify(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq(1L), eq(MimeType.of("video/mp4")));
+        }
+
+        @Test
+        @DisplayName("VIDEO initial upload strictly rejects payload exceeding 4 GiB before storage write")
+        void shouldRejectVideoInitialAssetExceeding4GiB() {
+            long exceedingSize = 4_294_967_297L;
+            InputStream dummyStream = new ByteArrayInputStream(new byte[1]);
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    dummyStream,
+                    exceedingSize,
+                    "video/mp4",
+                    MediaType.VIDEO,
+                    MediaVisibility.PUBLIC,
+                    "oversized.mp4"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetUseCase.execute(command))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("exceeds maximum allowed size of 4294967296 bytes (4 GiB)");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        }
+
+        @ParameterizedTest(name = "VIDEO initial upload rejects non-mp4 MIME: {0}")
+        @ValueSource(strings = {"video/webm", "video/quicktime", "video/x-matroska", "image/png", "application/octet-stream"})
+        void shouldRejectVideoInitialAssetWithNonMp4Mime(String invalidMime) {
+            byte[] data = new byte[]{0x01, 0x02};
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    invalidMime,
+                    MediaType.VIDEO,
+                    MediaVisibility.PUBLIC,
+                    "video_file"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("Unsupported MIME type '" + invalidMime + "' for VIDEO");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("fails closed when B2 provider is missing or unconfigured during VIDEO upload")
+        void shouldFailClosedWhenB2NotConfiguredForVideoUpload() {
+            byte[] data = "video payload".getBytes(StandardCharsets.UTF_8);
+
+            when(mediaStorageRoutingService.resolveWriteProvider(MediaType.VIDEO, null)).thenReturn(B2_PROVIDER);
+            when(storageProviderResolverPort.resolve(B2_PROVIDER))
+                    .thenThrow(new StorageException("Unsupported or unconfigured storage provider: b2"));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "video/mp4",
+                    MediaType.VIDEO,
+                    MediaVisibility.PUBLIC,
+                    "video.mp4"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetUseCase.execute(command))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Unsupported or unconfigured storage provider: b2");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(registerMediaAssetUseCase, never()).execute(any());
+        }
     }
 
     @Nested
@@ -672,8 +887,12 @@ class UploadMediaAssetUseCasesTest {
         @DisplayName("rejects version upload when binary signature does not match declared raster MIME")
         void shouldRejectVersionUploadWhenRasterSignatureMismatches() {
             byte[] mismatched = combine(VALID_PNG_HEADER, "not a jpeg".getBytes(StandardCharsets.UTF_8));
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
             UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
-                    UUID.randomUUID(),
+                    assetId,
                     new ByteArrayInputStream(mismatched),
                     mismatched.length,
                     "image/jpeg",
@@ -693,8 +912,12 @@ class UploadMediaAssetUseCasesTest {
         @DisplayName("rejects version upload when raster binary stream is shorter than required prefix")
         void shouldRejectVersionUploadWhenContentTooShort() {
             byte[] shortData = new byte[]{(byte) 0x89, 0x50}; // 2 bytes, requires 8 for png
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
             UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
-                    UUID.randomUUID(),
+                    assetId,
                     new ByteArrayInputStream(shortData),
                     shortData.length,
                     "image/png",
@@ -847,6 +1070,209 @@ class UploadMediaAssetUseCasesTest {
                     "file.webp"
             )).isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("sizeBytes must be positive");
+        }
+
+        @Test
+        @DisplayName("successful VIDEO version upload routes to B2, stores binary, and registers next version")
+        void shouldUploadVideoVersionSuccessfully() throws Exception {
+            byte[] data = "mp4-video-v2-stream".getBytes(StandardCharsets.UTF_8);
+            String expectedSha256 = computeSha256(data);
+
+            UUID assetId = UUID.randomUUID();
+            UUID versionId = UUID.randomUUID();
+            Instant now = Instant.now();
+
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, now);
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            when(mediaStorageRoutingService.resolveWriteProvider(MediaType.VIDEO, null)).thenReturn(B2_PROVIDER);
+            when(storageProviderResolverPort.resolve(B2_PROVIDER)).thenReturn(binaryStoragePort);
+
+            doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(B2_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
+                    .thenReturn(new RegisterMediaAssetVersionResult(assetId, versionId, 2, now));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "video/mp4",
+                    "episode1_v2.mp4"
+            );
+
+            UploadMediaAssetVersionResult result = uploadMediaAssetVersionUseCase.execute(command);
+
+            assertThat(result.assetId()).isEqualTo(assetId);
+            assertThat(result.versionId()).isEqualTo(versionId);
+            assertThat(result.versionNumber()).isEqualTo(2);
+
+            verify(mediaStorageRoutingService).resolveWriteProvider(MediaType.VIDEO, null);
+            verify(storageProviderResolverPort).resolve(B2_PROVIDER);
+            verify(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), eq(MimeType.of("video/mp4")));
+
+            ArgumentCaptor<RegisterMediaAssetVersionCommand> captor = ArgumentCaptor.forClass(RegisterMediaAssetVersionCommand.class);
+            verify(registerMediaAssetVersionUseCase).execute(captor.capture());
+            assertThat(captor.getValue().storageProviderId()).isEqualTo("b2");
+            assertThat(captor.getValue().contentHash()).isEqualTo(expectedSha256);
+            assertThat(captor.getValue().mimeType()).isEqualTo("video/mp4");
+            verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("VIDEO version upload succeeds at exact 4 GiB upper boundary")
+        void shouldAcceptVideoVersionAtExact4GiBUpperBoundary() throws Exception {
+            long exact4GiB = 4_294_967_296L;
+            UUID assetId = UUID.randomUUID();
+            Instant now = Instant.now();
+
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, now);
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            when(mediaStorageRoutingService.resolveWriteProvider(MediaType.VIDEO, null)).thenReturn(B2_PROVIDER);
+            when(storageProviderResolverPort.resolve(B2_PROVIDER)).thenReturn(binaryStoragePort);
+
+            when(binaryStoragePort.store(any(StorageKey.class), any(InputStream.class), eq(exact4GiB), any(MimeType.class)))
+                    .thenAnswer(inv -> {
+                        StorageKey key = inv.getArgument(0);
+                        return new StoredBinaryObject(StorageLocation.of(B2_PROVIDER, key), null);
+                    });
+
+            when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
+                    .thenReturn(new RegisterMediaAssetVersionResult(assetId, UUID.randomUUID(), 2, now));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(new byte[0]),
+                    exact4GiB,
+                    "video/mp4",
+                    "huge_v2.mp4"
+            );
+
+            UploadMediaAssetVersionResult result = uploadMediaAssetVersionUseCase.execute(command);
+            assertThat(result.versionNumber()).isEqualTo(2);
+            verify(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq(exact4GiB), eq(MimeType.of("video/mp4")));
+            verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("VIDEO version upload strictly rejects payload exceeding 4 GiB before storage write")
+        void shouldRejectVideoVersionExceeding4GiB() {
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(new byte[1]),
+                    4_294_967_297L,
+                    "video/mp4",
+                    "oversized_v2.mp4"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetVersionUseCase.execute(command))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("exceeds maximum allowed size of 4294967296 bytes (4 GiB)");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("VIDEO version upload rejects non-mp4 MIME before storage write")
+        void shouldRejectVideoVersionWithNonMp4Mime() {
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(new byte[10]),
+                    10L,
+                    "video/webm",
+                    "v2.webm"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetVersionUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("Unsupported MIME type 'video/webm' for VIDEO");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("VIDEO version upload rejects image/png before storage write and never calls raster validator")
+        void shouldRejectVideoVersionWithImagePng() {
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}),
+                    8L,
+                    "image/png",
+                    "v2.png"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetVersionUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("Unsupported MIME type 'image/png' for VIDEO");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("VIDEO version upload rejects audio/mpeg before storage write and never calls raster validator")
+        void shouldRejectVideoVersionWithAudioMpeg() {
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(new byte[16]),
+                    16L,
+                    "audio/mpeg",
+                    "v2.mp3"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetVersionUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("Unsupported MIME type 'audio/mpeg' for VIDEO");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("IMAGE version upload rejects video/mp4 before storage write")
+        void shouldRejectVideoMimeOnImageVersionUpload() {
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(new byte[16]),
+                    16L,
+                    "video/mp4",
+                    "video.mp4"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetVersionUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("Cannot upload video to non-VIDEO asset of type: IMAGE");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
         }
     }
 
