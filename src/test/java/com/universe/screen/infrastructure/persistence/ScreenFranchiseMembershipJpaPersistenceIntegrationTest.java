@@ -50,6 +50,7 @@ class ScreenFranchiseMembershipJpaPersistenceIntegrationTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase(TestDatabaseSupport.resolveDatabaseName());
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -146,7 +147,7 @@ class ScreenFranchiseMembershipJpaPersistenceIntegrationTest {
         List<ScreenFranchiseMembership> memberships = membershipRepository.findByFranchiseId(franchise.getId());
         assertThat(memberships).hasSize(2);
         assertThat(memberships).extracting(ScreenFranchiseMembership::getId)
-                .containsExactlyInAnyOrder(m1.getId(), m2.getId());
+                .containsExactly(m1.getId(), m2.getId());
 
         Optional<ScreenFranchiseMembership> foundComposite = membershipRepository.findByFranchiseIdAndTitleId(franchise.getId(), title1.getId());
         assertThat(foundComposite).isPresent();
@@ -154,6 +155,75 @@ class ScreenFranchiseMembershipJpaPersistenceIntegrationTest {
 
         assertThat(membershipRepository.existsByFranchiseIdAndTitleId(franchise.getId(), title2.getId())).isTrue();
         assertThat(membershipRepository.existsByFranchiseIdAndTitleId(franchise.getId(), UUID.randomUUID())).isFalse();
+    }
+
+    @Test
+    @DisplayName("Should retrieve franchise memberships with deterministic displayOrder ASC and stable id ASC tie-breaker")
+    void shouldRetrieveMembershipsWithDeterministicOrderAndTieBreak() {
+        ScreenFranchise franchise = createFranchise("franchise-det-order", "Franchise Det Order");
+        ScreenTitle title1 = createTitle("t-det-1", "Title 1");
+        ScreenTitle title2 = createTitle("t-det-2", "Title 2");
+        ScreenTitle title3 = createTitle("t-det-3", "Title 3");
+        ScreenTitle title4 = createTitle("t-det-4", "Title 4");
+
+        // Two items with identical displayOrder 1 to test stable tie-breaker id ASC
+        UUID idA = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID idB = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID idC = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        UUID idD = UUID.fromString("00000000-0000-0000-0000-000000000004");
+
+        // Out-of-order save
+        ScreenFranchiseMembership mThird = new ScreenFranchiseMembership(idC, franchise.getId(), title3.getId(), 5);
+        ScreenFranchiseMembership mFirst = new ScreenFranchiseMembership(idA, franchise.getId(), title1.getId(), 0);
+        ScreenFranchiseMembership mTie2 = new ScreenFranchiseMembership(idB, franchise.getId(), title2.getId(), 1);
+        ScreenFranchiseMembership mTie4 = new ScreenFranchiseMembership(idD, franchise.getId(), title4.getId(), 1);
+
+        membershipRepository.save(mThird);
+        membershipRepository.save(mFirst);
+        membershipRepository.save(mTie4);
+        membershipRepository.save(mTie2);
+
+        List<ScreenFranchiseMembership> ordered = membershipRepository.findByFranchiseId(franchise.getId());
+        assertThat(ordered).hasSize(4);
+        // Expect order: displayOrder 0 (idA), displayOrder 1 with idB, displayOrder 1 with idD, displayOrder 5 (idC)
+        assertThat(ordered).extracting(ScreenFranchiseMembership::getId)
+                .containsExactly(idA, idB, idD, idC);
+    }
+
+    @Test
+    @DisplayName("Should verify EXPLAIN plan availability and structural resolution for idx_screen_franchise_memberships_franchise_display_order")
+    void shouldVerifyExplainPlanUsesFranchiseDisplayOrderIndex() {
+        ScreenFranchise franchise = createFranchise("franchise-explain-order", "Franchise Explain Order");
+        ScreenTitle title = createTitle("title-explain-order", "Title Explain Order");
+        membershipRepository.save(new ScreenFranchiseMembership(UUID.randomUUID(), franchise.getId(), title.getId(), 0));
+
+        // 1. Natural EXPLAIN: assert intended index appears in possible_keys without requiring small-table optimizer lock
+        List<java.util.Map<String, Object>> naturalExplainRows = jdbcTemplate.queryForList("""
+                EXPLAIN SELECT * FROM screen_franchise_memberships
+                WHERE franchise_id = ?
+                ORDER BY display_order ASC, id ASC
+                """, franchise.getId().toString());
+
+        assertThat(naturalExplainRows).isNotEmpty();
+        java.util.Map<String, Object> naturalPlan = naturalExplainRows.get(0);
+        String possibleKeys = (String) naturalPlan.get("possible_keys");
+        assertThat(possibleKeys).contains("idx_screen_franchise_memberships_franchise_display_order");
+
+        // 2. Forced structural proof: FORCE INDEX proves key resolves query ordering without filesort
+        List<java.util.Map<String, Object>> forcedExplainRows = jdbcTemplate.queryForList("""
+                EXPLAIN SELECT * FROM screen_franchise_memberships FORCE INDEX (idx_screen_franchise_memberships_franchise_display_order)
+                WHERE franchise_id = ?
+                ORDER BY display_order ASC, id ASC
+                """, franchise.getId().toString());
+
+        assertThat(forcedExplainRows).isNotEmpty();
+        java.util.Map<String, Object> forcedPlan = forcedExplainRows.get(0);
+        assertThat((String) forcedPlan.get("key")).isEqualTo("idx_screen_franchise_memberships_franchise_display_order");
+
+        String extra = (String) forcedPlan.get("Extra");
+        if (extra != null) {
+            assertThat(extra).doesNotContain("Using filesort");
+        }
     }
 
     @Test

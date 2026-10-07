@@ -48,6 +48,15 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
     }
 
     @Override
+    public Optional<ScreenEntry> findPublishedById(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return repository.findByIdAndStatus(id.toString(), "PUBLISHED")
+                .map(ScreenEntryPersistenceMapper::toDomain);
+    }
+
+    @Override
     public Optional<ScreenEntry> findByTitleIdAndSlug(UUID titleId, String slug) {
         if (titleId == null || slug == null || slug.isBlank()) {
             return Optional.empty();
@@ -57,11 +66,45 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
     }
 
     @Override
+    public Optional<ScreenEntry> findPublishedByTitleIdAndSlug(UUID titleId, String slug) {
+        if (titleId == null || slug == null || slug.isBlank()) {
+            return Optional.empty();
+        }
+        return repository.findByTitleIdAndSlugAndStatus(
+                titleId.toString(),
+                slug.trim().toLowerCase(Locale.ROOT),
+                "PUBLISHED"
+        ).map(ScreenEntryPersistenceMapper::toDomain);
+    }
+
+    @Override
     public List<ScreenEntry> findByTitleId(UUID titleId) {
         if (titleId == null) {
             return Collections.emptyList();
         }
         return repository.findByTitleId(titleId.toString())
+                .stream()
+                .map(ScreenEntryPersistenceMapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<ScreenEntry> findPublishedByTitleId(UUID titleId) {
+        if (titleId == null) {
+            return Collections.emptyList();
+        }
+        return repository.findPublishedByTitleId(titleId.toString())
+                .stream()
+                .map(ScreenEntryPersistenceMapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<ScreenEntry> findPublishedEpisodesByTitleId(UUID titleId) {
+        if (titleId == null) {
+            return Collections.emptyList();
+        }
+        return repository.findPublishedEpisodesByTitleId(titleId.toString())
                 .stream()
                 .map(ScreenEntryPersistenceMapper::toDomain)
                 .toList();

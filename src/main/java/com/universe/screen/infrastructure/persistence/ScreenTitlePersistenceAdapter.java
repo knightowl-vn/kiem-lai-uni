@@ -5,6 +5,8 @@ import com.universe.screen.domain.ScreenTitle;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -52,6 +54,46 @@ public class ScreenTitlePersistenceAdapter implements ScreenTitleRepositoryPort 
         }
         return repository.findBySlug(slug.trim().toLowerCase(Locale.ROOT))
                 .map(ScreenTitlePersistenceMapper::toDomain);
+    }
+
+    @Override
+    public Optional<ScreenTitle> findPublishedById(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return repository.findByIdAndStatus(id.toString(), "PUBLISHED")
+                .map(ScreenTitlePersistenceMapper::toDomain);
+    }
+
+    @Override
+    public Optional<ScreenTitle> findPublishedBySlug(String slug) {
+        if (slug == null || slug.isBlank()) {
+            return Optional.empty();
+        }
+        return repository.findBySlugAndStatus(slug.trim().toLowerCase(Locale.ROOT), "PUBLISHED")
+                .map(ScreenTitlePersistenceMapper::toDomain);
+    }
+
+    @Override
+    public List<ScreenTitle> findByFranchiseId(UUID franchiseId) {
+        if (franchiseId == null) {
+            return Collections.emptyList();
+        }
+        return repository.findByFranchiseId(franchiseId.toString())
+                .stream()
+                .map(ScreenTitlePersistenceMapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<ScreenTitle> findPublishedByFranchiseId(UUID franchiseId) {
+        if (franchiseId == null) {
+            return Collections.emptyList();
+        }
+        return repository.findPublishedByFranchiseId(franchiseId.toString())
+                .stream()
+                .map(ScreenTitlePersistenceMapper::toDomain)
+                .toList();
     }
 
     @Override

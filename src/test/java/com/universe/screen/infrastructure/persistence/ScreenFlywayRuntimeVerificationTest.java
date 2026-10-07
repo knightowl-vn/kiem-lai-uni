@@ -61,6 +61,18 @@ class ScreenFlywayRuntimeVerificationTest {
         assertThat(v87Info).isNotNull();
         assertThat(v87Info.getState()).isEqualTo(MigrationState.SUCCESS);
         assertThat(v87Info.getDescription()).isEqualTo("create screen schema");
+
+        MigrationInfo v88Info = null;
+        for (MigrationInfo mi : info) {
+            if ("88".equals(mi.getVersion().getVersion())) {
+                v88Info = mi;
+                break;
+            }
+        }
+
+        assertThat(v88Info).isNotNull();
+        assertThat(v88Info.getState()).isEqualTo(MigrationState.SUCCESS);
+        assertThat(v88Info.getDescription()).isEqualTo("harden screen query indexes");
     }
 
     @Test
@@ -325,14 +337,26 @@ class ScreenFlywayRuntimeVerificationTest {
                 String.class,
                 DB_NAME
         );
-        assertThat(membershipIndexes).contains("PRIMARY", "uq_screen_franchise_memberships_franchise_title", "idx_screen_franchise_memberships_title");
+        assertThat(membershipIndexes).contains(
+                "PRIMARY",
+                "uq_screen_franchise_memberships_franchise_title",
+                "idx_screen_franchise_memberships_title",
+                "idx_screen_franchise_memberships_franchise_display_order"
+        );
 
         List<String> entryIndexes = jdbc.queryForList(
                 "SELECT DISTINCT index_name FROM information_schema.statistics WHERE table_schema = ? AND table_name = 'screen_entries'",
                 String.class,
                 DB_NAME
         );
-        assertThat(entryIndexes).contains("PRIMARY", "uq_screen_entries_title_slug");
+        assertThat(entryIndexes).contains("PRIMARY", "uq_screen_entries_title_slug", "idx_screen_entries_title_status_type_number");
+
+        List<String> entryIndexCols = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.statistics WHERE table_schema = ? AND table_name = 'screen_entries' AND index_name = 'idx_screen_entries_title_status_type_number' ORDER BY seq_in_index",
+                String.class,
+                DB_NAME
+        );
+        assertThat(entryIndexCols).containsExactly("title_id", "status", "type", "number");
     }
 
     @Test

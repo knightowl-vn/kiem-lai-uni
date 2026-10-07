@@ -49,6 +49,7 @@ class ScreenEntryJpaPersistenceIntegrationTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase(TestDatabaseSupport.resolveDatabaseName());
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -291,5 +292,265 @@ class ScreenEntryJpaPersistenceIntegrationTest {
                         + invalidEntity.getTitle() + "', '"
                         + invalidEntity.getStatus() + "', NOW(6), NOW(6))"
         )).isInstanceOf(Exception.class);
+    }
+
+    @Test
+    @DisplayName("Should find published entries with fail-closed semantics (DRAFT and ARCHIVED excluded)")
+    void shouldFindPublishedEntriesWithFailClosedSemantics() {
+        ScreenTitle title = createTitle("title-pub-filter", "Title Publication Filter", ScreenStructure.SERIES);
+        Instant t0 = Instant.parse("2026-10-06T10:00:00Z");
+        Instant t1 = Instant.parse("2026-10-06T11:00:00Z");
+        Instant t2 = Instant.parse("2026-10-06T12:00:00Z");
+
+        // 1. DRAFT entry
+        UUID draftId = UUID.randomUUID();
+        ScreenEntry draft = ScreenEntry.createDraft(draftId, title.getId(), "ep-draft", ScreenEntryType.EPISODE, 1, "Ep Draft", t0);
+        entryRepository.save(draft);
+
+        // 2. PUBLISHED entry
+        UUID pubId = UUID.randomUUID();
+        ScreenEntry published = ScreenEntry.createDraft(pubId, title.getId(), "ep-pub", ScreenEntryType.EPISODE, 2, "Ep Published", t0);
+        published.publish(t1);
+        entryRepository.save(published);
+
+        // 3. ARCHIVED entry
+        UUID archId = UUID.randomUUID();
+        ScreenEntry archived = ScreenEntry.createDraft(archId, title.getId(), "ep-arch", ScreenEntryType.EPISODE, 3, "Ep Archived", t0);
+        archived.publish(t1);
+        archived.archive(t2);
+        entryRepository.save(archived);
+
+        // ID lookup across statuses
+        assertThat(entryRepository.findById(draftId)).isPresent();
+        assertThat(entryRepository.findById(pubId)).isPresent();
+        assertThat(entryRepository.findById(archId)).isPresent();
+
+        // Published-only single lookups: fail-closed
+        assertThat(entryRepository.findPublishedById(draftId)).isEmpty();
+        assertThat(entryRepository.findPublishedById(pubId)).isPresent();
+        assertThat(entryRepository.findPublishedById(pubId).get().getStatus()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        assertThat(entryRepository.findPublishedById(archId)).isEmpty();
+
+        // Published-only slug lookups: fail-closed
+        assertThat(entryRepository.findPublishedByTitleIdAndSlug(title.getId(), "ep-draft")).isEmpty();
+        assertThat(entryRepository.findPublishedByTitleIdAndSlug(title.getId(), "ep-pub")).isPresent();
+        assertThat(entryRepository.findPublishedByTitleIdAndSlug(title.getId(), "EP-PUB")).isPresent(); // normalized
+        assertThat(entryRepository.findPublishedByTitleIdAndSlug(title.getId(), "ep-arch")).isEmpty();
+
+        // Published collection query: only pubId included, draft and arch excluded
+        List<ScreenEntry> publishedList = entryRepository.findPublishedByTitleId(title.getId());
+        assertThat(publishedList).hasSize(1);
+        assertThat(publishedList.get(0).getId()).isEqualTo(pubId);
+
+        // Unfiltered collection query: all 3 included
+        List<ScreenEntry> allList = entryRepository.findByTitleId(title.getId());
+        assertThat(allList).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("Should retrieve generic entries deterministically by id ASC only (generic entry order != public navigation order)")
+    void shouldRetrieveGenericEntriesDeterministicallyByIdAsc() {
+        ScreenTitle title = createTitle("title-generic-order", "Title Generic Order", ScreenStructure.SERIES);
+        Instant now = Instant.parse("2026-10-06T10:00:00Z");
+
+        UUID id1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID id2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID id3 = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        UUID id4 = UUID.fromString("00000000-0000-0000-0000-000000000004");
+
+        // Insert in scrambled order with mixed types and numbers
+        ScreenEntry trailer = ScreenEntry.createDraft(id4, title.getId(), "trailer-1", ScreenEntryType.TRAILER, 1, "Trailer 1", now);
+        ScreenEntry episode2 = ScreenEntry.createDraft(id2, title.getId(), "ep-2", ScreenEntryType.EPISODE, 2, "Episode 2", now);
+        ScreenEntry episode1 = ScreenEntry.createDraft(id3, title.getId(), "ep-1", ScreenEntryType.EPISODE, 1, "Episode 1", now);
+        ScreenEntry special = ScreenEntry.createDraft(id1, title.getId(), "spec-1", ScreenEntryType.SPECIAL, null, "Special 1", now);
+
+        entryRepository.save(trailer);
+        entryRepository.save(episode2);
+        entryRepository.save(episode1);
+        entryRepository.save(special);
+
+        List<ScreenEntry> entries = entryRepository.findByTitleId(title.getId());
+        assertThat(entries).hasSize(4);
+
+        // Technical deterministic total order: ORDER BY id ASC (neutral, NOT public navigation order)
+        assertThat(entries).extracting(ScreenEntry::getId).containsExactly(
+                id1,
+                id2,
+                id3,
+                id4
+        );
+    }
+
+    @Test
+    @DisplayName("Should retrieve published generic entries ordered by id ASC excluding DRAFT and ARCHIVED")
+    void shouldRetrievePublishedGenericEntriesOrderedByIdAscExcludingDraftAndArchived() {
+        ScreenTitle title = createTitle("title-generic-pub", "Title Generic Pub", ScreenStructure.SERIES);
+        Instant t0 = Instant.parse("2026-10-06T10:00:00Z");
+        Instant t1 = Instant.parse("2026-10-06T11:00:00Z");
+        Instant t2 = Instant.parse("2026-10-06T12:00:00Z");
+
+        UUID idLow = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        UUID idMid = UUID.fromString("00000000-0000-0000-0000-000000000020");
+        UUID idHigh = UUID.fromString("00000000-0000-0000-0000-000000000030");
+
+        ScreenEntry draft = ScreenEntry.createDraft(idLow, title.getId(), "draft-ep", ScreenEntryType.EPISODE, 1, "Draft", t0);
+        ScreenEntry pub1 = ScreenEntry.createDraft(idHigh, title.getId(), "pub-1", ScreenEntryType.EPISODE, 2, "Pub 1", t0);
+        pub1.publish(t1);
+        ScreenEntry pub2 = ScreenEntry.createDraft(idMid, title.getId(), "pub-2", ScreenEntryType.SPECIAL, 1, "Pub 2", t0);
+        pub2.publish(t1);
+        ScreenEntry arch = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "arch-ep", ScreenEntryType.EPISODE, 3, "Arch", t0);
+        arch.publish(t1);
+        arch.archive(t2);
+
+        entryRepository.save(draft);
+        entryRepository.save(pub1);
+        entryRepository.save(pub2);
+        entryRepository.save(arch);
+
+        List<ScreenEntry> publishedEntries = entryRepository.findPublishedByTitleId(title.getId());
+        assertThat(publishedEntries).hasSize(2);
+        // Deterministic by id ASC: idMid (pub2) comes before idHigh (pub1)
+        assertThat(publishedEntries).extracting(ScreenEntry::getId).containsExactly(idMid, idHigh);
+    }
+
+    @Test
+    @DisplayName("Should retrieve published episodes for series navigation ordered by number ASC and id ASC")
+    void shouldRetrievePublishedEpisodesForSeriesNavigationOrderedByNumberAscAndIdAsc() {
+        ScreenTitle title = createTitle("title-series-nav", "Title Series Nav", ScreenStructure.SERIES);
+        Instant t0 = Instant.parse("2026-10-06T10:00:00Z");
+        Instant t1 = Instant.parse("2026-10-06T11:00:00Z");
+        Instant t2 = Instant.parse("2026-10-06T12:00:00Z");
+
+        // Two episodes with identical number = 1 to test id ASC tie-break
+        UUID ep1AId = UUID.fromString("00000000-0000-0000-0000-000000000001"); // lower UUID
+        UUID ep1BId = UUID.fromString("00000000-0000-0000-0000-000000000002"); // higher UUID
+        UUID ep2Id = UUID.fromString("00000000-0000-0000-0000-000000000003");  // number 2
+
+        // Published EPISODE 1B (inserted first to test tie-break opposite to insertion order)
+        ScreenEntry ep1B = ScreenEntry.createDraft(ep1BId, title.getId(), "ep-1b", ScreenEntryType.EPISODE, 1, "Ep 1B", t0);
+        ep1B.publish(t1);
+
+        // Published EPISODE 1A (lower UUID, inserted after 1B)
+        ScreenEntry ep1A = ScreenEntry.createDraft(ep1AId, title.getId(), "ep-1a", ScreenEntryType.EPISODE, 1, "Ep 1A", t0);
+        ep1A.publish(t1);
+
+        // Published EPISODE 2
+        ScreenEntry ep2 = ScreenEntry.createDraft(ep2Id, title.getId(), "ep-2", ScreenEntryType.EPISODE, 2, "Ep 2", t0);
+        ep2.publish(t1);
+
+        // DRAFT EPISODE (must be excluded)
+        ScreenEntry draftEp = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "ep-draft", ScreenEntryType.EPISODE, 1, "Draft", t0);
+
+        // ARCHIVED EPISODE (must be excluded)
+        ScreenEntry archEp = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "ep-arch", ScreenEntryType.EPISODE, 1, "Arch", t0);
+        archEp.publish(t1);
+        archEp.archive(t2);
+
+        // SPECIAL (must be excluded from SERIES episode navigation)
+        ScreenEntry special = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "spec-nav", ScreenEntryType.SPECIAL, 1, "Spec", t0);
+        special.publish(t1);
+
+        // TRAILER (must be excluded from SERIES episode navigation)
+        ScreenEntry trailer = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "trail-nav", ScreenEntryType.TRAILER, 1, "Trail", t0);
+        trailer.publish(t1);
+
+        // FEATURE (must be excluded from SERIES episode navigation)
+        ScreenEntry feature = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "feat-nav", ScreenEntryType.FEATURE, null, "Feat", t0);
+        feature.publish(t1);
+
+        // Save with 1B inserted before 1A
+        entryRepository.save(ep1B);
+        entryRepository.save(ep1A);
+        entryRepository.save(ep2);
+        entryRepository.save(draftEp);
+        entryRepository.save(archEp);
+        entryRepository.save(special);
+        entryRepository.save(trailer);
+        entryRepository.save(feature);
+
+        List<ScreenEntry> episodes = entryRepository.findPublishedEpisodesByTitleId(title.getId());
+
+        // Strictly PUBLISHED EPISODE only, ordered by number ASC, id ASC
+        // Proves id ASC tie-break: ep1A (lower UUID) comes before ep1B within equal number = 1
+        assertThat(episodes).hasSize(3);
+        assertThat(episodes).extracting(ScreenEntry::getId).containsExactly(ep1AId, ep1BId, ep2Id);
+        assertThat(episodes).extracting(ScreenEntry::getNumber).containsExactly(1, 1, 2);
+        assertThat(episodes).allMatch(e -> e.getType() == ScreenEntryType.EPISODE);
+        assertThat(episodes).allMatch(e -> e.getStatus() == ScreenPublicationStatus.PUBLISHED);
+    }
+
+    @Test
+    @DisplayName("Should preserve FEATURE with null number and exclude FEATURE from episode navigation")
+    void shouldPreserveFeatureAsFeatureWithNullNumberAndExcludeFromEpisodeNavigation() {
+        ScreenTitle movieTitle = createTitle("movie-feat-test", "Movie Feat Test", ScreenStructure.FEATURE);
+        Instant now = Instant.parse("2026-10-06T10:00:00Z");
+
+        ScreenEntry feature = ScreenEntry.createDraft(
+                UUID.randomUUID(), movieTitle.getId(), "movie-standalone", ScreenEntryType.FEATURE, null, "Standalone Movie", now
+        );
+        feature.publish(now);
+        entryRepository.save(feature);
+
+        Optional<ScreenEntry> found = entryRepository.findById(feature.getId());
+        assertThat(found).isPresent();
+        assertThat(found.get().getNumber()).isNull();
+        assertThat(found.get().isFeature()).isTrue();
+
+        // Episode navigation returns 0 rows for movie title (FEATURE is never fake Episode 1)
+        List<ScreenEntry> episodes = entryRepository.findPublishedEpisodesByTitleId(movieTitle.getId());
+        assertThat(episodes).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should verify actual episode navigation query EXPLAIN plan uses composite index without filesort")
+    void shouldVerifyActualEpisodeNavigationQueryExplainPlanUsesCompositeIndexWithoutFilesort() {
+        ScreenTitle title = createTitle("title-explain-nav", "Title Explain Nav", ScreenStructure.SERIES);
+
+        // Populate multiple draft and published entries
+        for (int i = 1; i <= 5; i++) {
+            ScreenEntry draft = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "ep-draft-" + i, ScreenEntryType.EPISODE, i, "Draft " + i, Instant.now());
+            entryRepository.save(draft);
+        }
+        for (int i = 1; i <= 3; i++) {
+            ScreenEntry pub = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "ep-pub-" + i, ScreenEntryType.EPISODE, i + 5, "Pub " + i, Instant.now());
+            pub.publish(Instant.now());
+            entryRepository.save(pub);
+        }
+
+        // Actual navigation query matching SpringDataScreenEntryJpaRepository.findPublishedEpisodesByTitleId
+        List<java.util.Map<String, Object>> explainRows = jdbcTemplate.queryForList("""
+                EXPLAIN SELECT * FROM screen_entries
+                WHERE title_id = ?
+                  AND status = 'PUBLISHED'
+                  AND type = 'EPISODE'
+                  AND number > 0
+                ORDER BY number ASC, id ASC
+                """, title.getId().toString());
+
+        assertThat(explainRows).isNotEmpty();
+        java.util.Map<String, Object> plan = explainRows.get(0);
+
+        String possibleKeys = (String) plan.get("possible_keys");
+        assertThat(possibleKeys).contains("idx_screen_entries_title_status_type_number");
+
+        // Verify with FORCE INDEX that the composite index resolves query ordering without filesort
+        List<java.util.Map<String, Object>> forcedExplain = jdbcTemplate.queryForList("""
+                EXPLAIN SELECT * FROM screen_entries FORCE INDEX (idx_screen_entries_title_status_type_number)
+                WHERE title_id = ?
+                  AND status = 'PUBLISHED'
+                  AND type = 'EPISODE'
+                  AND number > 0
+                ORDER BY number ASC, id ASC
+                """, title.getId().toString());
+
+        assertThat(forcedExplain).isNotEmpty();
+        java.util.Map<String, Object> forcedPlan = forcedExplain.get(0);
+        assertThat((String) forcedPlan.get("key")).isEqualTo("idx_screen_entries_title_status_type_number");
+
+        // When scanned on (title_id, status, type, number), rows are in index order so Extra has NO 'Using filesort'
+        String extra = (String) forcedPlan.get("Extra");
+        if (extra != null) {
+            assertThat(extra).doesNotContain("Using filesort");
+        }
     }
 }

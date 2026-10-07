@@ -3,6 +3,7 @@ package com.universe.screen.infrastructure.persistence;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
@@ -18,6 +19,12 @@ import java.time.Instant;
                                 "title_id",
                                 "slug"
                         }
+                )
+        },
+        indexes = {
+                @Index(
+                        name = "idx_screen_entries_title_status_type_number",
+                        columnList = "title_id, status, type, number"
                 )
         }
 )

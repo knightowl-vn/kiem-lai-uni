@@ -1,6 +1,8 @@
 package com.universe.screen.infrastructure.persistence;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -11,7 +13,8 @@ public interface SpringDataScreenFranchiseMembershipJpaRepository extends JpaRep
 
     Optional<ScreenFranchiseMembershipJpaEntity> findByFranchiseIdAndTitleId(String franchiseId, String titleId);
 
-    List<ScreenFranchiseMembershipJpaEntity> findByFranchiseId(String franchiseId);
+    @Query("SELECT m FROM ScreenFranchiseMembershipJpaEntity m WHERE m.franchiseId = :franchiseId ORDER BY m.displayOrder ASC, m.id ASC")
+    List<ScreenFranchiseMembershipJpaEntity> findByFranchiseId(@Param("franchiseId") String franchiseId);
 
     boolean existsByFranchiseIdAndTitleId(String franchiseId, String titleId);
 }

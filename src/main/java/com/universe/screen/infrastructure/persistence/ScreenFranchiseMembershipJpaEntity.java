@@ -23,6 +23,10 @@ import jakarta.persistence.UniqueConstraint;
                 @Index(
                         name = "idx_screen_franchise_memberships_title",
                         columnList = "title_id"
+                ),
+                @Index(
+                        name = "idx_screen_franchise_memberships_franchise_display_order",
+                        columnList = "franchise_id, display_order"
                 )
         }
 )
