@@ -24,17 +24,21 @@ class DefaultStorageProviderRegistryTest {
         BinaryStoragePort r2Port = mock(BinaryStoragePort.class);
         when(r2Port.providerId()).thenReturn(StorageProviderId.of("r2"));
 
+        BinaryStoragePort b2Port = mock(BinaryStoragePort.class);
+        when(b2Port.providerId()).thenReturn(StorageProviderId.of("b2"));
+
         BinaryStoragePort cloudinaryPort = mock(BinaryStoragePort.class);
         when(cloudinaryPort.providerId()).thenReturn(StorageProviderId.of("cloudinary"));
 
         DefaultStorageProviderRegistry registry = new DefaultStorageProviderRegistry(
-                List.of(localPort, r2Port, cloudinaryPort)
+                List.of(localPort, r2Port, b2Port, cloudinaryPort)
         );
 
         assertThat(registry.resolve(StorageProviderId.of("local"))).isSameAs(localPort);
         assertThat(registry.resolve(StorageProviderId.of("r2"))).isSameAs(r2Port);
+        assertThat(registry.resolve(StorageProviderId.of("b2"))).isSameAs(b2Port);
         assertThat(registry.resolve(StorageProviderId.of("cloudinary"))).isSameAs(cloudinaryPort);
-        assertThat(registry.registeredProviders()).hasSize(3);
+        assertThat(registry.registeredProviders()).hasSize(4);
     }
 
     @Test

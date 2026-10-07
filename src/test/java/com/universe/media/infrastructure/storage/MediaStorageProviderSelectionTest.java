@@ -5,6 +5,8 @@ import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.ImageVariantPublicUrlPort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.StorageProviderId;
+import com.universe.media.infrastructure.storage.b2.B2StorageAdapter;
+import com.universe.media.infrastructure.storage.b2.B2StorageProperties;
 import com.universe.media.infrastructure.storage.cloudinary.CloudinaryStorageAdapter;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.media.infrastructure.storage.r2.R2StorageAdapter;
@@ -24,6 +26,8 @@ class MediaStorageProviderSelectionTest {
                     LocalFilesystemStorageAdapter.class,
                     R2StorageProperties.class,
                     R2StorageAdapter.class,
+                    B2StorageProperties.class,
+                    B2StorageAdapter.class,
                     CloudinaryConfig.class,
                     CloudinaryStorageAdapter.class,
                     DefaultStorageProviderRegistry.class
@@ -42,6 +46,14 @@ class MediaStorageProviderSelectionTest {
             "media.storage.r2.secret-access-key=test-r2-secret"
     };
 
+    private static final String[] VALID_B2_PROPS = {
+            "media.storage.b2.bucket=test-b2-bucket",
+            "media.storage.b2.endpoint=https://s3.us-east-005.backblazeb2.com",
+            "media.storage.b2.access-key-id=test-b2-key",
+            "media.storage.b2.secret-access-key=test-b2-secret",
+            "media.storage.b2.region=us-east-005"
+    };
+
     @Test
     @DisplayName("no external provider config: registry contains local only")
     void shouldRegisterOnlyLocalWhenNoExternalProviderConfigured() {
@@ -51,6 +63,11 @@ class MediaStorageProviderSelectionTest {
                         "media.storage.r2.endpoint=",
                         "media.storage.r2.access-key-id=",
                         "media.storage.r2.secret-access-key=",
+                        "media.storage.b2.bucket=",
+                        "media.storage.b2.endpoint=",
+                        "media.storage.b2.access-key-id=",
+                        "media.storage.b2.secret-access-key=",
+                        "media.storage.b2.region=",
                         "cloudinary.cloud-name=",
                         "cloudinary.cloud_name=",
                         "CLOUDINARY_CLOUD_NAME=",
@@ -62,6 +79,8 @@ class MediaStorageProviderSelectionTest {
                     assertThat(context).hasSingleBean(LocalFilesystemStorageAdapter.class);
                     assertThat(context).doesNotHaveBean(R2StorageAdapter.class);
                     assertThat(context).doesNotHaveBean(R2StorageProperties.class);
+                    assertThat(context).doesNotHaveBean(B2StorageAdapter.class);
+                    assertThat(context).doesNotHaveBean(B2StorageProperties.class);
                     assertThat(context).doesNotHaveBean(CloudinaryStorageAdapter.class);
 
                     StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
@@ -75,6 +94,10 @@ class MediaStorageProviderSelectionTest {
                     assertThatThrownBy(() -> resolver.resolve(StorageProviderId.of("r2")))
                             .isInstanceOf(StorageException.class)
                             .hasMessageContaining("Unsupported or unconfigured storage provider: r2");
+
+                    assertThatThrownBy(() -> resolver.resolve(StorageProviderId.of("b2")))
+                            .isInstanceOf(StorageException.class)
+                            .hasMessageContaining("Unsupported or unconfigured storage provider: b2");
                 });
     }
 
@@ -86,7 +109,12 @@ class MediaStorageProviderSelectionTest {
                         "media.storage.r2.bucket=",
                         "media.storage.r2.endpoint=",
                         "media.storage.r2.access-key-id=",
-                        "media.storage.r2.secret-access-key="
+                        "media.storage.r2.secret-access-key=",
+                        "media.storage.b2.bucket=",
+                        "media.storage.b2.endpoint=",
+                        "media.storage.b2.access-key-id=",
+                        "media.storage.b2.secret-access-key=",
+                        "media.storage.b2.region="
                 )
                 .withPropertyValues(VALID_CLOUDINARY_PROPS)
                 .run(context -> {
@@ -94,6 +122,7 @@ class MediaStorageProviderSelectionTest {
                     assertThat(context).hasSingleBean(LocalFilesystemStorageAdapter.class);
                     assertThat(context).hasSingleBean(CloudinaryStorageAdapter.class);
                     assertThat(context).doesNotHaveBean(R2StorageAdapter.class);
+                    assertThat(context).doesNotHaveBean(B2StorageAdapter.class);
 
                     StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
                     assertThat(resolver.resolve(StorageProviderId.of("local")))
@@ -110,6 +139,11 @@ class MediaStorageProviderSelectionTest {
     void shouldRegisterLocalAndR2WhenValidR2Configured() {
         contextRunner
                 .withPropertyValues(
+                        "media.storage.b2.bucket=",
+                        "media.storage.b2.endpoint=",
+                        "media.storage.b2.access-key-id=",
+                        "media.storage.b2.secret-access-key=",
+                        "media.storage.b2.region=",
                         "cloudinary.cloud-name=",
                         "cloudinary.cloud_name=",
                         "CLOUDINARY_CLOUD_NAME=",
@@ -122,6 +156,7 @@ class MediaStorageProviderSelectionTest {
                     assertThat(context).hasSingleBean(LocalFilesystemStorageAdapter.class);
                     assertThat(context).hasSingleBean(R2StorageAdapter.class);
                     assertThat(context).hasSingleBean(R2StorageProperties.class);
+                    assertThat(context).doesNotHaveBean(B2StorageAdapter.class);
                     assertThat(context).doesNotHaveBean(CloudinaryStorageAdapter.class);
 
                     StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
@@ -133,21 +168,56 @@ class MediaStorageProviderSelectionTest {
     }
 
     @Test
-    @DisplayName("valid Cloudinary + R2: registry contains local + cloudinary + r2")
-    void shouldRegisterLocalCloudinaryAndR2WhenBothConfigured() {
+    @DisplayName("valid B2 config: registry contains local + b2")
+    void shouldRegisterLocalAndB2WhenValidB2Configured() {
+        contextRunner
+                .withPropertyValues(
+                        "media.storage.r2.bucket=",
+                        "media.storage.r2.endpoint=",
+                        "media.storage.r2.access-key-id=",
+                        "media.storage.r2.secret-access-key=",
+                        "cloudinary.cloud-name=",
+                        "cloudinary.cloud_name=",
+                        "CLOUDINARY_CLOUD_NAME=",
+                        "cloudinary.api-key=",
+                        "cloudinary.api-secret="
+                )
+                .withPropertyValues(VALID_B2_PROPS)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(LocalFilesystemStorageAdapter.class);
+                    assertThat(context).hasSingleBean(B2StorageAdapter.class);
+                    assertThat(context).hasSingleBean(B2StorageProperties.class);
+                    assertThat(context).doesNotHaveBean(R2StorageAdapter.class);
+                    assertThat(context).doesNotHaveBean(CloudinaryStorageAdapter.class);
+
+                    StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
+                    assertThat(resolver.resolve(StorageProviderId.of("local")))
+                            .isInstanceOf(LocalFilesystemStorageAdapter.class);
+                    assertThat(resolver.resolve(StorageProviderId.of("b2")))
+                            .isInstanceOf(B2StorageAdapter.class);
+                });
+    }
+
+    @Test
+    @DisplayName("valid Cloudinary + R2 + B2: registry contains local + cloudinary + r2 + b2")
+    void shouldRegisterLocalCloudinaryR2AndB2WhenAllConfigured() {
         contextRunner
                 .withPropertyValues(VALID_CLOUDINARY_PROPS)
                 .withPropertyValues(VALID_R2_PROPS)
+                .withPropertyValues(VALID_B2_PROPS)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(LocalFilesystemStorageAdapter.class);
                     assertThat(context).hasSingleBean(CloudinaryStorageAdapter.class);
                     assertThat(context).hasSingleBean(R2StorageAdapter.class);
+                    assertThat(context).hasSingleBean(B2StorageAdapter.class);
 
                     StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
                     assertThat(resolver.resolve(StorageProviderId.of("local"))).isInstanceOf(LocalFilesystemStorageAdapter.class);
                     assertThat(resolver.resolve(StorageProviderId.of("cloudinary"))).isInstanceOf(CloudinaryStorageAdapter.class);
                     assertThat(resolver.resolve(StorageProviderId.of("r2"))).isInstanceOf(R2StorageAdapter.class);
+                    assertThat(resolver.resolve(StorageProviderId.of("b2"))).isInstanceOf(B2StorageAdapter.class);
                 });
     }
 
@@ -240,7 +310,51 @@ class MediaStorageProviderSelectionTest {
     }
 
     @Test
-    @DisplayName("legacy read regression: with both R2 and Local available, persisted provider routes correctly")
+    @DisplayName("missing B2 config: resolver.resolve(\"b2\") fails closed")
+    void shouldFailClosedWhenB2NotConfigured() {
+        contextRunner
+                .withPropertyValues(
+                        "media.storage.b2.bucket=",
+                        "media.storage.b2.endpoint=",
+                        "media.storage.b2.access-key-id=",
+                        "media.storage.b2.secret-access-key=",
+                        "media.storage.b2.region="
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(B2StorageAdapter.class);
+                    assertThat(context).doesNotHaveBean(B2StorageProperties.class);
+                    StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
+                    assertThatThrownBy(() -> resolver.resolve(StorageProviderId.of("b2")))
+                            .isInstanceOf(StorageException.class)
+                            .hasMessageContaining("Unsupported or unconfigured storage provider: b2");
+                });
+    }
+
+    @Test
+    @DisplayName("valid bucket/endpoint/keys but missing or blank region: B2 adapter absent and resolver fails closed")
+    void shouldFailClosedWhenB2RegionMissingOrBlank() {
+        contextRunner
+                .withPropertyValues(
+                        "media.storage.b2.bucket=test-b2-bucket",
+                        "media.storage.b2.endpoint=https://s3.us-east-005.backblazeb2.com",
+                        "media.storage.b2.access-key-id=test-b2-key",
+                        "media.storage.b2.secret-access-key=test-b2-secret",
+                        "media.storage.b2.region="
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).doesNotHaveBean(B2StorageAdapter.class);
+                    assertThat(context).doesNotHaveBean(B2StorageProperties.class);
+                    StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
+                    assertThatThrownBy(() -> resolver.resolve(StorageProviderId.of("b2")))
+                            .isInstanceOf(StorageException.class)
+                            .hasMessageContaining("Unsupported or unconfigured storage provider: b2");
+                });
+    }
+
+    @Test
+    @DisplayName("legacy read regression: with R2, B2, and Local available, persisted provider routes correctly")
     void shouldResolveCorrectAdapterForLegacyAndActiveStoredProviders() {
         contextRunner
                 .withPropertyValues(
@@ -251,6 +365,7 @@ class MediaStorageProviderSelectionTest {
                         "cloudinary.api-secret="
                 )
                 .withPropertyValues(VALID_R2_PROPS)
+                .withPropertyValues(VALID_B2_PROPS)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     StorageProviderResolverPort resolver = context.getBean(StorageProviderResolverPort.class);
@@ -264,6 +379,11 @@ class MediaStorageProviderSelectionTest {
                     BinaryStoragePort r2Port = resolver.resolve(StorageProviderId.of("r2"));
                     assertThat(r2Port).isInstanceOf(R2StorageAdapter.class);
                     assertThat(r2Port.providerId()).isEqualTo(StorageProviderId.of("r2"));
+
+                    // Persisted provider=b2 -> resolves B2StorageAdapter
+                    BinaryStoragePort b2Port = resolver.resolve(StorageProviderId.of("b2"));
+                    assertThat(b2Port).isInstanceOf(B2StorageAdapter.class);
+                    assertThat(b2Port.providerId()).isEqualTo(StorageProviderId.of("b2"));
                 });
     }
 }
