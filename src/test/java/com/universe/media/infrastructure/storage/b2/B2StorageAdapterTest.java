@@ -439,6 +439,82 @@ class B2StorageAdapterTest {
         }
 
         @Test
+        @DisplayName("openRange performs repeated independent range reads against the same key without stale state")
+        void shouldPerformRepeatedIndependentRangeReadsOnSameKey() throws IOException {
+            StorageKey key = StorageKey.of("videos/repeated-seek-video.mp4");
+            byte[] chunk1 = "chunk-0-99".getBytes(StandardCharsets.UTF_8);
+            byte[] chunk2 = "chunk-500-699".getBytes(StandardCharsets.UTF_8);
+            byte[] chunk3 = "chunk-1024-2047".getBytes(StandardCharsets.UTF_8);
+
+            ResponseInputStream<GetObjectResponse> resp1 = new ResponseInputStream<>(
+                    GetObjectResponse.builder().build(),
+                    AbortableInputStream.create(new ByteArrayInputStream(chunk1))
+            );
+            ResponseInputStream<GetObjectResponse> resp2 = new ResponseInputStream<>(
+                    GetObjectResponse.builder().build(),
+                    AbortableInputStream.create(new ByteArrayInputStream(chunk2))
+            );
+            ResponseInputStream<GetObjectResponse> resp3 = new ResponseInputStream<>(
+                    GetObjectResponse.builder().build(),
+                    AbortableInputStream.create(new ByteArrayInputStream(chunk3))
+            );
+
+            when(s3Client.getObject(any(GetObjectRequest.class)))
+                    .thenReturn(resp1, resp2, resp3);
+
+            // First seek-style range
+            try (InputStream s1 = adapter.openRange(key, 0, 100)) {
+                assertThat(s1.readAllBytes()).isEqualTo(chunk1);
+            }
+
+            // Second seek-style range
+            try (InputStream s2 = adapter.openRange(key, 500, 200)) {
+                assertThat(s2.readAllBytes()).isEqualTo(chunk2);
+            }
+
+            // Third seek-style range
+            try (InputStream s3 = adapter.openRange(key, 1024, 1024)) {
+                assertThat(s3.readAllBytes()).isEqualTo(chunk3);
+            }
+
+            ArgumentCaptor<GetObjectRequest> captor = ArgumentCaptor.forClass(GetObjectRequest.class);
+            verify(s3Client, org.mockito.Mockito.times(3)).getObject(captor.capture());
+
+            java.util.List<GetObjectRequest> requests = captor.getAllValues();
+            assertThat(requests.get(0).range()).isEqualTo("bytes=0-99");
+            assertThat(requests.get(1).range()).isEqualTo("bytes=500-699");
+            assertThat(requests.get(2).range()).isEqualTo("bytes=1024-2047");
+        }
+
+        @Test
+        @DisplayName("closing caller-owned openRange stream closes underlying provider response stream")
+        void shouldCloseUnderlyingResponseStreamWhenCallerCloses() throws IOException {
+            StorageKey key = StorageKey.of("videos/cleanup-test.mp4");
+            AtomicBoolean underlyingClosed = new AtomicBoolean(false);
+
+            InputStream trackedStream = new FilterInputStream(new ByteArrayInputStream("data".getBytes(StandardCharsets.UTF_8))) {
+                @Override
+                public void close() throws IOException {
+                    underlyingClosed.set(true);
+                    super.close();
+                }
+            };
+
+            ResponseInputStream<GetObjectResponse> responseStream = new ResponseInputStream<>(
+                    GetObjectResponse.builder().build(),
+                    AbortableInputStream.create(trackedStream)
+            );
+
+            when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(responseStream);
+
+            InputStream callerStream = adapter.openRange(key, 0, 4);
+            assertThat(underlyingClosed.get()).isFalse();
+
+            callerStream.close();
+            assertThat(underlyingClosed.get()).isTrue();
+        }
+
+        @Test
         @DisplayName("openRange maps provider error to StorageException")
         void shouldMapProviderErrorToStorageException() {
             StorageKey key = StorageKey.of("videos/error-range-key");

@@ -369,6 +369,443 @@ class MediaDeliveryControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    @org.junit.jupiter.api.Nested
+    @DisplayName("Video HTTP Range Delivery Tests (MS-08C3 #75 Matrix)")
+    class VideoRangeDeliveryTests {
+
+        private static final UUID VIDEO_ID = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        private static final String VIDEO_MIME = "video/mp4";
+        private static final String VIDEO_HASH =
+                "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3";
+        private static final byte[] VIDEO_PAYLOAD = new byte[100];
+
+        static {
+            for (int i = 0; i < VIDEO_PAYLOAD.length; i++) {
+                VIDEO_PAYLOAD[i] = (byte) (i + 1);
+            }
+        }
+
+        private GetMediaAssetContentMetadataResult videoMetadata() {
+            return new GetMediaAssetContentMetadataResult(
+                    VIDEO_ID,
+                    1,
+                    VIDEO_PAYLOAD.length,
+                    VIDEO_MIME,
+                    VIDEO_HASH,
+                    null
+            );
+        }
+
+        private String videoETag() {
+            return "\"" + VIDEO_HASH + "\"";
+        }
+
+        private void stubVideoMetadata() {
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(videoMetadata());
+        }
+
+        @Test
+        @DisplayName("A. Full VIDEO request: returns 200 with video/mp4, Content-Length, streaming bytes, and closes stream")
+        void shouldDeliverFullVideoContent() throws Exception {
+            stubVideoMetadata();
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream stream = trackingStream(VIDEO_PAYLOAD, streamClosed);
+            when(getMediaAssetContentUseCase.open(videoMetadata())).thenReturn(stream);
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID))
+                    .andExpect(status().isOk())
+                    .andExpect(request().asyncStarted())
+                    .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "video/mp4"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "100"))
+                    .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                    .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, no-cache"))
+                    .andExpect(header().string(HttpHeaders.ETAG, videoETag()))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(status().isOk())
+                    .andExpect(content().bytes(VIDEO_PAYLOAD));
+
+            assertThat(streamClosed.get()).isTrue();
+            verify(getMediaAssetContentUseCase).open(videoMetadata());
+            verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("B. Valid byte range: returns 206 Partial Content with Content-Range, Content-Length, exact slice, and invokes openRange")
+        void shouldDeliverValidVideoByteRange() throws Exception {
+            stubVideoMetadata();
+            byte[] expectedSlice = new byte[10];
+            System.arraycopy(VIDEO_PAYLOAD, 0, expectedSlice, 0, 10);
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), 0, 10))
+                    .thenReturn(trackingStream(expectedSlice, streamClosed));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=0-9"))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(request().asyncStarted())
+                    .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "video/mp4"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 0-9/100"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "10"))
+                    .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                    .andExpect(header().string(HttpHeaders.ETAG, videoETag()))
+                    .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, no-cache"))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(content().bytes(expectedSlice));
+
+            assertThat(streamClosed.get()).isTrue();
+            verify(getMediaAssetContentUseCase).openRange(videoMetadata(), 0, 10);
+            verify(getMediaAssetContentUseCase, never()).open(any());
+        }
+
+        @Test
+        @DisplayName("C. Seek-style range: non-zero start offset returns 206 with correct partial bytes without whole-object fallback")
+        void shouldDeliverSeekStyleRangeWithNonZeroStart() throws Exception {
+            stubVideoMetadata();
+            int start = 25;
+            int length = 50;
+            int end = start + length - 1; // 74
+            byte[] expectedSlice = new byte[length];
+            System.arraycopy(VIDEO_PAYLOAD, start, expectedSlice, 0, length);
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), start, length))
+                    .thenReturn(trackingStream(expectedSlice, streamClosed));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=" + start + "-" + end))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(request().asyncStarted())
+                    .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "video/mp4"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/100"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, String.valueOf(length)))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(content().bytes(expectedSlice));
+
+            assertThat(streamClosed.get()).isTrue();
+            verify(getMediaAssetContentUseCase).openRange(videoMetadata(), start, length);
+            verify(getMediaAssetContentUseCase, never()).open(any());
+        }
+
+        @Test
+        @DisplayName("D. Repeated ranges: multiple independent seek-style range requests are isolated, reusable, and closed")
+        void shouldHandleRepeatedSeekStyleRangesIndependently() throws Exception {
+            stubVideoMetadata();
+
+            // Request 1: bytes=10-29 (length 20)
+            byte[] slice1 = new byte[20];
+            System.arraycopy(VIDEO_PAYLOAD, 10, slice1, 0, 20);
+            AtomicBoolean closed1 = new AtomicBoolean(false);
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), 10, 20))
+                    .thenReturn(trackingStream(slice1, closed1));
+
+            MvcResult result1 = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=10-29"))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 10-29/100"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "20"))
+                    .andReturn();
+            mockMvc.perform(asyncDispatch(result1))
+                    .andExpect(content().bytes(slice1));
+            assertThat(closed1.get()).isTrue();
+
+            // Request 2: bytes=60-79 (length 20)
+            byte[] slice2 = new byte[20];
+            System.arraycopy(VIDEO_PAYLOAD, 60, slice2, 0, 20);
+            AtomicBoolean closed2 = new AtomicBoolean(false);
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), 60, 20))
+                    .thenReturn(trackingStream(slice2, closed2));
+
+            MvcResult result2 = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=60-79"))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 60-79/100"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "20"))
+                    .andReturn();
+            mockMvc.perform(asyncDispatch(result2))
+                    .andExpect(content().bytes(slice2));
+            assertThat(closed2.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("E. Open-ended range: bytes=60- delivers from offset to EOF with 206 Partial Content")
+        void shouldDeliverOpenEndedRangeForVideo() throws Exception {
+            stubVideoMetadata();
+            int start = 60;
+            int length = 40; // 60 to 99
+            byte[] expectedSlice = new byte[length];
+            System.arraycopy(VIDEO_PAYLOAD, start, expectedSlice, 0, length);
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), start, length))
+                    .thenReturn(new ByteArrayInputStream(expectedSlice));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=60-"))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 60-99/100"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "40"))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(content().bytes(expectedSlice));
+
+            verify(getMediaAssetContentUseCase).openRange(videoMetadata(), 60, 40);
+        }
+
+        @Test
+        @DisplayName("E. Suffix range: bytes=-25 delivers final 25 bytes with 206 Partial Content")
+        void shouldDeliverSuffixRangeForVideo() throws Exception {
+            stubVideoMetadata();
+            int start = 75;
+            int length = 25; // 75 to 99
+            byte[] expectedSlice = new byte[length];
+            System.arraycopy(VIDEO_PAYLOAD, start, expectedSlice, 0, length);
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), start, length))
+                    .thenReturn(new ByteArrayInputStream(expectedSlice));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=-25"))
+                    .andExpect(status().isPartialContent())
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 75-99/100"))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "25"))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(content().bytes(expectedSlice));
+
+            verify(getMediaAssetContentUseCase).openRange(videoMetadata(), 75, 25);
+        }
+
+        @Test
+        @DisplayName("F. Malformed range: multi-range or unsupported unit ignores range and returns 200 full content")
+        void shouldIgnoreMalformedMultiRangeAndDeliverFullContent() throws Exception {
+            stubVideoMetadata();
+            when(getMediaAssetContentUseCase.open(videoMetadata()))
+                    .thenReturn(new ByteArrayInputStream(VIDEO_PAYLOAD));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=0-10,20-30"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().doesNotExist(HttpHeaders.CONTENT_RANGE))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "100"))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(content().bytes(VIDEO_PAYLOAD));
+
+            verify(getMediaAssetContentUseCase).open(videoMetadata());
+            verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"bytes=abc", "bytes=50-20", "bytes=100-", "bytes=-0", "bytes=1-2-3"})
+        @DisplayName("G. Unsatisfiable range: returns 416 with Content-Range bytes */100 and never opens storage")
+        void shouldRejectUnsatisfiableRangeWith416(String rangeHeader) throws Exception {
+            stubVideoMetadata();
+
+            mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, rangeHeader))
+                    .andExpect(status().isRequestedRangeNotSatisfiable())
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes */100"))
+                    .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                    .andExpect(header().string(HttpHeaders.ETAG, videoETag()));
+
+            verify(getMediaAssetContentUseCase, never()).open(any());
+            verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("H. Missing asset: unknown asset ID returns 404")
+        void shouldReturn404WhenVideoAssetNotFound() throws Exception {
+            when(getMediaAssetContentUseCase.resolveMetadata(any()))
+                    .thenThrow(new MediaAssetNotFoundException(VIDEO_ID));
+
+            mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("I. Missing provider object: StorageObjectNotFoundException on openRange returns 404")
+        void shouldReturn404WhenProviderObjectMissingOnRange() throws Exception {
+            stubVideoMetadata();
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), 0, 10))
+                    .thenThrow(new StorageObjectNotFoundException(StorageKey.of("objects/missing-video.mp4")));
+
+            mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=0-9"))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("J. Provider range failure: StorageException on openRange propagates cleanly")
+        void shouldPropagateStorageExceptionOnProviderRangeFailure() {
+            stubVideoMetadata();
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), 0, 10))
+                    .thenThrow(new StorageException("B2 network failure"));
+
+            assertThat(org.junit.jupiter.api.Assertions.assertThrows(
+                    Exception.class,
+                    () -> mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=0-9"))
+            )).hasCauseInstanceOf(StorageException.class);
+        }
+
+        @Test
+        @DisplayName("K. Partial read failure: stream read error still closes stream via try-with-resources")
+        void shouldCloseStreamWhenPartialReadFails() throws Exception {
+            stubVideoMetadata();
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream failingStream = new InputStream() {
+                private int count = 0;
+
+                @Override
+                public int read() throws IOException {
+                    if (count++ > 5) {
+                        throw new IOException("Simulated network stream disconnect during video playback");
+                    }
+                    return 42;
+                }
+
+                @Override
+                public void close() {
+                    streamClosed.set(true);
+                }
+            };
+
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), 0, 50))
+                    .thenReturn(failingStream);
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=0-49"))
+                    .andExpect(status().isPartialContent())
+                    .andReturn();
+
+            org.junit.jupiter.api.Assertions.assertThrows(
+                    Exception.class,
+                    () -> mockMvc.perform(asyncDispatch(result))
+            );
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("L. MIME integrity: video delivery strictly uses video/mp4 from metadata without extension guessing")
+        void shouldDeriveContentTypeStrictlyFromPersistedMetadata() throws Exception {
+            stubVideoMetadata();
+            when(getMediaAssetContentUseCase.open(videoMetadata()))
+                    .thenReturn(new ByteArrayInputStream(VIDEO_PAYLOAD));
+
+            mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "video/mp4"));
+        }
+
+        @Test
+        @DisplayName("ETag / If-Range: matching strong If-Range serves byte range with 206")
+        void shouldServeRangeWhenIfRangeMatchesStrongETag() throws Exception {
+            stubVideoMetadata();
+            byte[] slice = new byte[10];
+            when(getMediaAssetContentUseCase.openRange(videoMetadata(), 0, 10))
+                    .thenReturn(new ByteArrayInputStream(slice));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=0-9")
+                            .header(HttpHeaders.IF_RANGE, videoETag()))
+                    .andExpect(status().isPartialContent())
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(content().bytes(slice));
+
+            verify(getMediaAssetContentUseCase).openRange(videoMetadata(), 0, 10);
+            verify(getMediaAssetContentUseCase, never()).open(any());
+        }
+
+        @Test
+        @DisplayName("ETag / If-Range: mismatched If-Range ignores range and returns 200 full content")
+        void shouldServeFullContentWhenIfRangeDoesNotMatchETag() throws Exception {
+            stubVideoMetadata();
+            when(getMediaAssetContentUseCase.open(videoMetadata()))
+                    .thenReturn(new ByteArrayInputStream(VIDEO_PAYLOAD));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=0-9")
+                            .header(HttpHeaders.IF_RANGE, "\"stale-hash\""))
+                    .andExpect(status().isOk())
+                    .andExpect(header().doesNotExist(HttpHeaders.CONTENT_RANGE))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "100"))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(content().bytes(VIDEO_PAYLOAD));
+
+            verify(getMediaAssetContentUseCase).open(videoMetadata());
+            verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("ETag / If-Range: mismatched If-Range + otherwise-unsatisfiable Range ignores Range and returns 200 full content")
+        void shouldServeFullContentWhenIfRangeMismatchesEvenIfRangeIsUnsatisfiable() throws Exception {
+            stubVideoMetadata();
+            when(getMediaAssetContentUseCase.open(videoMetadata()))
+                    .thenReturn(new ByteArrayInputStream(VIDEO_PAYLOAD));
+
+            MvcResult result = mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=200-300")
+                            .header(HttpHeaders.IF_RANGE, "\"stale-hash\""))
+                    .andExpect(status().isOk())
+                    .andExpect(header().doesNotExist(HttpHeaders.CONTENT_RANGE))
+                    .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, "100"))
+                    .andReturn();
+
+            mockMvc.perform(asyncDispatch(result))
+                    .andExpect(content().bytes(VIDEO_PAYLOAD));
+
+            verify(getMediaAssetContentUseCase).open(videoMetadata());
+            verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("ETag / If-Range: matching strong If-Range + unsatisfiable Range returns 416 without opening storage")
+        void shouldReturn416WhenIfRangeMatchesStrongETagAndRangeIsUnsatisfiable() throws Exception {
+            stubVideoMetadata();
+
+            mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.RANGE, "bytes=200-300")
+                            .header(HttpHeaders.IF_RANGE, videoETag()))
+                    .andExpect(status().isRequestedRangeNotSatisfiable())
+                    .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes */100"))
+                    .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                    .andExpect(header().string(HttpHeaders.ETAG, videoETag()));
+
+            verify(getMediaAssetContentUseCase, never()).open(any());
+            verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+
+        @Test
+        @DisplayName("ETag / If-None-Match: matching ETag returns 304 Not Modified without opening storage")
+        void shouldReturn304WithoutOpeningStorageWhenIfNoneMatchMatches() throws Exception {
+            stubVideoMetadata();
+
+            mockMvc.perform(get("/media/assets/{assetId}/content", VIDEO_ID)
+                            .header(HttpHeaders.IF_NONE_MATCH, videoETag())
+                            .header(HttpHeaders.RANGE, "bytes=0-9"))
+                    .andExpect(status().isNotModified())
+                    .andExpect(header().string(HttpHeaders.ETAG, videoETag()))
+                    .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, no-cache"))
+                    .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"));
+
+            verify(getMediaAssetContentUseCase, never()).open(any());
+            verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+    }
+
     private void assertPartialRange(
             String rangeHeader,
             long startInclusive,

@@ -92,8 +92,22 @@ public class MediaDeliveryController {
                     .build();
         }
 
+        String rangeHeader = servletRequest.getHeader(HttpHeaders.RANGE);
+        if (rangeHeader != null && !rangeHeader.isBlank()
+                && !allowsRange(servletRequest.getHeader(HttpHeaders.IF_RANGE), eTag)) {
+            InputStream content = getMediaAssetContentUseCase.open(metadata);
+            return streamingResponse(
+                    HttpStatus.OK,
+                    metadata,
+                    eTag,
+                    content,
+                    metadata.sizeBytes(),
+                    null
+            );
+        }
+
         RangeResolution range = resolveRange(
-                servletRequest.getHeader(HttpHeaders.RANGE),
+                rangeHeader,
                 metadata.sizeBytes()
         );
         if (range.status() == RangeStatus.UNSATISFIABLE) {
@@ -102,8 +116,7 @@ public class MediaDeliveryController {
                     .build();
         }
 
-        if (range.status() == RangeStatus.PARTIAL
-                && allowsRange(servletRequest.getHeader(HttpHeaders.IF_RANGE), eTag)) {
+        if (range.status() == RangeStatus.PARTIAL) {
             InputStream content = getMediaAssetContentUseCase.openRange(
                     metadata,
                     range.startInclusive(),
