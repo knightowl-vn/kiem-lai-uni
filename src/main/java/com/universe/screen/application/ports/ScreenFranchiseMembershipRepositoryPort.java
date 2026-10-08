@@ -11,6 +11,13 @@ import java.util.UUID;
  */
 public interface ScreenFranchiseMembershipRepositoryPort {
 
+    /**
+     * Persists or updates a {@link ScreenFranchiseMembership}.
+     *
+     * @param membership membership aggregate to persist
+     * @return persisted membership
+     * @throws com.universe.screen.application.exceptions.DuplicateScreenFranchiseMembershipException if duplicate membership occurs
+     */
     ScreenFranchiseMembership save(ScreenFranchiseMembership membership);
 
     Optional<ScreenFranchiseMembership> findById(UUID id);
@@ -22,4 +29,6 @@ public interface ScreenFranchiseMembershipRepositoryPort {
     boolean existsById(UUID id);
 
     boolean existsByFranchiseIdAndTitleId(UUID franchiseId, UUID titleId);
+
+    void delete(ScreenFranchiseMembership membership);
 }

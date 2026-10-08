@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý thành viên Franchise | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+</head>
+<body>
+<div class="admin-layout">
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+            <div style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <a th:href="@{/admin/screen/franchises}" class="admin-secondary-button" style="text-decoration: none; padding: 6px 12px; font-size: 13px; margin-bottom: 12px; display: inline-block;">
+                        ← Quay lại danh sách Franchise
+                    </a>
+                    <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #5f6368; letter-spacing: 0.5px; display: block;">FRANCHISE MEMBERSHIP</span>
+                    <h2 style="margin: 4px 0 6px; font-size: 24px;">
+                        <span th:text="${franchise.name}">Tên Franchise</span>
+                        <code style="font-size: 14px; font-weight: normal; color: #5f6368;" th:text="'(' + ${franchise.slug} + ')'"></code>
+                    </h2>
+                    <p style="margin: 0; color: #5f6368; font-size: 14px;">Quản lý danh sách các phim thuộc Franchise và điều chỉnh thứ tự hiển thị.</p>
+                </div>
+                <div>
+                    <a th:href="@{/admin/screen/franchises/{id}/edit(id=${franchise.id})}" class="admin-secondary-button" style="text-decoration: none; padding: 8px 16px; font-size: 13px;">
+                        Chỉnh sửa Franchise
+                    </a>
+                </div>
+            </div>
+
+            <div th:if="${successMessage != null}"
+                 style="background: #e6f4ea; color: #137333; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${successMessage}">
+                Thao tác thành công.
+            </div>
+
+            <div th:if="${errorMessage != null}"
+                 style="background: #fce8e6; color: #c5221f; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${errorMessage}">
+                Có lỗi xảy ra.
+            </div>
+
+            <!-- DANH SÁCH THÀNH VIÊN HIỆN TẠI -->
+            <section class="admin-table-panel" style="margin-bottom: 32px;">
+                <div style="padding: 16px 20px; border-bottom: 1px solid #ebebeb; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 16px;">Danh sách tiêu đề thành viên</h3>
+                    <span style="font-size: 13px; color: #5f6368;">
+                        Tổng số: <strong th:text="${#lists.size(members)}">0</strong> tiêu đề
+                    </span>
+                </div>
+
+                <div th:if="${#lists.isEmpty(members)}" class="admin-empty-state" style="padding: 32px 20px;">
+                    <p style="margin: 0; color: #5f6368;">Franchise này chưa có tiêu đề thành viên nào. Thêm tiêu đề bên dưới.</p>
+                </div>
+
+                <div th:unless="${#lists.isEmpty(members)}" class="admin-table-wrapper">
+                    <table class="admin-table">
+                        <thead>
+                        <tr>
+                            <th style="width: 140px;">Thứ tự (displayOrder)</th>
+                            <th>Tiêu đề Screen</th>
+                            <th>Cấu trúc</th>
+                            <th>Trạng thái</th>
+                            <th class="admin-actions-column">Thao tác</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="member : ${members}">
+                            <td>
+                                <form method="post"
+                                      th:action="@{/admin/screen/franchises/{fid}/memberships/{mid}/order(fid=${franchise.id}, mid=${member.membershipId})}"
+                                      style="display: flex; gap: 6px; align-items: center;">
+                                    <input type="number" name="displayOrder" min="0" th:value="${member.displayOrder}" required
+                                           style="width: 60px; padding: 4px 6px; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px;">
+                                    <button type="submit" class="admin-secondary-button" style="padding: 4px 8px; font-size: 12px; cursor: pointer;">
+                                        Lưu
+                                    </button>
+                                </form>
+                            </td>
+                            <td>
+                                <strong th:text="${member.title}">Tiêu đề phim</strong>
+                                <div style="font-size: 12px; color: #5f6368;">
+                                    Slug: <code th:text="${member.titleSlug}">slug</code> | ID: <span th:text="${member.titleId}">uuid</span>
+                                </div>
+                            </td>
+                            <td>
+                                <span th:if="${member.structure != null}" th:text="${member.structure}">SERIES</span>
+                            </td>
+                            <td>
+                                <span th:if="${member.status != null}" th:text="${member.status}">DRAFT</span>
+                            </td>
+                            <td class="admin-actions-column">
+                                <form method="post"
+                                      th:action="@{/admin/screen/franchises/{fid}/memberships/{mid}/remove(fid=${franchise.id}, mid=${member.membershipId})}"
+                                      style="display: inline;"
+                                      onsubmit="return confirm('Bạn có chắc chắn muốn xóa tiêu đề này khỏi franchise?');">
+                                    <button type="submit"
+                                            style="background: #fce8e6; color: #c5221f; border: 1px solid #fad2cf; padding: 5px 12px; border-radius: 4px; font-size: 13px; cursor: pointer;">
+                                        Xóa
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- THÊM TIÊU ĐỀ VÀO FRANCHISE -->
+            <section class="admin-table-panel" style="max-width: 680px; padding: 24px;">
+                <h3 style="margin: 0 0 16px; font-size: 16px;">Thêm tiêu đề vào Franchise</h3>
+
+                <div th:if="${#lists.isEmpty(availableTitles)}" style="color: #5f6368; font-size: 14px;">
+                    Không có tiêu đề nào khả dụng để thêm (tất cả tiêu đề hiện có đã thuộc franchise này hoặc chưa có tiêu đề nào trong hệ thống).
+                </div>
+
+                <form th:unless="${#lists.isEmpty(availableTitles)}"
+                      method="post"
+                      th:action="@{/admin/screen/franchises/{id}/memberships(id=${franchise.id})}"
+                      th:object="${form}">
+
+                    <div style="margin-bottom: 16px;">
+                        <label for="titleSelect" style="display: block; font-weight: 600; margin-bottom: 6px;">
+                            Chọn tiêu đề Screen <span style="color: #c5221f;">*</span>
+                        </label>
+                        <select id="titleSelect" th:field="*{titleId}" required
+                                style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 14px;">
+                            <option value="">-- Chọn tiêu đề --</option>
+                            <option th:each="t : ${availableTitles}"
+                                    th:value="${t.id}"
+                                    th:text="${t.title + ' (' + t.slug + ')'}">
+                                Tên tiêu đề
+                            </option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="displayOrder" style="display: block; font-weight: 600; margin-bottom: 6px;">
+                            Thứ tự hiển thị (displayOrder)
+                        </label>
+                        <input id="displayOrder" type="number" min="0" th:field="*{displayOrder}"
+                               style="width: 140px; padding: 8px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 14px;"
+                               placeholder="Tự động nếu để trống">
+                        <small style="display: block; color: #5f6368; margin-top: 4px;">Để trống để tự động gán thứ tự tiếp theo lớn nhất.</small>
+                    </div>
+
+                    <button type="submit" class="admin-primary-button" style="padding: 10px 20px; border-radius: 4px; font-size: 14px; cursor: pointer;">
+                        Thêm vào Franchise
+                    </button>
+                </form>
+            </section>
+        </section>
+    </main>
+</div>
+</body>
+</html>

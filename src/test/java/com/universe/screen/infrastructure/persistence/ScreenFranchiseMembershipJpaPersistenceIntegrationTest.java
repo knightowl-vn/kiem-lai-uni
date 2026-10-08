@@ -1,5 +1,6 @@
 package com.universe.screen.infrastructure.persistence;
 
+import com.universe.screen.application.exceptions.DuplicateScreenFranchiseMembershipException;
 import com.universe.screen.application.ports.ScreenFranchiseMembershipRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
@@ -227,8 +228,8 @@ class ScreenFranchiseMembershipJpaPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should enforce V87 unique constraint on (franchise_id, title_id)")
-    void shouldEnforceCompositeUniqueConstraint() {
+    @DisplayName("Should translate duplicate (franchise_id, title_id) into DuplicateScreenFranchiseMembershipException in real MySQL")
+    void shouldTranslateDuplicateMembershipToDuplicateScreenFranchiseMembershipException() {
         ScreenFranchise franchise = createFranchise("franchise-uq", "Franchise UQ");
         ScreenTitle title = createTitle("title-uq", "Title UQ");
 
@@ -238,11 +239,13 @@ class ScreenFranchiseMembershipJpaPersistenceIntegrationTest {
         membershipRepository.save(m1);
 
         assertThatThrownBy(() -> membershipRepository.save(m2))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DuplicateScreenFranchiseMembershipException.class)
+                .hasMessageContaining(franchise.getId().toString())
+                .hasMessageContaining(title.getId().toString());
     }
 
     @Test
-    @DisplayName("Should enforce V87 foreign key constraint when parent franchise does not exist")
+    @DisplayName("Should enforce V87 foreign key constraint on missing franchise as DataIntegrityViolationException")
     void shouldEnforceForeignKeyConstraintOnFranchise() {
         ScreenTitle title = createTitle("title-orphan", "Title Orphan");
 
@@ -251,6 +254,41 @@ class ScreenFranchiseMembershipJpaPersistenceIntegrationTest {
         );
 
         assertThatThrownBy(() -> membershipRepository.save(orphan))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .isNotInstanceOf(DuplicateScreenFranchiseMembershipException.class);
+    }
+
+    @Test
+    @DisplayName("Should enforce V87 foreign key constraint on missing title as DataIntegrityViolationException")
+    void shouldEnforceForeignKeyConstraintOnTitle() {
+        ScreenFranchise franchise = createFranchise("franchise-title-orphan", "Franchise Title Orphan");
+
+        ScreenFranchiseMembership orphan = new ScreenFranchiseMembership(
+                UUID.randomUUID(), franchise.getId(), UUID.randomUUID(), 0
+        );
+
+        assertThatThrownBy(() -> membershipRepository.save(orphan))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .isNotInstanceOf(DuplicateScreenFranchiseMembershipException.class);
+    }
+
+    @Test
+    @DisplayName("Should delete membership through repository port and verify row is absent in real MySQL")
+    void shouldDeleteMembershipThroughRepositoryPort() {
+        ScreenFranchise franchise = createFranchise("franchise-del", "Franchise Del");
+        ScreenTitle title = createTitle("title-del", "Title Del");
+
+        UUID membershipId = UUID.randomUUID();
+        ScreenFranchiseMembership membership = new ScreenFranchiseMembership(
+                membershipId, franchise.getId(), title.getId(), 0
+        );
+        membershipRepository.save(membership);
+        assertThat(membershipRepository.findById(membershipId)).isPresent();
+
+        membershipRepository.delete(membership);
+
+        assertThat(membershipRepository.findById(membershipId)).isEmpty();
+        assertThat(membershipRepository.existsByFranchiseIdAndTitleId(franchise.getId(), title.getId())).isFalse();
+        assertThat(membershipRepository.findByFranchiseId(franchise.getId())).isEmpty();
     }
 }

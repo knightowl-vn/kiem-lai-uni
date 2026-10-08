@@ -83,6 +83,7 @@ public class ScreenArchitectureContractTest {
                             "jakarta.persistence..",
                             "org.hibernate..",
                             "org.springframework.data..",
+                            "org.springframework.dao..",
                             "jakarta.servlet..",
                             "org.thymeleaf..",
                             "org.springframework.web.."
@@ -125,5 +126,18 @@ public class ScreenArchitectureContractTest {
                             "com.universe.screen.infrastructure.."
                     )
                     .because("External bounded contexts must not depend on Screen internal domain, application, or infrastructure packages")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    public static final ArchRule screenAdminControllersMustNotDependOnPersistenceImplementationOrJpa =
+            noClasses()
+                    .that().resideInAPackage("com.universe.screen.entry..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.universe.screen.infrastructure.persistence..",
+                            "jakarta.persistence..",
+                            "org.springframework.data.jpa..",
+                            "org.hibernate.."
+                    )
+                    .because("Screen admin controllers must depend only on application use cases and never directly on JPA repositories, entity managers, or persistence adapters")
                     .allowEmptyShould(true);
 }

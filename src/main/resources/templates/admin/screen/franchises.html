@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý Screen Franchise | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+</head>
+<body>
+<div class="admin-layout">
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+            <div th:if="${successMessage != null}"
+                 style="background: #e6f4ea; color: #137333; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${successMessage}">
+                Thao tác thành công.
+            </div>
+
+            <div th:if="${errorMessage != null}"
+                 style="background: #fce8e6; color: #c5221f; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${errorMessage}">
+                Có lỗi xảy ra.
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <div>
+                    <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #5f6368; letter-spacing: 0.5px;">SCREEN MODULE</span>
+                    <h2 style="margin: 4px 0 6px; font-size: 24px;">Danh sách Franchise</h2>
+                    <p style="margin: 0; color: #5f6368; font-size: 14px;">Quản lý các nhóm phim, thứ tự thành viên và danh mục Screen.</p>
+                </div>
+                <a th:href="@{/admin/screen/franchises/new}" class="admin-primary-button" style="text-decoration: none; padding: 10px 18px; border-radius: 6px;">
+                    + Tạo Franchise
+                </a>
+            </div>
+
+            <section th:if="${#lists.isEmpty(franchises)}" class="admin-empty-state">
+                <div class="admin-empty-icon">🎬</div>
+                <h3>Chưa có Franchise nào</h3>
+                <p>Bắt đầu bằng cách tạo Franchise đầu tiên để nhóm các tiêu đề phim.</p>
+                <a th:href="@{/admin/screen/franchises/new}" class="admin-secondary-button">Tạo Franchise mới</a>
+            </section>
+
+            <section th:unless="${#lists.isEmpty(franchises)}" class="admin-table-panel">
+                <div class="admin-table-wrapper">
+                    <table class="admin-table">
+                        <thead>
+                        <tr>
+                            <th>Tên Franchise</th>
+                            <th>Slug</th>
+                            <th>Số lượng thành viên</th>
+                            <th class="admin-actions-column">Thao tác</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="franchise : ${franchises}">
+                            <td>
+                                <strong th:text="${franchise.name}">Tên Franchise</strong>
+                            </td>
+                            <td>
+                                <code th:text="${franchise.slug}">slug-franchise</code>
+                            </td>
+                            <td>
+                                <span th:text="${franchise.memberCount}">0</span> tiêu đề
+                            </td>
+                            <td class="admin-actions-column">
+                                <a th:href="@{/admin/screen/franchises/{id}/memberships(id=${franchise.id})}"
+                                   class="admin-primary-button"
+                                   style="text-decoration: none; padding: 4px 10px; font-size: 13px; margin-right: 6px;">
+                                    Thành viên
+                                </a>
+                                <a th:href="@{/admin/screen/franchises/{id}/edit(id=${franchise.id})}"
+                                   class="admin-secondary-button"
+                                   style="text-decoration: none; padding: 4px 10px; font-size: 13px;">
+                                    Sửa
+                                </a>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </section>
+    </main>
+</div>
+</body>
+</html>

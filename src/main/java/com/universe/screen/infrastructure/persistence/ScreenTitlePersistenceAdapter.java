@@ -97,6 +97,15 @@ public class ScreenTitlePersistenceAdapter implements ScreenTitleRepositoryPort 
     }
 
     @Override
+    public List<ScreenTitle> findAll() {
+        return repository.findAll(org.springframework.data.domain.Sort.by(
+                org.springframework.data.domain.Sort.Direction.ASC, "title", "id"))
+                .stream()
+                .map(ScreenTitlePersistenceMapper::toDomain)
+                .toList();
+    }
+
+    @Override
     public boolean existsById(UUID id) {
         if (id == null) {
             return false;

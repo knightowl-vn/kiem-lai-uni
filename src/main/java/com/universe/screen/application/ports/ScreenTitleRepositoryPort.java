@@ -25,6 +25,8 @@ public interface ScreenTitleRepositoryPort {
 
     List<ScreenTitle> findPublishedByFranchiseId(UUID franchiseId);
 
+    List<ScreenTitle> findAll();
+
     boolean existsById(UUID id);
 
     boolean existsBySlug(String slug);

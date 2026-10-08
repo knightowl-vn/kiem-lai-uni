@@ -2,9 +2,12 @@ package com.universe.screen.infrastructure.persistence;
 
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
 import com.universe.screen.domain.ScreenFranchise;
+import com.universe.screen.application.exceptions.ScreenFranchiseSlugAlreadyExistsException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -13,6 +16,12 @@ import java.util.UUID;
 @Component
 @Transactional(readOnly = true)
 public class ScreenFranchisePersistenceAdapter implements ScreenFranchiseRepositoryPort {
+
+    private static final String TARGET_UNIQUE_CONSTRAINT = "uq_screen_franchises_slug";
+    private static final java.util.regex.Pattern CONSTRAINT_PATTERN = java.util.regex.Pattern.compile(
+            "(^|[^a-zA-Z0-9_])" + java.util.regex.Pattern.quote(TARGET_UNIQUE_CONSTRAINT) + "([^a-zA-Z0-9_]|$)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+    );
 
     private final SpringDataScreenFranchiseJpaRepository repository;
 
@@ -33,8 +42,35 @@ public class ScreenFranchisePersistenceAdapter implements ScreenFranchiseReposit
                 })
                 .orElseGet(() -> ScreenFranchisePersistenceMapper.toEntity(franchise));
 
-        ScreenFranchiseJpaEntity saved = repository.saveAndFlush(entity);
-        return ScreenFranchisePersistenceMapper.toDomain(saved);
+        try {
+            ScreenFranchiseJpaEntity saved = repository.saveAndFlush(entity);
+            return ScreenFranchisePersistenceMapper.toDomain(saved);
+        } catch (DataIntegrityViolationException ex) {
+            if (isSlugConstraintViolation(ex)) {
+                throw new ScreenFranchiseSlugAlreadyExistsException(franchise.getSlug(), ex);
+            }
+            throw ex;
+        }
+    }
+
+    private boolean isSlugConstraintViolation(DataIntegrityViolationException ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof org.hibernate.exception.ConstraintViolationException cve) {
+                if (cve.getConstraintName() != null && matchesTargetConstraint(cve.getConstraintName())) {
+                    return true;
+                }
+            }
+            if (current.getMessage() != null && matchesTargetConstraint(current.getMessage())) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static boolean matchesTargetConstraint(String text) {
+        return text != null && CONSTRAINT_PATTERN.matcher(text).find();
     }
 
     @Override
@@ -52,6 +88,14 @@ public class ScreenFranchisePersistenceAdapter implements ScreenFranchiseReposit
         }
         return repository.findBySlug(slug.trim().toLowerCase(Locale.ROOT))
                 .map(ScreenFranchisePersistenceMapper::toDomain);
+    }
+
+    @Override
+    public List<ScreenFranchise> findAll() {
+        return repository.findAllOrderByNameAsc()
+                .stream()
+                .map(ScreenFranchisePersistenceMapper::toDomain)
+                .toList();
     }
 
     @Override

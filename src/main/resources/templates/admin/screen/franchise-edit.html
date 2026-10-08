@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chỉnh sửa Franchise | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+</head>
+<body>
+<div class="admin-layout">
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+            <div style="margin-bottom: 24px;">
+                <a th:href="@{/admin/screen/franchises/{id}/memberships(id=${franchise.id})}" class="admin-secondary-button" style="text-decoration: none; padding: 6px 12px; font-size: 13px; margin-bottom: 12px; display: inline-block;">
+                    ← Quay lại quản lý thành viên
+                </a>
+                <div>
+                    <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #5f6368; letter-spacing: 0.5px;">SCREEN MODULE</span>
+                    <h2 style="margin: 4px 0 6px; font-size: 24px;">Chỉnh sửa Franchise</h2>
+                    <p style="margin: 0; color: #5f6368; font-size: 14px;">Cập nhật thông tin định danh của Franchise.</p>
+                </div>
+            </div>
+
+            <div th:if="${errorMessage != null}"
+                 style="background: #fce8e6; color: #c5221f; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${errorMessage}">
+                Có lỗi xảy ra.
+            </div>
+
+            <section class="admin-table-panel" style="max-width: 680px; padding: 24px;">
+                <form method="post" th:action="@{/admin/screen/franchises/{id}/update(id=${franchise.id})}" th:object="${form}">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 6px; color: #5f6368;">Mã định danh (ID)</label>
+                        <code style="display: block; padding: 8px 12px; background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px;"
+                              th:text="${franchise.id}">UUID</code>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="name" style="display: block; font-weight: 600; margin-bottom: 6px;">Tên Franchise <span style="color: #c5221f;">*</span></label>
+                        <input id="name" type="text" th:field="*{name}" required
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;">
+                    </div>
+
+                    <div style="margin-bottom: 24px;">
+                        <label for="slug" style="display: block; font-weight: 600; margin-bottom: 6px;">Slug URL <span style="color: #c5221f;">*</span></label>
+                        <input id="slug" type="text" th:field="*{slug}" required
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Chỉ bao gồm chữ thường không dấu, số và dấu gạch nối.</small>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <button type="submit" class="admin-primary-button" style="padding: 10px 20px; border-radius: 4px; font-size: 14px; cursor: pointer;">
+                            Lưu thay đổi
+                        </button>
+                        <a th:href="@{/admin/screen/franchises/{id}/memberships(id=${franchise.id})}" class="admin-secondary-button" style="text-decoration: none; padding: 10px 18px; border-radius: 4px; font-size: 14px;">
+                            Hủy
+                        </a>
+                    </div>
+                </form>
+            </section>
+        </section>
+    </main>
+</div>
+</body>
+</html>

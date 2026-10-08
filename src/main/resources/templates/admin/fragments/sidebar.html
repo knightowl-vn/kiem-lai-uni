@@ -64,6 +64,11 @@
 ? ' active'
 : ''"> <span
 				class="menu-icon">☷</span> <span>Quản lý Novel</span>
+			</a> <a th:href="@{/admin/screen/franchises}" class="sidebar-link"
+				th:classappend="${activeMenu == 'screen'}
+? ' active'
+: ''"> <span
+				class="menu-icon">🎬</span> <span>Quản lý Screen</span>
 			</a>
 
 			<div class="sidebar-divider"></div>

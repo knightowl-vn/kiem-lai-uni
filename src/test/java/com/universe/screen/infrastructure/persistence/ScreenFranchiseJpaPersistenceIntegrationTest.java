@@ -1,5 +1,6 @@
 package com.universe.screen.infrastructure.persistence;
 
+import com.universe.screen.application.exceptions.ScreenFranchiseSlugAlreadyExistsException;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
 import com.universe.screen.domain.ScreenFranchise;
 import com.universe.test.TestDatabaseSupport;
@@ -11,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -128,8 +128,8 @@ class ScreenFranchiseJpaPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should enforce V87 unique constraint on slug in real MySQL")
-    void shouldEnforceSlugUniqueConstraint() {
+    @DisplayName("Should translate duplicate slug INSERT into ScreenFranchiseSlugAlreadyExistsException in real MySQL")
+    void shouldTranslateDuplicateSlugInsertToScreenFranchiseSlugAlreadyExistsException() {
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
         ScreenFranchise franchise1 = new ScreenFranchise(id1, "duplicate-slug", "Franchise 1");
@@ -138,6 +138,25 @@ class ScreenFranchiseJpaPersistenceIntegrationTest {
         repositoryPort.save(franchise1);
 
         assertThatThrownBy(() -> repositoryPort.save(franchise2))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(ScreenFranchiseSlugAlreadyExistsException.class)
+                .hasMessageContaining("duplicate-slug");
+    }
+
+    @Test
+    @DisplayName("Should translate duplicate slug UPDATE into ScreenFranchiseSlugAlreadyExistsException in real MySQL")
+    void shouldTranslateDuplicateSlugUpdateToScreenFranchiseSlugAlreadyExistsException() {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        ScreenFranchise franchise1 = new ScreenFranchise(id1, "slug-one", "Franchise One");
+        ScreenFranchise franchise2 = new ScreenFranchise(id2, "slug-two", "Franchise Two");
+
+        repositoryPort.save(franchise1);
+        repositoryPort.save(franchise2);
+
+        franchise2.update("slug-one", "Franchise Two Renamed");
+
+        assertThatThrownBy(() -> repositoryPort.save(franchise2))
+                .isInstanceOf(ScreenFranchiseSlugAlreadyExistsException.class)
+                .hasMessageContaining("slug-one");
     }
 }
