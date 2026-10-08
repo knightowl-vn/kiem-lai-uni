@@ -3,6 +3,7 @@ package com.universe.media.infrastructure.persistence;
 import com.universe.media.application.asset.RasterContentSignatureValidator;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
+import com.universe.media.application.asset.VideoUploadValidator;
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
@@ -76,6 +77,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         MediaAssetVersionPersistenceAdapter.class,
         RegisterMediaAssetVersionUseCase.class,
         RasterContentSignatureValidator.class,
+        VideoUploadValidator.class,
         UploadMediaAssetVersionConditionalUseCase.class,
         MediaAssetConcurrentConditionalVersionIntegrationTest.TestConfig.class
 })

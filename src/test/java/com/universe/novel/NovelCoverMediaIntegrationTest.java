@@ -18,6 +18,7 @@ import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
+import com.universe.media.application.asset.VideoUploadValidator;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
@@ -122,6 +123,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         MediaStorageRoutingService.class,
         DefaultStorageProviderRegistry.class,
         RasterContentSignatureValidator.class,
+        VideoUploadValidator.class,
         MediaFacade.class,
         NovelCoverMediaIntegrationTest.TestConfig.class
 })

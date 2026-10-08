@@ -32,6 +32,7 @@ import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
+import com.universe.media.application.asset.VideoUploadValidator;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
@@ -134,6 +135,7 @@ import static org.mockito.Mockito.mock;
         com.universe.media.infrastructure.image.JavaImageProcessorAdapter.class,
         com.universe.media.application.variant.GenerateMediaImageVariantUseCase.class,
         RasterContentSignatureValidator.class,
+        VideoUploadValidator.class,
         MediaFacade.class,
         IdentityAvatarMediaIntegrationTest.TestConfig.class
 })
