@@ -12,11 +12,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AdminScreenTemplateContractTest {
 
     @Test
-    @DisplayName("Sidebar contract: sidebar contains link to /admin/screen/franchises")
-    void sidebarContainsScreenFranchisesLink() throws Exception {
+    @DisplayName("Sidebar contract: sidebar contains link to franchises and titles")
+    void sidebarContainsScreenLinks() throws Exception {
         String sidebar = read("src/main/resources/templates/admin/fragments/sidebar.html");
 
         assertThat(sidebar).contains("th:href=\"@{/admin/screen/franchises}\"");
+        assertThat(sidebar).contains("th:href=\"@{/admin/screen/titles}\"");
         assertThat(sidebar).contains("Quản lý Screen");
     }
 
@@ -79,6 +80,72 @@ class AdminScreenTemplateContractTest {
         assertThat(template).contains("th:action=\"@{/admin/screen/franchises/{id}/memberships(id=${franchise.id})}\"");
         assertThat(template).contains("th:field=\"*{titleId}\"");
         assertThat(template).contains("th:field=\"*{displayOrder}\"");
+    }
+
+    @Test
+    @DisplayName("Titles page contract: titles.html defines expected structure, columns, and actions")
+    void titlesPageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/titles.html");
+
+        assertThat(template).contains("admin/fragments/sidebar");
+        assertThat(template).contains("admin/fragments/header");
+        assertThat(template).contains("th:href=\"@{/admin/screen/titles/new}\"");
+        assertThat(template).contains("th:each=\"title : ${titles}\"");
+        assertThat(template).contains("th:text=\"${title.title}\"");
+        assertThat(template).contains("th:text=\"${title.slug}\"");
+        assertThat(template).contains("th:text=\"${title.structure}\"");
+        assertThat(template).contains("th:text=\"${title.presentation}\"");
+        assertThat(template).contains("th:text=\"${title.status}\"");
+        assertThat(template).contains("/admin/screen/titles/{id}(id=${title.id})");
+        assertThat(template).contains("/edit(id=${title.id})");
+    }
+
+    @Test
+    @DisplayName("Title create contract: title-create.html contains form with all domain fields")
+    void titleCreatePageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/title-create.html");
+
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles}\"");
+        assertThat(template).contains("th:field=\"*{title}\"");
+        assertThat(template).contains("th:field=\"*{slug}\"");
+        assertThat(template).contains("th:field=\"*{originalTitle}\"");
+        assertThat(template).contains("th:field=\"*{synopsis}\"");
+        assertThat(template).contains("th:field=\"*{structure}\"");
+        assertThat(template).contains("th:field=\"*{presentation}\"");
+        assertThat(template).contains("th:field=\"*{posterMediaAssetId}\"");
+        assertThat(template).contains("th:field=\"*{backdropMediaAssetId}\"");
+        assertThat(template).contains("type=\"submit\"");
+    }
+
+    @Test
+    @DisplayName("Title edit contract: title-edit.html contains update action and existing data")
+    void titleEditPageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/title-edit.html");
+
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles/{id}/update(id=${title.id})}\"");
+        assertThat(template).contains("th:field=\"*{title}\"");
+        assertThat(template).contains("th:field=\"*{slug}\"");
+        assertThat(template).contains("th:field=\"*{originalTitle}\"");
+        assertThat(template).contains("th:field=\"*{synopsis}\"");
+        assertThat(template).contains("th:field=\"*{structure}\"");
+        assertThat(template).contains("th:field=\"*{presentation}\"");
+        assertThat(template).contains("th:field=\"*{posterMediaAssetId}\"");
+        assertThat(template).contains("th:field=\"*{backdropMediaAssetId}\"");
+        assertThat(template).contains("th:text=\"${title.id}\"");
+        assertThat(template).contains("th:text=\"${title.status}\"");
+    }
+
+    @Test
+    @DisplayName("Title detail contract: title-detail.html contains detail state, publish, and archive actions")
+    void titleDetailPageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/title-detail.html");
+
+        assertThat(template).contains("th:text=\"${title.title}\"");
+        assertThat(template).contains("th:text=\"${title.slug}\"");
+        assertThat(template).contains("title.status");
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles/{id}/publish(id=${title.id})}\"");
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles/{id}/archive(id=${title.id})}\"");
+        assertThat(template).contains("th:href=\"@{/admin/screen/titles/{id}/edit(id=${title.id})}\"");
     }
 
     private String read(String relativePath) throws Exception {

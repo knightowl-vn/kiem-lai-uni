@@ -58,11 +58,23 @@ public class ScreenArchitectureContractTest {
                     .allowEmptyShould(true);
 
     @ArchTest
-    public static final ArchRule screenInfrastructureMustNotDependOnMedia =
+    public static final ArchRule screenPersistenceInfrastructureMustNotDependOnMedia =
             noClasses()
-                    .that().resideInAPackage("com.universe.screen.infrastructure..")
+                    .that().resideInAPackage("com.universe.screen.infrastructure.persistence..")
                     .should().dependOnClassesThat().resideInAnyPackage("com.universe.media..")
                     .because("Screen persistence infrastructure must reference Media assets exclusively via scalar UUIDs and have no direct dependency on Media entities, repositories, or contracts")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    public static final ArchRule screenMediaInfrastructureMustOnlyDependOnMediaPublicContracts =
+            noClasses()
+                    .that().resideInAPackage("com.universe.screen.infrastructure.media..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.universe.media.domain..",
+                            "com.universe.media.application..",
+                            "com.universe.media.infrastructure.."
+                    )
+                    .because("Screen media adapter must interact exclusively through the Media public contracts and never touch Media internals or persistence")
                     .allowEmptyShould(true);
 
     @ArchTest

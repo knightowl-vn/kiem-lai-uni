@@ -3,6 +3,7 @@ package com.universe.screen.infrastructure.persistence;
 import com.universe.screen.application.ports.ScreenFranchiseMembershipRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
 import com.universe.screen.domain.ScreenFranchise;
 import com.universe.screen.domain.ScreenFranchiseMembership;
 import com.universe.screen.domain.ScreenPresentation;
@@ -223,7 +224,7 @@ class ScreenTitleJpaPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should enforce V87 unique constraint on slug")
+    @DisplayName("Should enforce V87 unique constraint on slug during insert translating to ScreenTitleSlugAlreadyExistsException")
     void shouldEnforceSlugUniqueConstraint() {
         Instant now = Instant.parse("2026-10-06T10:00:00.000000Z");
         ScreenTitle title1 = ScreenTitle.createDraft(
@@ -236,7 +237,138 @@ class ScreenTitleJpaPersistenceIntegrationTest {
         repositoryPort.save(title1);
 
         assertThatThrownBy(() -> repositoryPort.save(title2))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(ScreenTitleSlugAlreadyExistsException.class)
+                .hasMessageContaining("duplicate-title-slug");
+    }
+
+    @Test
+    @DisplayName("Should enforce V87 unique constraint on slug during update translating to ScreenTitleSlugAlreadyExistsException")
+    void shouldEnforceSlugUniqueConstraintOnUpdate() {
+        Instant now = Instant.parse("2026-10-06T10:00:00.000000Z");
+        ScreenTitle title1 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "slug-primary", "Title 1", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        ScreenTitle title2 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "slug-secondary", "Title 2", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+
+        repositoryPort.save(title1);
+        repositoryPort.save(title2);
+
+        title2.update(
+                "slug-primary",
+                "Title 2 Updated",
+                null,
+                null,
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                null,
+                null,
+                now.plusSeconds(60)
+        );
+
+        assertThatThrownBy(() -> repositoryPort.save(title2))
+                .isInstanceOf(ScreenTitleSlugAlreadyExistsException.class)
+                .hasMessageContaining("slug-primary");
+    }
+
+    @Test
+    @DisplayName("Should preserve publishedAt timestamp when editing an already published title")
+    void shouldPreservePublishedAtWhenEditingPublishedTitle() {
+        UUID id = UUID.randomUUID();
+        Instant t0 = Instant.parse("2026-10-06T10:00:00.000000Z");
+        Instant tPublish = Instant.parse("2026-10-06T11:00:00.000000Z");
+        Instant tEdit = Instant.parse("2026-10-06T12:00:00.000000Z");
+
+        ScreenTitle title = ScreenTitle.createDraft(
+                id, "title-published-edit", "Original Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+        );
+        title.publish(tPublish);
+        repositoryPort.save(title);
+
+        Optional<ScreenTitle> reloadedBefore = repositoryPort.findById(id);
+        assertThat(reloadedBefore).isPresent();
+        assertThat(reloadedBefore.get().getStatus()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        assertThat(reloadedBefore.get().getPublishedAt()).isEqualTo(tPublish);
+
+        // Edit metadata after publish
+        ScreenTitle toUpdate = reloadedBefore.get();
+        toUpdate.update(
+                "title-published-edit-renamed",
+                "Edited Title Name",
+                "Original",
+                "New Synopsis",
+                ScreenStructure.FEATURE,
+                ScreenPresentation.LIVE_ACTION,
+                null,
+                null,
+                tEdit
+        );
+        repositoryPort.save(toUpdate);
+
+        Optional<ScreenTitle> reloadedAfter = repositoryPort.findById(id);
+        assertThat(reloadedAfter).isPresent();
+        ScreenTitle finalTitle = reloadedAfter.get();
+        assertThat(finalTitle.getTitle()).isEqualTo("Edited Title Name");
+        assertThat(finalTitle.getSlug()).isEqualTo("title-published-edit-renamed");
+        assertThat(finalTitle.getStructure()).isEqualTo(ScreenStructure.FEATURE);
+        assertThat(finalTitle.getPresentation()).isEqualTo(ScreenPresentation.LIVE_ACTION);
+        assertThat(finalTitle.getStatus()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        assertThat(finalTitle.getPublishedAt()).isEqualTo(tPublish);
+    }
+
+    @Test
+    @DisplayName("Should preserve publishedAt timestamp when archiving a published title")
+    void shouldPreservePublishedAtWhenArchivingPublishedTitle() {
+        UUID id = UUID.randomUUID();
+        Instant t0 = Instant.parse("2026-10-06T10:00:00.000000Z");
+        Instant tPublish = Instant.parse("2026-10-06T11:00:00.000000Z");
+        Instant tArchive = Instant.parse("2026-10-06T13:00:00.000000Z");
+
+        ScreenTitle title = ScreenTitle.createDraft(
+                id, "title-to-archive", "Title To Archive", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+        );
+        title.publish(tPublish);
+        repositoryPort.save(title);
+
+        ScreenTitle reloaded = repositoryPort.findById(id).orElseThrow();
+        reloaded.archive(tArchive);
+        repositoryPort.save(reloaded);
+
+        ScreenTitle finalTitle = repositoryPort.findById(id).orElseThrow();
+        assertThat(finalTitle.getStatus()).isEqualTo(ScreenPublicationStatus.ARCHIVED);
+        assertThat(finalTitle.getPublishedAt()).isEqualTo(tPublish);
+    }
+
+    @Test
+    @DisplayName("Should persist clearing of poster and backdrop media IDs to null")
+    void shouldClearPosterAndBackdropOnUpdate() {
+        UUID id = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-06T10:00:00.000000Z");
+
+        ScreenTitle title = new ScreenTitle(
+                id, "title-with-media", "Title With Media", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, now, now
+        );
+        repositoryPort.save(title);
+
+        ScreenTitle loaded = repositoryPort.findById(id).orElseThrow();
+        assertThat(loaded.getPosterMediaAssetId()).isEqualTo(posterId);
+        assertThat(loaded.getBackdropMediaAssetId()).isEqualTo(backdropId);
+
+        loaded.update(
+                "title-with-media", "Title With Media", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now.plusSeconds(60)
+        );
+        repositoryPort.save(loaded);
+
+        ScreenTitle cleared = repositoryPort.findById(id).orElseThrow();
+        assertThat(cleared.getPosterMediaAssetId()).isNull();
+        assertThat(cleared.getBackdropMediaAssetId()).isNull();
     }
 
     @Test

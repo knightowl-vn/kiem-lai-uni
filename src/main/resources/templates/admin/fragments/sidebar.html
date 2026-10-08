@@ -64,8 +64,13 @@
 ? ' active'
 : ''"> <span
 				class="menu-icon">☷</span> <span>Quản lý Novel</span>
+			</a> <a th:href="@{/admin/screen/titles}" class="sidebar-link"
+				th:classappend="${activeMenu == 'screen' and activeSubMenu == 'titles'}
+? ' active'
+: ''"> <span
+				class="menu-icon">🎞</span> <span>Tiêu đề Screen</span>
 			</a> <a th:href="@{/admin/screen/franchises}" class="sidebar-link"
-				th:classappend="${activeMenu == 'screen'}
+				th:classappend="${activeMenu == 'screen' and (activeSubMenu == null or activeSubMenu == 'franchises')}
 ? ' active'
 : ''"> <span
 				class="menu-icon">🎬</span> <span>Quản lý Screen</span>

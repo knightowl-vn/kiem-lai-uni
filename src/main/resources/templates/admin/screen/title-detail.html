@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chi tiết Screen Title | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+</head>
+<body>
+<div class="admin-layout">
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+            <div th:if="${successMessage != null}"
+                 style="background: #e6f4ea; color: #137333; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${successMessage}">
+                Thao tác thành công.
+            </div>
+
+            <div th:if="${errorMessage != null}"
+                 style="background: #fce8e6; color: #c5221f; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${errorMessage}">
+                Có lỗi xảy ra.
+            </div>
+
+            <div style="margin-bottom: 24px;">
+                <a th:href="@{/admin/screen/titles}" class="admin-secondary-button" style="text-decoration: none; padding: 6px 12px; font-size: 13px; margin-bottom: 12px; display: inline-block;">
+                    ← Quay lại danh sách
+                </a>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #5f6368; letter-spacing: 0.5px;">SCREEN TITLE DETAIL</span>
+                        <h2 style="margin: 4px 0 6px; font-size: 26px;">
+                            <span th:text="${title.title}">Tên tiêu đề</span>
+                            <small th:if="${title.originalTitle != null}" th:text="'(' + ${title.originalTitle} + ')'" style="font-size: 16px; color: #5f6368; font-weight: normal;"></small>
+                        </h2>
+                        <p style="margin: 0; color: #5f6368; font-size: 14px;">
+                            Slug: <code th:text="${title.slug}">slug-phim</code>
+                        </p>
+                    </div>
+
+                    <!-- Action buttons -->
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <a th:href="@{/admin/screen/titles/{id}/edit(id=${title.id})}" class="admin-secondary-button"
+                           style="text-decoration: none; padding: 8px 16px; font-size: 13px;">
+                            Chỉnh sửa
+                        </a>
+
+                        <!-- Publish button for DRAFT -->
+                        <form th:if="${title.status.name() == 'DRAFT'}"
+                              method="post" th:action="@{/admin/screen/titles/{id}/publish(id=${title.id})}" style="display: inline;">
+                            <button type="submit" class="admin-primary-button"
+                                    style="padding: 8px 16px; font-size: 13px; background: #137333; border-color: #137333; cursor: pointer;">
+                                Xuất bản
+                            </button>
+                        </form>
+
+                        <!-- Archive button for DRAFT or PUBLISHED -->
+                        <form th:if="${title.status.name() == 'DRAFT' or title.status.name() == 'PUBLISHED'}"
+                              method="post" th:action="@{/admin/screen/titles/{id}/archive(id=${title.id})}" style="display: inline;">
+                            <button type="submit" class="admin-secondary-button"
+                                    style="padding: 8px 16px; font-size: 13px; color: #b06000; border-color: #b06000; cursor: pointer;"
+                                    onclick="return confirm('Bạn có chắc chắn muốn lưu trữ tiêu đề này?');">
+                                Lưu trữ
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detail Information Panels -->
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+                <!-- Main Metadata -->
+                <section class="admin-table-panel" style="padding: 24px;">
+                    <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 8px;">Thông tin chi tiết</h3>
+
+                    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                        <tbody>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; width: 180px; font-weight: 500;">Title ID</td>
+                            <td style="padding: 10px 0;"><code th:text="${title.id}">00000000-0000-0000-0000-000000000000</code></td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Tiêu đề hiển thị</td>
+                            <td style="padding: 10px 0;"><strong th:text="${title.title}">Tiêu đề phim</strong></td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Tên gốc / Nguyên tác</td>
+                            <td style="padding: 10px 0;">
+                                <span th:if="${title.originalTitle != null}" th:text="${title.originalTitle}">剑来</span>
+                                <span th:unless="${title.originalTitle != null}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Slug URL</td>
+                            <td style="padding: 10px 0;"><code th:text="${title.slug}">slug-phim</code></td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Cấu trúc tác phẩm</td>
+                            <td style="padding: 10px 0;">
+                                <span th:text="${title.structure}"
+                                      style="background: #e8f0fe; color: #1a73e8; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">SERIES</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Phong cách thể hiện</td>
+                            <td style="padding: 10px 0;">
+                                <span th:text="${title.presentation}"
+                                      style="background: #fce8e6; color: #c5221f; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">ANIMATION_3D</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Poster Media Asset ID</td>
+                            <td style="padding: 10px 0;">
+                                <code th:if="${title.posterMediaAssetId != null}" th:text="${title.posterMediaAssetId}">uuid</code>
+                                <span th:unless="${title.posterMediaAssetId != null}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Backdrop Media Asset ID</td>
+                            <td style="padding: 10px 0;">
+                                <code th:if="${title.backdropMediaAssetId != null}" th:text="${title.backdropMediaAssetId}">uuid</code>
+                                <span th:unless="${title.backdropMediaAssetId != null}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500; vertical-align: top;">Tóm tắt nội dung</td>
+                            <td style="padding: 10px 0; white-space: pre-wrap; line-height: 1.5;">
+                                <span th:if="${title.synopsis != null and !title.synopsis.isBlank()}" th:text="${title.synopsis}">Tóm tắt</span>
+                                <span th:unless="${title.synopsis != null and !title.synopsis.isBlank()}" style="color: #80868b;">Chưa có tóm tắt</span>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- Publication Lifecycle Status Card -->
+                <section class="admin-table-panel" style="padding: 24px; height: fit-content;">
+                    <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 8px;">Vòng đời xuất bản</h3>
+
+                    <div style="margin-bottom: 20px;">
+                        <span style="display: block; color: #5f6368; font-size: 12px; margin-bottom: 4px; text-transform: uppercase;">Trạng thái hiện tại</span>
+                        <div style="display: inline-block;">
+                            <span th:if="${title.status.name() == 'DRAFT'}"
+                                  style="background: #f1f3f4; color: #5f6368; padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 700;">
+                                DRAFT (Bản nháp)
+                            </span>
+                            <span th:if="${title.status.name() == 'PUBLISHED'}"
+                                  style="background: #e6f4ea; color: #137333; padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 700;">
+                                PUBLISHED (Đã xuất bản)
+                            </span>
+                            <span th:if="${title.status.name() == 'ARCHIVED'}"
+                                  style="background: #fef7e0; color: #b06000; padding: 6px 12px; border-radius: 4px; font-size: 14px; font-weight: 700;">
+                                ARCHIVED (Đã lưu trữ)
+                            </span>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <span style="display: block; color: #5f6368; font-size: 12px; margin-bottom: 2px;">Thời điểm xuất bản</span>
+                        <strong th:if="${title.publishedAt != null}" th:text="${#temporals.format(title.publishedAt, 'dd/MM/yyyy HH:mm:ss')}">01/01/2026 12:00:00</strong>
+                        <span th:unless="${title.publishedAt != null}" style="color: #80868b;">Chưa xuất bản</span>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <span style="display: block; color: #5f6368; font-size: 12px; margin-bottom: 2px;">Thời điểm tạo</span>
+                        <span th:text="${#temporals.format(title.createdAt, 'dd/MM/yyyy HH:mm:ss')}">01/01/2026 10:00:00</span>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <span style="display: block; color: #5f6368; font-size: 12px; margin-bottom: 2px;">Cập nhật lần cuối</span>
+                        <span th:text="${#temporals.format(title.updatedAt, 'dd/MM/yyyy HH:mm:ss')}">01/01/2026 11:00:00</span>
+                    </div>
+
+                    <div th:if="${title.status.name() == 'ARCHIVED'}"
+                         style="background: #fff8e1; border: 1px solid #ffe082; padding: 10px 12px; border-radius: 4px; font-size: 12px; color: #8d6e63; margin-top: 16px;">
+                        Tiêu đề đã được lưu trữ (ARCHIVED). Tác phẩm bị rút khỏi danh mục công khai nhưng lịch sử xuất bản được bảo toàn.
+                    </div>
+                </section>
+            </div>
+        </section>
+    </main>
+</div>
+</body>
+</html>

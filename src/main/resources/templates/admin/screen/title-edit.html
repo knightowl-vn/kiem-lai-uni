@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chỉnh sửa Screen Title | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+</head>
+<body>
+<div class="admin-layout">
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+            <div style="margin-bottom: 24px;">
+                <a th:href="@{/admin/screen/titles/{id}(id=${title.id})}" class="admin-secondary-button" style="text-decoration: none; padding: 6px 12px; font-size: 13px; margin-bottom: 12px; display: inline-block;">
+                    ← Quay lại chi tiết
+                </a>
+                <div>
+                    <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #5f6368; letter-spacing: 0.5px;">SCREEN MODULE</span>
+                    <h2 style="margin: 4px 0 6px; font-size: 24px;">Chỉnh sửa Screen Title</h2>
+                    <p style="margin: 0; color: #5f6368; font-size: 14px;">
+                        Cập nhật thông tin tiêu đề, phân loại và tham chiếu hình ảnh. Trạng thái và thời gian xuất bản được bảo toàn.
+                    </p>
+                </div>
+            </div>
+
+            <div th:if="${errorMessage != null}"
+                 style="background: #fce8e6; color: #c5221f; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${errorMessage}">
+                Có lỗi xảy ra.
+            </div>
+
+            <section class="admin-table-panel" style="max-width: 720px; padding: 24px;">
+                <div style="margin-bottom: 20px; padding: 12px 16px; background: #f8f9fa; border-radius: 4px; font-size: 13px;">
+                    <span style="color: #5f6368;">Title ID:</span>
+                    <code th:text="${title.id}">00000000-0000-0000-0000-000000000000</code>
+                    <span style="margin-left: 16px; color: #5f6368;">Trạng thái:</span>
+                    <strong th:text="${title.status}">DRAFT</strong>
+                </div>
+
+                <form method="post" th:action="@{/admin/screen/titles/{id}/update(id=${title.id})}" th:object="${form}">
+                    <div style="margin-bottom: 20px;">
+                        <label for="title" style="display: block; font-weight: 600; margin-bottom: 6px;">Tiêu đề hiển thị <span style="color: #c5221f;">*</span></label>
+                        <input id="title" type="text" th:field="*{title}" required
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                               placeholder="Ví dụ: Kiếm Lai Phần 1">
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="slug" style="display: block; font-weight: 600; margin-bottom: 6px;">Slug URL <span style="color: #c5221f;">*</span></label>
+                        <input id="slug" type="text" th:field="*{slug}" required
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                               placeholder="Ví dụ: kiem-lai-phan-1">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Chữ thường không dấu, số và dấu gạch nối (^[a-z0-9]+(?:-[a-z0-9]+)*$). Tối đa 180 ký tự.</small>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="originalTitle" style="display: block; font-weight: 600; margin-bottom: 6px;">Tên gốc (Nguyên tác / Tiếng Trung)</label>
+                        <input id="originalTitle" type="text" th:field="*{originalTitle}"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                               placeholder="Ví dụ: 剑来">
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="synopsis" style="display: block; font-weight: 600; margin-bottom: 6px;">Tóm tắt nội dung</label>
+                        <textarea id="synopsis" th:field="*{synopsis}" rows="4"
+                                  style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; resize: vertical;"
+                                  placeholder="Mô tả tóm tắt nội dung tác phẩm..."></textarea>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+                        <div>
+                            <label for="structure" style="display: block; font-weight: 600; margin-bottom: 6px;">Cấu trúc tác phẩm <span style="color: #c5221f;">*</span></label>
+                            <select id="structure" th:field="*{structure}" required
+                                    style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; background: #fff;">
+                                <option th:each="s : ${structures}" th:value="${s}" th:text="${s}">SERIES</option>
+                            </select>
+                            <small style="color: #5f6368; display: block; margin-top: 4px;">SERIES (nhiều tập) hoặc FEATURE (phim lẻ / điện ảnh).</small>
+                        </div>
+                        <div>
+                            <label for="presentation" style="display: block; font-weight: 600; margin-bottom: 6px;">Phong cách thể hiện <span style="color: #c5221f;">*</span></label>
+                            <select id="presentation" th:field="*{presentation}" required
+                                    style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; background: #fff;">
+                                <option th:each="p : ${presentations}" th:value="${p}" th:text="${p}">ANIMATION_3D</option>
+                            </select>
+                            <small style="color: #5f6368; display: block; margin-top: 4px;">ANIMATION_3D (hoạt hình 3D) hoặc LIVE_ACTION (người đóng).</small>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="posterMediaAssetId" style="display: block; font-weight: 600; margin-bottom: 6px;">Poster Media Asset ID (UUID)</label>
+                        <input id="posterMediaAssetId" type="text" th:field="*{posterMediaAssetId}"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                               placeholder="Để trống để xóa tham chiếu poster">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Để trống để xóa poster hoặc nhập UUID hợp lệ của tài sản IMAGE trong Media.</small>
+                    </div>
+
+                    <div style="margin-bottom: 24px;">
+                        <label for="backdropMediaAssetId" style="display: block; font-weight: 600; margin-bottom: 6px;">Backdrop Media Asset ID (UUID)</label>
+                        <input id="backdropMediaAssetId" type="text" th:field="*{backdropMediaAssetId}"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                               placeholder="Để trống để xóa tham chiếu backdrop">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Để trống để xóa backdrop hoặc nhập UUID hợp lệ của tài sản IMAGE trong Media.</small>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <button type="submit" class="admin-primary-button" style="padding: 10px 20px; border-radius: 4px; font-size: 14px; cursor: pointer;">
+                            Lưu thay đổi
+                        </button>
+                        <a th:href="@{/admin/screen/titles/{id}(id=${title.id})}" class="admin-secondary-button" style="text-decoration: none; padding: 10px 18px; border-radius: 4px; font-size: 14px;">
+                            Hủy
+                        </a>
+                    </div>
+                </form>
+            </section>
+        </section>
+    </main>
+</div>
+</body>
+</html>

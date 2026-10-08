@@ -1,7 +1,9 @@
 package com.universe.screen.infrastructure.persistence;
 
+import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenTitle;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,12 @@ import java.util.UUID;
 @Component
 @Transactional(readOnly = true)
 public class ScreenTitlePersistenceAdapter implements ScreenTitleRepositoryPort {
+
+    private static final String TARGET_UNIQUE_CONSTRAINT = "uq_screen_titles_slug";
+    private static final java.util.regex.Pattern CONSTRAINT_PATTERN = java.util.regex.Pattern.compile(
+            "(^|[^a-zA-Z0-9_])" + java.util.regex.Pattern.quote(TARGET_UNIQUE_CONSTRAINT) + "([^a-zA-Z0-9_]|$)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+    );
 
     private final SpringDataScreenTitleJpaRepository repository;
 
@@ -35,8 +43,35 @@ public class ScreenTitlePersistenceAdapter implements ScreenTitleRepositoryPort 
                 })
                 .orElseGet(() -> ScreenTitlePersistenceMapper.toEntity(title));
 
-        ScreenTitleJpaEntity saved = repository.saveAndFlush(entity);
-        return ScreenTitlePersistenceMapper.toDomain(saved);
+        try {
+            ScreenTitleJpaEntity saved = repository.saveAndFlush(entity);
+            return ScreenTitlePersistenceMapper.toDomain(saved);
+        } catch (DataIntegrityViolationException ex) {
+            if (isSlugConstraintViolation(ex)) {
+                throw new ScreenTitleSlugAlreadyExistsException(title.getSlug(), ex);
+            }
+            throw ex;
+        }
+    }
+
+    private boolean isSlugConstraintViolation(DataIntegrityViolationException ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof org.hibernate.exception.ConstraintViolationException cve) {
+                if (cve.getConstraintName() != null && matchesTargetConstraint(cve.getConstraintName())) {
+                    return true;
+                }
+            }
+            if (current.getMessage() != null && matchesTargetConstraint(current.getMessage())) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static boolean matchesTargetConstraint(String text) {
+        return text != null && CONSTRAINT_PATTERN.matcher(text).find();
     }
 
     @Override
