@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.ui.ExtendedModelMap;
+import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import java.time.Instant;
 import java.util.List;
@@ -177,5 +179,35 @@ class AdminScreenTitlePageControllerTest {
         assertThat(model.get("activeMenu")).isEqualTo("screen");
         assertThat(model.get("activeSubMenu")).isEqualTo("titles");
         assertThat(response.getHeader("Cache-Control")).contains("no-store");
+    }
+
+    @Test
+    @DisplayName("PageController: detailPage redirects to list with errorMessage when title not found")
+    void shouldRedirectToListWhenTitleNotFoundOnDetailPage() {
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenThrow(new ScreenTitleNotFoundException(titleId));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.detailPage(titleId, model, response, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+    }
+
+    @Test
+    @DisplayName("PageController: editPage redirects to list with errorMessage when title not found")
+    void shouldRedirectToListWhenTitleNotFoundOnEditPage() {
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenThrow(new ScreenTitleNotFoundException(titleId));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.editPage(titleId, model, response, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
     }
 }

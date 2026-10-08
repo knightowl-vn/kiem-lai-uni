@@ -280,6 +280,23 @@ class ScreenFranchiseMembershipUseCaseTest {
     }
 
     @Test
+    @DisplayName("Membership: remove member throws ScreenFranchiseMembershipNotFoundException when membership belongs to another franchise")
+    void shouldThrowNotFoundOnRemoveMismatchedFranchiseMembership() {
+        UUID mid = UUID.randomUUID();
+        UUID otherFranchiseId = UUID.randomUUID();
+        ScreenFranchiseMembership foreignMembership = new ScreenFranchiseMembership(mid, otherFranchiseId, titleId1, 0);
+
+        when(franchiseRepository.existsById(franchiseId)).thenReturn(true);
+        when(membershipRepository.findById(mid)).thenReturn(Optional.of(foreignMembership));
+
+        assertThatThrownBy(() -> removeMemberUseCase.execute(
+                new RemoveScreenFranchiseMemberCommand(franchiseId, mid)
+        )).isInstanceOf(ScreenFranchiseMembershipNotFoundException.class);
+
+        verify(membershipRepository, never()).delete(any());
+    }
+
+    @Test
     @DisplayName("Membership: get available titles excludes titles that are already members")
     void shouldExcludeExistingMembersFromAvailableTitles() {
         when(franchiseRepository.existsById(franchiseId)).thenReturn(true);

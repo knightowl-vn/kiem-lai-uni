@@ -39,6 +39,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -139,7 +140,11 @@ class AdminScreenTitleViewRenderingTest {
                 .andExpect(content().string(containsString("Danh sách Screen Title")))
                 .andExpect(content().string(containsString("Kiếm Lai Phần 1")))
                 .andExpect(content().string(containsString("kiem-lai-phan-1")))
-                .andExpect(content().string(containsString("+ Tạo Screen Title")));
+                .andExpect(content().string(containsString("+ Tạo Screen Title")))
+                .andExpect(content().string(containsString("Quản lý Screen")))
+                .andExpect(content().string(not(containsString("<span>Tiêu đề Screen</span>"))))
+                .andExpect(content().string(containsString("Tiêu đề Screen")))
+                .andExpect(content().string(containsString("Franchise")));
     }
 
     @Test
@@ -149,7 +154,8 @@ class AdminScreenTitleViewRenderingTest {
         mockMvc.perform(get("/admin/screen/titles/new"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Tạo Screen Title mới")))
-                .andExpect(content().string(containsString("Tiêu đề Screen")))
+                .andExpect(content().string(containsString("Quản lý Screen")))
+                .andExpect(content().string(containsString("Tiêu đề hiển thị")))
                 .andExpect(content().string(containsString("Slug URL")))
                 .andExpect(content().string(containsString("SERIES")))
                 .andExpect(content().string(containsString("FEATURE")));
@@ -211,5 +217,38 @@ class AdminScreenTitleViewRenderingTest {
                 .andExpect(content().string(containsString("Chỉnh sửa Screen Title")))
                 .andExpect(content().string(containsString("Kiếm Lai Phần 1")))
                 .andExpect(content().string(containsString("kiem-lai-phan-1")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: Screen sidebar item shows active state on all Title pages")
+    void shouldRenderActiveScreenSidebarItemOnTitlePages() throws Exception {
+        ScreenTitleDTO dto = new ScreenTitleDTO(
+                TITLE_ID, "kiem-lai-phan-1", "Kiếm Lai Phần 1", "The Great Ruler", "Tóm tắt...",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleListUseCase.execute()).thenReturn(List.of(dto));
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(dto);
+
+        // Titles list
+        mockMvc.perform(get("/admin/screen/titles"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+
+        // Title new
+        mockMvc.perform(get("/admin/screen/titles/new"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+
+        // Title detail
+        mockMvc.perform(get("/admin/screen/titles/{id}", TITLE_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+
+        // Title edit
+        mockMvc.perform(get("/admin/screen/titles/{id}/edit", TITLE_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
     }
 }

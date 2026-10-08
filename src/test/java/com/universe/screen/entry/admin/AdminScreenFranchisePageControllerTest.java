@@ -15,8 +15,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.universe.screen.application.exceptions.ScreenFranchiseNotFoundException;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.ui.ExtendedModelMap;
+import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import java.util.List;
 import java.util.UUID;
@@ -139,5 +141,37 @@ class AdminScreenFranchisePageControllerTest {
         UUID id = UUID.randomUUID();
         String redirect = controller.detailRedirect(id);
         assertThat(redirect).isEqualTo("redirect:/admin/screen/franchises/" + id + "/memberships");
+    }
+
+    @Test
+    @DisplayName("PageController: editPage redirects to list with errorMessage when franchise not found")
+    void shouldRedirectToListWhenFranchiseNotFoundOnEditPage() {
+        UUID id = UUID.randomUUID();
+        when(getScreenFranchiseDetailUseCase.execute(id)).thenThrow(new ScreenFranchiseNotFoundException(id));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.editPage(id, model, response, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/franchises");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+    }
+
+    @Test
+    @DisplayName("PageController: membershipsPage redirects to list with errorMessage when franchise not found")
+    void shouldRedirectToListWhenFranchiseNotFoundOnMembershipsPage() {
+        UUID id = UUID.randomUUID();
+        when(getScreenFranchiseDetailUseCase.execute(id)).thenThrow(new ScreenFranchiseNotFoundException(id));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.membershipsPage(id, model, response, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/franchises");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
     }
 }

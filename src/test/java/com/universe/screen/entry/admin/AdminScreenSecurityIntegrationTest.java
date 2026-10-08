@@ -13,6 +13,9 @@ import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.identity.infrastructure.security.SafeReturnToValidator;
 import com.universe.screen.application.commands.AddScreenFranchiseMemberCommand;
 import com.universe.screen.application.commands.CreateScreenFranchiseCommand;
+import com.universe.screen.application.commands.RemoveScreenFranchiseMemberCommand;
+import com.universe.screen.application.commands.UpdateScreenFranchiseCommand;
+import com.universe.screen.application.commands.UpdateScreenFranchiseMemberOrderCommand;
 import com.universe.screen.application.dto.ScreenFranchiseDTO;
 import com.universe.screen.application.dto.ScreenFranchiseMemberDTO;
 import com.universe.screen.application.usecase.AddScreenFranchiseMemberUseCase;
@@ -274,5 +277,105 @@ class AdminScreenSecurityIntegrationTest {
                         .param("titleId", TITLE_ID.toString()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/admin/screen/franchises/" + FRANCHISE_ID + "/memberships"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN POST update franchise WITHOUT CSRF is rejected and redirected to /access-denied")
+    void shouldRejectUpdateFranchiseWithoutCsrf() throws Exception {
+        mockMvc.perform(post("/admin/screen/franchises/{id}/update", FRANCHISE_ID)
+                        .param("name", "Kiếm Lai Cập Nhật")
+                        .param("slug", "kiem-lai-cap-nhat"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN POST update franchise WITH CSRF succeeds and redirects")
+    void shouldAllowUpdateFranchiseWithCsrf() throws Exception {
+        ScreenFranchiseDTO updated = new ScreenFranchiseDTO(FRANCHISE_ID, "Kiếm Lai Cập Nhật", "kiem-lai-cap-nhat", 1);
+        when(updateScreenFranchiseUseCase.execute(any(UpdateScreenFranchiseCommand.class))).thenReturn(updated);
+
+        mockMvc.perform(post("/admin/screen/franchises/{id}/update", FRANCHISE_ID)
+                        .with(csrf())
+                        .param("name", "Kiếm Lai Cập Nhật")
+                        .param("slug", "kiem-lai-cap-nhat"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/screen/franchises/" + FRANCHISE_ID + "/memberships"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN POST member order WITHOUT CSRF is rejected and redirected to /access-denied")
+    void shouldRejectMemberOrderWithoutCsrf() throws Exception {
+        UUID membershipId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/screen/franchises/{fid}/memberships/{mid}/order", FRANCHISE_ID, membershipId)
+                        .param("displayOrder", "5"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN POST member order WITH CSRF succeeds and redirects")
+    void shouldAllowMemberOrderWithCsrf() throws Exception {
+        UUID membershipId = UUID.randomUUID();
+        ScreenFranchiseMemberDTO member = new ScreenFranchiseMemberDTO(
+                membershipId, FRANCHISE_ID, TITLE_ID, "Title", "title", 5, null, null, null
+        );
+        when(updateScreenFranchiseMemberOrderUseCase.execute(any(UpdateScreenFranchiseMemberOrderCommand.class)))
+                .thenReturn(member);
+
+        mockMvc.perform(post("/admin/screen/franchises/{fid}/memberships/{mid}/order", FRANCHISE_ID, membershipId)
+                        .with(csrf())
+                        .param("displayOrder", "5"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/screen/franchises/" + FRANCHISE_ID + "/memberships"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN POST remove member WITHOUT CSRF is rejected and redirected to /access-denied")
+    void shouldRejectRemoveMemberWithoutCsrf() throws Exception {
+        UUID membershipId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/screen/franchises/{fid}/memberships/{mid}/remove", FRANCHISE_ID, membershipId))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN POST remove member WITH CSRF succeeds and redirects")
+    void shouldAllowRemoveMemberWithCsrf() throws Exception {
+        UUID membershipId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/screen/franchises/{fid}/memberships/{mid}/remove", FRANCHISE_ID, membershipId)
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/screen/franchises/" + FRANCHISE_ID + "/memberships"));
+    }
+
+    @Test
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    @DisplayName("Security: Non-admin USER POST update franchise is redirected to /access-denied")
+    void shouldDenyUserFromUpdateFranchise() throws Exception {
+        mockMvc.perform(post("/admin/screen/franchises/{id}/update", FRANCHISE_ID)
+                        .with(csrf())
+                        .param("name", "Kiếm Lai Cập Nhật")
+                        .param("slug", "kiem-lai-cap-nhat"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    @DisplayName("Security: Non-admin USER POST remove member is redirected to /access-denied")
+    void shouldDenyUserFromRemoveMember() throws Exception {
+        UUID membershipId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/screen/franchises/{fid}/memberships/{mid}/remove", FRANCHISE_ID, membershipId)
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
     }
 }

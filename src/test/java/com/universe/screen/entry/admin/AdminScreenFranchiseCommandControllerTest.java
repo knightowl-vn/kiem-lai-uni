@@ -308,4 +308,74 @@ class AdminScreenFranchiseCommandControllerTest {
         assertThat(view).isEqualTo("redirect:/admin/screen/franchises/" + franchiseId + "/memberships");
         assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
     }
+
+    @Test
+    @DisplayName("Command: updateMemberOrder with foreign membership sets errorMessage and preserves membership")
+    void shouldHandleForeignMembershipOnOrderUpdate() {
+        when(updateScreenFranchiseMemberOrderUseCase.execute(any(UpdateScreenFranchiseMemberOrderCommand.class)))
+                .thenThrow(new ScreenFranchiseMembershipNotFoundException(membershipId));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateMemberOrder(franchiseId, membershipId, 5, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/franchises/" + franchiseId + "/memberships");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains(membershipId.toString());
+    }
+
+    @Test
+    @DisplayName("Command: removeMember with foreign membership sets errorMessage")
+    void shouldHandleForeignMembershipOnRemove() {
+        doThrow(new ScreenFranchiseMembershipNotFoundException(membershipId))
+                .when(removeScreenFranchiseMemberUseCase).execute(any(RemoveScreenFranchiseMemberCommand.class));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.removeMember(franchiseId, membershipId, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/franchises/" + franchiseId + "/memberships");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains(membershipId.toString());
+    }
+
+    @Test
+    @DisplayName("Command: updateMemberOrder when franchise not found redirects to franchise list")
+    void shouldRedirectToListWhenFranchiseNotFoundOnOrderUpdate() {
+        when(updateScreenFranchiseMemberOrderUseCase.execute(any(UpdateScreenFranchiseMemberOrderCommand.class)))
+                .thenThrow(new ScreenFranchiseNotFoundException(franchiseId));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateMemberOrder(franchiseId, membershipId, 1, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/franchises");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+    }
+
+    @Test
+    @DisplayName("Command: removeMember when franchise not found redirects to franchise list")
+    void shouldRedirectToListWhenFranchiseNotFoundOnRemove() {
+        doThrow(new ScreenFranchiseNotFoundException(franchiseId))
+                .when(removeScreenFranchiseMemberUseCase).execute(any(RemoveScreenFranchiseMemberCommand.class));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.removeMember(franchiseId, membershipId, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/franchises");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+    }
+
+    @Test
+    @DisplayName("Command: addMember when franchise not found redirects to franchise list")
+    void shouldRedirectToListWhenFranchiseNotFoundOnAddMember() {
+        AddScreenFranchiseMemberForm form = new AddScreenFranchiseMemberForm(titleId, 0);
+        when(addScreenFranchiseMemberUseCase.execute(any(AddScreenFranchiseMemberCommand.class)))
+                .thenThrow(new ScreenFranchiseNotFoundException(franchiseId));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.addMember(franchiseId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/franchises");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+    }
 }

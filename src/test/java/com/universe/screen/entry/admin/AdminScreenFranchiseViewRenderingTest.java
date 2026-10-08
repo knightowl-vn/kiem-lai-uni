@@ -43,6 +43,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -136,7 +137,11 @@ class AdminScreenFranchiseViewRenderingTest {
                 .andExpect(content().string(containsString("Danh sách Franchise")))
                 .andExpect(content().string(containsString("Kiếm Lai Phim")))
                 .andExpect(content().string(containsString("kiem-lai-phim")))
-                .andExpect(content().string(containsString("+ Tạo Franchise")));
+                .andExpect(content().string(containsString("+ Tạo Franchise")))
+                .andExpect(content().string(containsString("Quản lý Screen")))
+                .andExpect(content().string(not(containsString("<span>Tiêu đề Screen</span>"))))
+                .andExpect(content().string(containsString("Tiêu đề Screen")))
+                .andExpect(content().string(containsString("Franchise")));
     }
 
     @Test
@@ -189,5 +194,34 @@ class AdminScreenFranchiseViewRenderingTest {
                 .andExpect(content().string(containsString("kiem-lai-phan-1")))
                 .andExpect(content().string(containsString("Kiếm Lai Movie")))
                 .andExpect(content().string(containsString("Thêm vào Franchise")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: Screen sidebar item shows active state on all Franchise pages")
+    void shouldRenderActiveScreenSidebarItemOnFranchisePages() throws Exception {
+        ScreenFranchiseDTO dto = new ScreenFranchiseDTO(FRANCHISE_ID, "Kiếm Lai Phim", "kiem-lai-phim", 2);
+        when(getScreenFranchiseListUseCase.execute()).thenReturn(List.of(dto));
+        when(getScreenFranchiseDetailUseCase.execute(FRANCHISE_ID)).thenReturn(dto);
+
+        // Franchise list
+        mockMvc.perform(get("/admin/screen/franchises"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+
+        // Franchise new
+        mockMvc.perform(get("/admin/screen/franchises/new"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+
+        // Franchise edit
+        mockMvc.perform(get("/admin/screen/franchises/{id}/edit", FRANCHISE_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+
+        // Franchise memberships
+        mockMvc.perform(get("/admin/screen/franchises/{id}/memberships", FRANCHISE_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
     }
 }

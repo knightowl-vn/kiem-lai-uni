@@ -7,12 +7,15 @@ import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.entry.admin.form.CreateScreenTitleForm;
 import com.universe.screen.entry.admin.form.EditScreenTitleForm;
+import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import java.util.List;
 import java.util.Objects;
@@ -65,45 +68,73 @@ public class AdminScreenTitlePageController {
     }
 
     @GetMapping("/{titleId}")
-    public String detailPage(@PathVariable UUID titleId, Model model, HttpServletResponse response) {
+    public String detailPage(
+            @PathVariable UUID titleId,
+            Model model,
+            HttpServletResponse response,
+            RedirectAttributes redirectAttributes
+    ) {
         disableCaching(response);
 
-        ScreenTitleDTO title = getScreenTitleDetailUseCase.execute(titleId);
+        try {
+            ScreenTitleDTO title = getScreenTitleDetailUseCase.execute(titleId);
 
-        model.addAttribute("title", title);
-        model.addAttribute("pageTitle", "Chi tiết Screen Title");
-        model.addAttribute("activeMenu", ACTIVE_MENU);
-        model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);
+            model.addAttribute("title", title);
+            model.addAttribute("pageTitle", "Chi tiết Screen Title");
+            model.addAttribute("activeMenu", ACTIVE_MENU);
+            model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);
 
-        return "admin/screen/title-detail";
+            return "admin/screen/title-detail";
+        } catch (ScreenTitleNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return "redirect:/admin/screen/titles";
+        }
+    }
+
+    public String detailPage(UUID titleId, Model model, HttpServletResponse response) {
+        return detailPage(titleId, model, response, new RedirectAttributesModelMap());
     }
 
     @GetMapping("/{titleId}/edit")
-    public String editPage(@PathVariable UUID titleId, Model model, HttpServletResponse response) {
+    public String editPage(
+            @PathVariable UUID titleId,
+            Model model,
+            HttpServletResponse response,
+            RedirectAttributes redirectAttributes
+    ) {
         disableCaching(response);
 
-        ScreenTitleDTO title = getScreenTitleDetailUseCase.execute(titleId);
+        try {
+            ScreenTitleDTO title = getScreenTitleDetailUseCase.execute(titleId);
 
-        EditScreenTitleForm form = new EditScreenTitleForm(
-                title.title(),
-                title.slug(),
-                title.originalTitle(),
-                title.synopsis(),
-                title.structure(),
-                title.presentation(),
-                title.posterMediaAssetId() != null ? title.posterMediaAssetId().toString() : null,
-                title.backdropMediaAssetId() != null ? title.backdropMediaAssetId().toString() : null
-        );
+            EditScreenTitleForm form = new EditScreenTitleForm(
+                    title.title(),
+                    title.slug(),
+                    title.originalTitle(),
+                    title.synopsis(),
+                    title.structure(),
+                    title.presentation(),
+                    title.posterMediaAssetId() != null ? title.posterMediaAssetId().toString() : null,
+                    title.backdropMediaAssetId() != null ? title.backdropMediaAssetId().toString() : null
+            );
 
-        model.addAttribute("title", title);
-        model.addAttribute("form", form);
-        model.addAttribute("structures", ScreenStructure.values());
-        model.addAttribute("presentations", ScreenPresentation.values());
-        model.addAttribute("pageTitle", "Chỉnh sửa Screen Title");
-        model.addAttribute("activeMenu", ACTIVE_MENU);
-        model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);
+            model.addAttribute("title", title);
+            model.addAttribute("form", form);
+            model.addAttribute("structures", ScreenStructure.values());
+            model.addAttribute("presentations", ScreenPresentation.values());
+            model.addAttribute("pageTitle", "Chỉnh sửa Screen Title");
+            model.addAttribute("activeMenu", ACTIVE_MENU);
+            model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);
 
-        return "admin/screen/title-edit";
+            return "admin/screen/title-edit";
+        } catch (ScreenTitleNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return "redirect:/admin/screen/titles";
+        }
+    }
+
+    public String editPage(UUID titleId, Model model, HttpServletResponse response) {
+        return editPage(titleId, model, response, new RedirectAttributesModelMap());
     }
 
     private void disableCaching(HttpServletResponse response) {

@@ -12,13 +12,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AdminScreenTemplateContractTest {
 
     @Test
-    @DisplayName("Sidebar contract: sidebar contains link to franchises and titles")
+    @DisplayName("Sidebar contract: sidebar contains exactly one Screen item 'Quản lý Screen' and no separate 'Tiêu đề Screen'")
     void sidebarContainsScreenLinks() throws Exception {
         String sidebar = read("src/main/resources/templates/admin/fragments/sidebar.html");
 
-        assertThat(sidebar).contains("th:href=\"@{/admin/screen/franchises}\"");
-        assertThat(sidebar).contains("th:href=\"@{/admin/screen/titles}\"");
         assertThat(sidebar).contains("Quản lý Screen");
+        assertThat(sidebar).contains("th:href=\"@{/admin/screen/titles}\"");
+        assertThat(sidebar).doesNotContain("Tiêu đề Screen");
+        assertThat(sidebar).doesNotContain("th:href=\"@{/admin/screen/franchises}\"");
     }
 
     @Test
@@ -28,6 +29,10 @@ class AdminScreenTemplateContractTest {
 
         assertThat(template).contains("admin/fragments/sidebar");
         assertThat(template).contains("admin/fragments/header");
+        assertThat(template).contains("th:href=\"@{/admin/screen/titles}\"");
+        assertThat(template).contains("th:href=\"@{/admin/screen/franchises}\"");
+        assertThat(template).contains("Tiêu đề Screen");
+        assertThat(template).contains("Franchise");
         assertThat(template).contains("th:href=\"@{/admin/screen/franchises/new}\"");
         assertThat(template).contains("th:each=\"franchise : ${franchises}\"");
         assertThat(template).contains("th:text=\"${franchise.name}\"");
@@ -89,6 +94,10 @@ class AdminScreenTemplateContractTest {
 
         assertThat(template).contains("admin/fragments/sidebar");
         assertThat(template).contains("admin/fragments/header");
+        assertThat(template).contains("th:href=\"@{/admin/screen/titles}\"");
+        assertThat(template).contains("th:href=\"@{/admin/screen/franchises}\"");
+        assertThat(template).contains("Tiêu đề Screen");
+        assertThat(template).contains("Franchise");
         assertThat(template).contains("th:href=\"@{/admin/screen/titles/new}\"");
         assertThat(template).contains("th:each=\"title : ${titles}\"");
         assertThat(template).contains("th:text=\"${title.title}\"");

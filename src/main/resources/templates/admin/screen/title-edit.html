@@ -71,7 +71,7 @@
                                   placeholder="Mô tả tóm tắt nội dung tác phẩm..."></textarea>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px;">
                         <div>
                             <label for="structure" style="display: block; font-weight: 600; margin-bottom: 6px;">Cấu trúc tác phẩm <span style="color: #c5221f;">*</span></label>
                             <select id="structure" th:field="*{structure}" required
