@@ -44,6 +44,10 @@
 
                     <!-- Action buttons -->
                     <div style="display: flex; gap: 8px; align-items: center;">
+                        <a th:href="@{/admin/screen/titles/{id}/entries(id=${title.id})}" class="admin-primary-button"
+                           style="text-decoration: none; padding: 8px 16px; font-size: 13px;">
+                            Danh sách Entries
+                        </a>
                         <a th:href="@{/admin/screen/titles/{id}/edit(id=${title.id})}" class="admin-secondary-button"
                            style="text-decoration: none; padding: 8px 16px; font-size: 13px;">
                             Chỉnh sửa

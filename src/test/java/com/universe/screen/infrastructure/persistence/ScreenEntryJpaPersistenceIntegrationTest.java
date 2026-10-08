@@ -1,5 +1,6 @@
 package com.universe.screen.infrastructure.persistence;
 
+import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
@@ -245,7 +246,7 @@ class ScreenEntryJpaPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should enforce V87 unique constraint on (title_id, slug)")
+    @DisplayName("Should translate duplicate title-scoped slug INSERT to ScreenEntrySlugAlreadyExistsException")
     void shouldEnforceCompositeUniqueConstraint() {
         ScreenTitle title = createTitle("title-uq-entries", "Title UQ Entries", ScreenStructure.SERIES);
         Instant now = Instant.parse("2026-10-06T10:00:00.000000Z");
@@ -256,7 +257,103 @@ class ScreenEntryJpaPersistenceIntegrationTest {
         entryRepository.save(e1);
 
         assertThatThrownBy(() -> entryRepository.save(e2))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(ScreenEntrySlugAlreadyExistsException.class);
+    }
+
+    @Test
+    @DisplayName("Should translate duplicate title-scoped slug UPDATE to ScreenEntrySlugAlreadyExistsException")
+    void shouldTranslateDuplicateSlugOnUpdate() {
+        ScreenTitle title = createTitle("title-dup-update", "Title Dup Update", ScreenStructure.SERIES);
+        Instant now = Instant.parse("2026-10-06T10:00:00.000000Z");
+
+        ScreenEntry e1 = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "slug-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
+        ScreenEntry e2 = ScreenEntry.createDraft(UUID.randomUUID(), title.getId(), "slug-2", ScreenEntryType.EPISODE, 2, "Ep 2", now);
+        entryRepository.save(e1);
+        entryRepository.save(e2);
+
+        e2.update("slug-1", ScreenEntryType.EPISODE, 2, "Ep 2", null, null, null, null, now.plusSeconds(10));
+        assertThatThrownBy(() -> entryRepository.save(e2))
+                .isInstanceOf(ScreenEntrySlugAlreadyExistsException.class);
+    }
+
+    @Test
+    @DisplayName("Should not misclassify unrelated constraint failure as slug exception")
+    void shouldNotMisclassifyUnrelatedConstraintFailure() {
+        // Attempting to insert an entry with non-existent foreign title_id violates FK constraint fk_screen_entries_title
+        UUID nonExistentTitleId = UUID.randomUUID();
+        ScreenEntry orphan = ScreenEntry.createDraft(UUID.randomUUID(), nonExistentTitleId, "orphan", ScreenEntryType.EPISODE, 1, "Orphan", Instant.now());
+
+        assertThatThrownBy(() -> entryRepository.save(orphan))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .isNotInstanceOf(ScreenEntrySlugAlreadyExistsException.class);
+    }
+
+    @Test
+    @DisplayName("Should persist first publishedAt and preserve publishedAt on metadata edit and archive")
+    void shouldPersistFirstPublishedAtAndPreserveOnEditAndArchive() {
+        ScreenTitle title = createTitle("title-lifecycle-persist", "Title Lifecycle", ScreenStructure.SERIES);
+        Instant t0 = Instant.parse("2026-10-06T10:00:00.000000Z");
+        Instant publishTime = Instant.parse("2026-10-06T11:00:00.000000Z");
+        Instant editTime = Instant.parse("2026-10-06T12:00:00.000000Z");
+        Instant archiveTime = Instant.parse("2026-10-06T13:00:00.000000Z");
+
+        UUID id = UUID.randomUUID();
+        ScreenEntry entry = ScreenEntry.createDraft(id, title.getId(), "ep-life", ScreenEntryType.EPISODE, 1, "Ep 1", t0);
+        entryRepository.save(entry);
+
+        // 1. First publish
+        entry.publish(publishTime);
+        entryRepository.save(entry);
+
+        ScreenEntry reloadedPub = entryRepository.findById(id).orElseThrow();
+        assertThat(reloadedPub.getStatus()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        assertThat(reloadedPub.getPublishedAt()).isEqualTo(publishTime);
+
+        // 2. Metadata edit preserves publishedAt
+        reloadedPub.update("ep-life-renamed", ScreenEntryType.EPISODE, 1, "Ep 1 Renamed", "Synopsis", 1200L, null, null, editTime);
+        entryRepository.save(reloadedPub);
+
+        ScreenEntry reloadedEdit = entryRepository.findById(id).orElseThrow();
+        assertThat(reloadedEdit.getPublishedAt()).isEqualTo(publishTime);
+        assertThat(reloadedEdit.getTitle()).isEqualTo("Ep 1 Renamed");
+
+        // 3. Archive preserves publishedAt
+        reloadedEdit.archive(archiveTime);
+        entryRepository.save(reloadedEdit);
+
+        ScreenEntry reloadedArch = entryRepository.findById(id).orElseThrow();
+        assertThat(reloadedArch.getStatus()).isEqualTo(ScreenPublicationStatus.ARCHIVED);
+        assertThat(reloadedArch.getPublishedAt()).isEqualTo(publishTime);
+    }
+
+    @Test
+    @DisplayName("Should preserve existing video and thumbnail UUIDs after metadata update and reload")
+    void shouldPreserveExistingMediaUuidsAfterMetadataUpdateAndReload() {
+        ScreenTitle title = createTitle("title-media-preserve", "Title Media Preserve", ScreenStructure.SERIES);
+        Instant now = Instant.parse("2026-10-06T10:00:00.000000Z");
+
+        UUID id = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+        UUID thumbId = UUID.randomUUID();
+
+        ScreenEntry entry = new ScreenEntry(
+                id, title.getId(), "ep-media", ScreenEntryType.EPISODE, 1, "Ep Media",
+                "Synopsis", videoId, thumbId, 1200L, ScreenPublicationStatus.DRAFT, null, now, now
+        );
+        entryRepository.save(entry);
+
+        // Metadata update passing existing videoId and thumbId
+        ScreenEntry loaded = entryRepository.findById(id).orElseThrow();
+        loaded.update(
+                "ep-media-updated", ScreenEntryType.EPISODE, 1, "Ep Media Updated",
+                "New Synopsis", 1300L, loaded.getVideoMediaAssetId(), loaded.getThumbnailMediaAssetId(), now.plusSeconds(100)
+        );
+        entryRepository.save(loaded);
+
+        ScreenEntry reloaded = entryRepository.findById(id).orElseThrow();
+        assertThat(reloaded.getVideoMediaAssetId()).isEqualTo(videoId);
+        assertThat(reloaded.getThumbnailMediaAssetId()).isEqualTo(thumbId);
+        assertThat(reloaded.getTitle()).isEqualTo("Ep Media Updated");
     }
 
     @Test

@@ -1,7 +1,9 @@
 package com.universe.screen.infrastructure.persistence;
 
+import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,12 @@ import java.util.UUID;
 @Component
 @Transactional(readOnly = true)
 public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort {
+
+    private static final String TARGET_UNIQUE_CONSTRAINT = "uq_screen_entries_title_slug";
+    private static final java.util.regex.Pattern CONSTRAINT_PATTERN = java.util.regex.Pattern.compile(
+            "(^|[^a-zA-Z0-9_])" + java.util.regex.Pattern.quote(TARGET_UNIQUE_CONSTRAINT) + "([^a-zA-Z0-9_]|$)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+    );
 
     private final SpringDataScreenEntryJpaRepository repository;
 
@@ -35,8 +43,35 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
                 })
                 .orElseGet(() -> ScreenEntryPersistenceMapper.toEntity(entry));
 
-        ScreenEntryJpaEntity saved = repository.saveAndFlush(entity);
-        return ScreenEntryPersistenceMapper.toDomain(saved);
+        try {
+            ScreenEntryJpaEntity saved = repository.saveAndFlush(entity);
+            return ScreenEntryPersistenceMapper.toDomain(saved);
+        } catch (DataIntegrityViolationException ex) {
+            if (isSlugConstraintViolation(ex)) {
+                throw new ScreenEntrySlugAlreadyExistsException(entry.getSlug(), ex);
+            }
+            throw ex;
+        }
+    }
+
+    private boolean isSlugConstraintViolation(DataIntegrityViolationException ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof org.hibernate.exception.ConstraintViolationException cve) {
+                if (cve.getConstraintName() != null && matchesTargetConstraint(cve.getConstraintName())) {
+                    return true;
+                }
+            }
+            if (current.getMessage() != null && matchesTargetConstraint(current.getMessage())) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static boolean matchesTargetConstraint(String text) {
+        return text != null && CONSTRAINT_PATTERN.matcher(text).find();
     }
 
     @Override

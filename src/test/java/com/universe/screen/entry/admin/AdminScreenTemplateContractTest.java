@@ -145,16 +145,80 @@ class AdminScreenTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Title detail contract: title-detail.html contains detail state, publish, and archive actions")
+    @DisplayName("Title detail contract: title-detail.html contains detail state, entries link, publish, and archive actions")
     void titleDetailPageDefinesExpectedStructure() throws Exception {
         String template = read("src/main/resources/templates/admin/screen/title-detail.html");
 
         assertThat(template).contains("th:text=\"${title.title}\"");
         assertThat(template).contains("th:text=\"${title.slug}\"");
         assertThat(template).contains("title.status");
+        assertThat(template).contains("/entries(id=${title.id})");
         assertThat(template).contains("th:action=\"@{/admin/screen/titles/{id}/publish(id=${title.id})}\"");
         assertThat(template).contains("th:action=\"@{/admin/screen/titles/{id}/archive(id=${title.id})}\"");
         assertThat(template).contains("th:href=\"@{/admin/screen/titles/{id}/edit(id=${title.id})}\"");
+    }
+
+    @Test
+    @DisplayName("Entries page contract: entries.html defines expected structure, columns, and actions")
+    void entriesPageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/entries.html");
+
+        assertThat(template).contains("admin/fragments/sidebar");
+        assertThat(template).contains("admin/fragments/header");
+        assertThat(template).contains("th:href=\"@{/admin/screen/titles/{id}(id=${title.id})}\"");
+        assertThat(template).contains("th:href=\"@{/admin/screen/titles/{titleId}/entries/new(titleId=${title.id})}\"");
+        assertThat(template).contains("th:each=\"entry : ${entries}\"");
+        assertThat(template).contains("th:text=\"${entry.title}\"");
+        assertThat(template).contains("th:text=\"${entry.slug}\"");
+        assertThat(template).contains("th:text=\"${entry.status}\"");
+        assertThat(template).contains("/admin/screen/titles/{titleId}/entries/{entryId}(titleId=${title.id}, entryId=${entry.id})");
+        assertThat(template).contains("/edit(titleId=${title.id}, entryId=${entry.id})");
+    }
+
+    @Test
+    @DisplayName("Entry create contract: entry-create.html contains form with all entry fields")
+    void entryCreatePageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/entry-create.html");
+
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles/{titleId}/entries(titleId=${title.id})}\"");
+        assertThat(template).contains("th:field=\"*{title}\"");
+        assertThat(template).contains("th:field=\"*{slug}\"");
+        assertThat(template).contains("th:field=\"*{type}\"");
+        assertThat(template).contains("th:field=\"*{number}\"");
+        assertThat(template).contains("th:field=\"*{durationSeconds}\"");
+        assertThat(template).contains("th:field=\"*{synopsis}\"");
+        assertThat(template).contains("type=\"submit\"");
+    }
+
+    @Test
+    @DisplayName("Entry edit contract: entry-edit.html contains update action, fields, and read-only media references")
+    void entryEditPageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/entry-edit.html");
+
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles/{titleId}/entries/{entryId}/update(titleId=${title.id}, entryId=${entry.id})}\"");
+        assertThat(template).contains("th:field=\"*{title}\"");
+        assertThat(template).contains("th:field=\"*{slug}\"");
+        assertThat(template).contains("th:field=\"*{type}\"");
+        assertThat(template).contains("th:field=\"*{number}\"");
+        assertThat(template).contains("th:field=\"*{durationSeconds}\"");
+        assertThat(template).contains("th:field=\"*{synopsis}\"");
+        assertThat(template).contains("th:text=\"${entry.id}\"");
+        assertThat(template).contains("th:text=\"${entry.status}\"");
+        assertThat(template).contains("th:text=\"${form.videoMediaAssetId}\"");
+        assertThat(template).contains("th:text=\"${form.thumbnailMediaAssetId}\"");
+    }
+
+    @Test
+    @DisplayName("Entry detail contract: entry-detail.html contains detail state, publish, and archive actions")
+    void entryDetailPageDefinesExpectedStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/entry-detail.html");
+
+        assertThat(template).contains("th:text=\"${entry.title}\"");
+        assertThat(template).contains("th:text=\"${entry.slug}\"");
+        assertThat(template).contains("entry.status");
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles/{titleId}/entries/{entryId}/publish(titleId=${title.id}, entryId=${entry.id})}\"");
+        assertThat(template).contains("th:action=\"@{/admin/screen/titles/{titleId}/entries/{entryId}/archive(titleId=${title.id}, entryId=${entry.id})}\"");
+        assertThat(template).contains("th:href=\"@{/admin/screen/titles/{titleId}/entries/{entryId}/edit(titleId=${title.id}, entryId=${entry.id})}\"");
     }
 
     private String read(String relativePath) throws Exception {

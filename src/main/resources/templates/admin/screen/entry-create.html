@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tạo Screen Entry mới | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+</head>
+<body>
+<div class="admin-layout">
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+            <div th:if="${errorMessage != null}"
+                 style="background: #fce8e6; color: #c5221f; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-weight: 500;"
+                 th:text="${errorMessage}">
+                Có lỗi xảy ra.
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <a th:href="@{/admin/screen/titles/{titleId}/entries(titleId=${title.id})}" class="admin-secondary-button"
+                   style="text-decoration: none; padding: 6px 12px; font-size: 13px; margin-bottom: 12px; display: inline-block;">
+                    ← Quay lại danh sách Screen Entries
+                </a>
+            </div>
+
+            <div class="admin-table-panel" style="padding: 28px; max-width: 800px;">
+                <div style="margin-bottom: 24px;">
+                    <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #5f6368; letter-spacing: 0.5px;">CREATE ENTRY</span>
+                    <h2 style="margin: 4px 0 6px; font-size: 22px;">
+                        Tạo Screen Entry cho <span th:text="${title.title}">Tên tiêu đề</span>
+                    </h2>
+                    <p style="margin: 0; color: #5f6368; font-size: 14px;">
+                        Cấu trúc tác phẩm: <strong th:text="${title.structure}">SERIES</strong>. Thêm bản ghi tập phim hoặc nội dung phát.
+                    </p>
+                </div>
+
+                <form method="post" th:action="@{/admin/screen/titles/{titleId}/entries(titleId=${title.id})}" th:object="${form}">
+                    <div style="margin-bottom: 20px;">
+                        <label for="title" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                            Tiêu đề entry <span style="color: #c5221f;">*</span>
+                        </label>
+                        <input type="text" id="title" th:field="*{title}" required
+                               placeholder="Ví dụ: Tập 1: Thiếu Niên Rời Núi"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="slug" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                            Slug URL <span style="color: #c5221f;">*</span>
+                        </label>
+                        <input type="text" id="slug" th:field="*{slug}" required
+                               placeholder="Ví dụ: tap-1 (chỉ gồm chữ thường, số và dấu gạch ngang, duy nhất trong title)"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <small style="color: #5f6368; font-size: 12px;">Slug định danh duy nhất trong phạm vi của Screen Title này.</small>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div>
+                            <label for="type" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                                Loại entry (Type) <span style="color: #c5221f;">*</span>
+                            </label>
+                            <select id="type" th:field="*{type}" required
+                                    style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box; background: #fff;">
+                                <option th:each="t : ${types}" th:value="${t}" th:text="${t}">EPISODE</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label for="number" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                                Thứ tự / Số tập (Number)
+                            </label>
+                            <input type="number" id="number" th:field="*{number}" min="1" step="1"
+                                   placeholder="Bắt buộc cho EPISODE (>0), để trống cho FEATURE"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label for="durationSeconds" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                            Thời lượng (giây)
+                        </label>
+                        <input type="number" id="durationSeconds" th:field="*{durationSeconds}" min="1" step="1"
+                               placeholder="Ví dụ: 1200 (20 phút)"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                    </div>
+
+                    <div style="margin-bottom: 24px;">
+                        <label for="synopsis" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                            Tóm tắt nội dung
+                        </label>
+                        <textarea id="synopsis" th:field="*{synopsis}" rows="4"
+                                  placeholder="Tóm tắt ngắn gọn nội dung tập phim / video..."
+                                  style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box; font-family: inherit;"></textarea>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <button type="submit" class="admin-primary-button" style="padding: 10px 20px; font-size: 14px; cursor: pointer;">
+                            Tạo Screen Entry
+                        </button>
+                        <a th:href="@{/admin/screen/titles/{titleId}/entries(titleId=${title.id})}" class="admin-secondary-button"
+                           style="text-decoration: none; padding: 10px 16px; font-size: 14px;">
+                            Hủy bỏ
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </section>
+    </main>
+</div>
+</body>
+</html>
