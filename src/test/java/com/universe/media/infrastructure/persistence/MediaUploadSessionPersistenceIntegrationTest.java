@@ -161,6 +161,7 @@ class MediaUploadSessionPersistenceIntegrationTest {
         assertThat(s.getStatus()).isEqualTo(MediaUploadSessionStatus.ALLOCATED);
         assertThat(s.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.NONE);
         assertThat(s.getExpectedPartCount()).isEqualTo(3);
+        assertThat(s.getManifestHash()).isNull();
     }
 
     @Test
@@ -280,5 +281,43 @@ class MediaUploadSessionPersistenceIntegrationTest {
         sessionInstanceB.markInitiated("upload-b", Instant.now());
         assertThatThrownBy(() -> sessionAdapter.save(sessionInstanceB))
                 .isInstanceOf(OptimisticLockingFailureException.class);
+    }
+
+    @Test
+    @DisplayName("Should persist and roundtrip manifestHash in MediaUploadSession")
+    void shouldPersistAndRoundtripManifestHash() {
+        StorageKeyAllocation alloc = createAndSaveAllocation(StorageKey.of("media/video/session_manifest_001.mp4"));
+
+        UUID sessionId = UUID.randomUUID();
+        UUID targetId = UUID.randomUUID();
+        Instant now = Instant.now();
+        String manifestHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        MediaUploadSession session = MediaUploadSession.create(
+                sessionId,
+                "user-pers-manifest",
+                "screen",
+                "ScreenItem",
+                targetId,
+                "idem-pers-manifest",
+                MediaUploadSession.FIXED_PART_SIZE_BYTES * 2,
+                B2_PROVIDER,
+                B2_BUCKET,
+                StorageKey.of("media/video/session_manifest_001.mp4"),
+                alloc.getId(),
+                "video.mp4",
+                "screen",
+                now.plus(24, ChronoUnit.HOURS),
+                now
+        );
+        session.recordManifestHash(manifestHash);
+
+        sessionAdapter.save(session);
+        createdSessionIds.add(sessionId);
+
+        Optional<MediaUploadSession> retrieved = sessionAdapter.findById(sessionId);
+        assertThat(retrieved).isPresent();
+        MediaUploadSession s = retrieved.get();
+        assertThat(s.getManifestHash()).isEqualTo(manifestHash);
     }
 }

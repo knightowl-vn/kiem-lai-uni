@@ -296,4 +296,101 @@ class MediaUploadSessionTest {
             assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.PENDING);
         }
     }
+
+    @Nested
+    @DisplayName("Manifest Hash Tests")
+    class ManifestHashTests {
+
+        @Test
+        @DisplayName("Default factory create creates session with null manifestHash")
+        void createSessionHasNullManifestHash() {
+            MediaUploadSession session = createValidSession();
+            assertThat(session.getManifestHash()).isNull();
+        }
+
+        @Test
+        @DisplayName("Rehydrate with null manifestHash preserves null")
+        void rehydrateWithNullPreservesNull() {
+            Instant now = Instant.now();
+            MediaUploadSession session = MediaUploadSession.rehydrate(
+                    UUID.randomUUID(), "user-1", "screen", "ScreenItem", UUID.randomUUID(),
+                    "idem-1", MediaType.VIDEO, "video/mp4", 52428800L,
+                    B2_PROVIDER, B2_BUCKET, STORAGE_KEY, UUID.randomUUID(),
+                    null, 26214400L, 2, null, "video.mp4", "client-1",
+                    MediaUploadSessionStatus.ALLOCATED, now.plus(1, ChronoUnit.DAYS),
+                    null, null, null, UploadSessionCleanupStatus.NONE, 0, null, null,
+                    now, now, null, 0L, null
+            );
+
+            assertThat(session.getManifestHash()).isNull();
+        }
+
+        @Test
+        @DisplayName("Rehydrate with valid 64-char hex manifestHash preserves lowercase exact value")
+        void rehydrateWithValidManifestHashPreservesValue() {
+            Instant now = Instant.now();
+            String hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+            MediaUploadSession session = MediaUploadSession.rehydrate(
+                    UUID.randomUUID(), "user-1", "screen", "ScreenItem", UUID.randomUUID(),
+                    "idem-1", MediaType.VIDEO, "video/mp4", 52428800L,
+                    B2_PROVIDER, B2_BUCKET, STORAGE_KEY, UUID.randomUUID(),
+                    "upload-1", 26214400L, 2, null, "video.mp4", "client-1",
+                    MediaUploadSessionStatus.INITIATED, now.plus(1, ChronoUnit.DAYS),
+                    null, null, null, UploadSessionCleanupStatus.NONE, 0, null, null,
+                    now, now, null, 0L, hash.toUpperCase()
+            );
+
+            assertThat(session.getManifestHash()).isEqualTo(hash);
+        }
+
+        @Test
+        @DisplayName("Rehydrate with invalid manifestHash format throws IllegalArgumentException")
+        void rehydrateWithInvalidManifestHashThrows() {
+            Instant now = Instant.now();
+            assertThatThrownBy(() -> MediaUploadSession.rehydrate(
+                    UUID.randomUUID(), "user-1", "screen", "ScreenItem", UUID.randomUUID(),
+                    "idem-1", MediaType.VIDEO, "video/mp4", 52428800L,
+                    B2_PROVIDER, B2_BUCKET, STORAGE_KEY, UUID.randomUUID(),
+                    null, 26214400L, 2, null, "video.mp4", "client-1",
+                    MediaUploadSessionStatus.ALLOCATED, now.plus(1, ChronoUnit.DAYS),
+                    null, null, null, UploadSessionCleanupStatus.NONE, 0, null, null,
+                    now, now, null, 0L, "not-a-valid-sha256"
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("manifestHash must be a 64-character lowercase hex string");
+        }
+
+        @Test
+        @DisplayName("recordManifestHash records valid hash and lowercases it")
+        void recordManifestHashRecordsValidHash() {
+            MediaUploadSession session = createValidSession();
+            String hash = "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90";
+            session.recordManifestHash(hash);
+
+            assertThat(session.getManifestHash()).isEqualTo(hash.toLowerCase());
+        }
+
+        @Test
+        @DisplayName("recordManifestHash is idempotent when called with same hash")
+        void recordManifestHashIsIdempotent() {
+            MediaUploadSession session = createValidSession();
+            String hash = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+            session.recordManifestHash(hash);
+            session.recordManifestHash(hash.toUpperCase());
+
+            assertThat(session.getManifestHash()).isEqualTo(hash);
+        }
+
+        @Test
+        @DisplayName("recordManifestHash throws IllegalStateException when attempting to overwrite with different hash")
+        void recordManifestHashRejectsOverwrite() {
+            MediaUploadSession session = createValidSession();
+            String hash1 = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+            String hash2 = "0000000000000000000000000000000000000000000000000000000000000000";
+            session.recordManifestHash(hash1);
+
+            assertThatThrownBy(() -> session.recordManifestHash(hash2))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Cannot overwrite existing manifestHash");
+        }
+    }
 }

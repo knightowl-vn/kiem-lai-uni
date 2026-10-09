@@ -155,6 +155,13 @@ public class MediaUploadSessionJpaEntity implements Persistable<String> {
     private String declaredContentHash;
 
     @Column(
+            name = "manifest_hash",
+            length = 64,
+            columnDefinition = "CHAR(64)"
+    )
+    private String manifestHash;
+
+    @Column(
             name = "original_filename",
             nullable = false,
             updatable = false,
@@ -404,6 +411,14 @@ public class MediaUploadSessionJpaEntity implements Persistable<String> {
 
     public void setDeclaredContentHash(String declaredContentHash) {
         this.declaredContentHash = declaredContentHash;
+    }
+
+    public String getManifestHash() {
+        return manifestHash;
+    }
+
+    public void setManifestHash(String manifestHash) {
+        this.manifestHash = manifestHash;
     }
 
     public String getOriginalFilename() {

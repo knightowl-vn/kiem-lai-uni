@@ -63,6 +63,7 @@ public final class MediaUploadSession {
     private Instant updatedAt;
     private Instant completedAt;
     private final Long persistenceVersion;
+    private String manifestHash;
 
     private MediaUploadSession(
             UUID id,
@@ -96,7 +97,8 @@ public final class MediaUploadSession {
             Instant createdAt,
             Instant updatedAt,
             Instant completedAt,
-            Long persistenceVersion
+            Long persistenceVersion,
+            String manifestHash
     ) {
         this.id = Objects.requireNonNull(id, "Session ID cannot be null.");
         this.initiatorPrincipalId = requireNonBlank(initiatorPrincipalId, "initiatorPrincipalId");
@@ -130,6 +132,7 @@ public final class MediaUploadSession {
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt cannot be null.");
         this.completedAt = completedAt;
         this.persistenceVersion = persistenceVersion;
+        this.manifestHash = manifestHash != null && !manifestHash.isBlank() ? manifestHash.trim().toLowerCase() : null;
 
         validateInvariants();
     }
@@ -162,6 +165,9 @@ public final class MediaUploadSession {
         }
         if (declaredContentHash != null && !SHA256_PATTERN.matcher(declaredContentHash).matches()) {
             throw new IllegalArgumentException("declaredContentHash must be a 64-character lowercase hex string.");
+        }
+        if (manifestHash != null && !SHA256_PATTERN.matcher(manifestHash).matches()) {
+            throw new IllegalArgumentException("manifestHash must be a 64-character lowercase hex string.");
         }
         if (status == MediaUploadSessionStatus.INITIATED
                 || status == MediaUploadSessionStatus.COMPLETING
@@ -246,12 +252,13 @@ public final class MediaUploadSession {
                 createdAt,
                 createdAt,
                 null,
+                null,
                 null
         );
     }
 
     /**
-     * Factory method for rehydrating an existing upload session from persistence.
+     * Factory method for rehydrating an existing upload session from persistence (backward-compatible overload with null manifestHash).
      */
     public static MediaUploadSession rehydrate(
             UUID id,
@@ -287,6 +294,81 @@ public final class MediaUploadSession {
             Instant completedAt,
             Long persistenceVersion
     ) {
+        return rehydrate(
+                id,
+                initiatorPrincipalId,
+                consumerContext,
+                targetEntityType,
+                targetEntityId,
+                idempotencyKey,
+                mediaType,
+                declaredMimeType,
+                declaredSizeBytes,
+                storageProviderId,
+                storageBucketName,
+                storageKey,
+                storageAllocationId,
+                providerUploadId,
+                partSizeBytes,
+                expectedPartCount,
+                declaredContentHash,
+                originalFilename,
+                clientTag,
+                status,
+                expiresAt,
+                leaseOwner,
+                leaseExpiresAt,
+                registeredAssetId,
+                cleanupStatus,
+                cleanupRetryCount,
+                cleanupLastAttemptAt,
+                cleanupErrorDetail,
+                createdAt,
+                updatedAt,
+                completedAt,
+                persistenceVersion,
+                null
+        );
+    }
+
+    /**
+     * Factory method for rehydrating an existing upload session from persistence with manifestHash.
+     */
+    public static MediaUploadSession rehydrate(
+            UUID id,
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            UUID targetEntityId,
+            String idempotencyKey,
+            MediaType mediaType,
+            String declaredMimeType,
+            long declaredSizeBytes,
+            StorageProviderId storageProviderId,
+            String storageBucketName,
+            StorageKey storageKey,
+            UUID storageAllocationId,
+            String providerUploadId,
+            long partSizeBytes,
+            int expectedPartCount,
+            String declaredContentHash,
+            String originalFilename,
+            String clientTag,
+            MediaUploadSessionStatus status,
+            Instant expiresAt,
+            String leaseOwner,
+            Instant leaseExpiresAt,
+            UUID registeredAssetId,
+            UploadSessionCleanupStatus cleanupStatus,
+            int cleanupRetryCount,
+            Instant cleanupLastAttemptAt,
+            String cleanupErrorDetail,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant completedAt,
+            Long persistenceVersion,
+            String manifestHash
+    ) {
         return new MediaUploadSession(
                 id,
                 initiatorPrincipalId,
@@ -319,7 +401,8 @@ public final class MediaUploadSession {
                 createdAt,
                 updatedAt,
                 completedAt,
-                persistenceVersion
+                persistenceVersion,
+                manifestHash
         );
     }
 
@@ -560,5 +643,20 @@ public final class MediaUploadSession {
 
     public Long getPersistenceVersion() {
         return persistenceVersion;
+    }
+
+    public String getManifestHash() {
+        return manifestHash;
+    }
+
+    public void recordManifestHash(String manifestHash) {
+        if (this.manifestHash != null && !this.manifestHash.equalsIgnoreCase(manifestHash)) {
+            throw new IllegalStateException("Cannot overwrite existing manifestHash on session " + this.id);
+        }
+        String normalized = requireNonBlank(manifestHash, "manifestHash").toLowerCase();
+        if (!SHA256_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("manifestHash must be a 64-character lowercase hex string.");
+        }
+        this.manifestHash = normalized;
     }
 }

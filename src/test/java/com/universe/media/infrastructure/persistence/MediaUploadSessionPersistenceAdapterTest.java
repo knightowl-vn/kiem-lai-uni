@@ -466,4 +466,247 @@ class MediaUploadSessionPersistenceAdapterTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Cannot alter storageAllocationId on session");
     }
+
+    @Test
+    @DisplayName("Should save new MediaUploadSession with null manifestHash")
+    void shouldSaveNewSessionWithNullManifestHash() {
+        UUID id = UUID.randomUUID();
+        MediaUploadSession session = createSession(id);
+
+        when(repository.findById(id.toString())).thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(MediaUploadSessionJpaEntity.class))).thenAnswer(inv -> {
+            MediaUploadSessionJpaEntity entity = inv.getArgument(0);
+            entity.setPersistenceVersion(0L);
+            return entity;
+        });
+
+        MediaUploadSession saved = adapter.save(session);
+
+        assertThat(saved.getManifestHash()).isNull();
+
+        ArgumentCaptor<MediaUploadSessionJpaEntity> captor = ArgumentCaptor.forClass(MediaUploadSessionJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getManifestHash()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should save new MediaUploadSession with valid manifestHash")
+    void shouldSaveNewSessionWithValidManifestHash() {
+        UUID id = UUID.randomUUID();
+        MediaUploadSession session = createSession(id);
+        String manifestHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        session.recordManifestHash(manifestHash);
+
+        when(repository.findById(id.toString())).thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(MediaUploadSessionJpaEntity.class))).thenAnswer(inv -> {
+            MediaUploadSessionJpaEntity entity = inv.getArgument(0);
+            entity.setPersistenceVersion(0L);
+            return entity;
+        });
+
+        MediaUploadSession saved = adapter.save(session);
+
+        assertThat(saved.getManifestHash()).isEqualTo(manifestHash);
+
+        ArgumentCaptor<MediaUploadSessionJpaEntity> captor = ArgumentCaptor.forClass(MediaUploadSessionJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getManifestHash()).isEqualTo(manifestHash);
+    }
+
+    @Test
+    @DisplayName("Should preserve existing manifestHash when updating unrelated session fields")
+    void shouldPreserveExistingManifestHashWhenUpdatingUnrelatedFields() {
+        UUID id = UUID.randomUUID();
+        String manifestHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        MediaUploadSessionJpaEntity existingEntity = new MediaUploadSessionJpaEntity();
+        existingEntity.setId(id.toString());
+        existingEntity.setInitiatorPrincipalId("user-100");
+        existingEntity.setConsumerContext("screen");
+        existingEntity.setTargetEntityType("ScreenItem");
+        existingEntity.setTargetEntityId(UUID.randomUUID().toString());
+        existingEntity.setIdempotencyKey("idem-100");
+        existingEntity.setMediaType("VIDEO");
+        existingEntity.setDeclaredMimeType("video/mp4");
+        existingEntity.setDeclaredSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES * 2);
+        existingEntity.setStorageProviderId("b2");
+        existingEntity.setStorageBucketName("kiemlai-video");
+        existingEntity.setStorageKey(STORAGE_KEY.value());
+        UUID allocId = UUID.randomUUID();
+        existingEntity.setStorageAllocationId(allocId.toString());
+        existingEntity.setPartSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        existingEntity.setExpectedPartCount(2);
+        existingEntity.setStatus(MediaUploadSessionStatus.INITIATED);
+        existingEntity.setProviderUploadId("upload-100");
+        existingEntity.setOriginalFilename("video.mp4");
+        existingEntity.setClientTag("screen");
+        existingEntity.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+        existingEntity.setCleanupStatus(UploadSessionCleanupStatus.NONE);
+        existingEntity.setCreatedAt(Instant.now());
+        existingEntity.setUpdatedAt(Instant.now());
+        existingEntity.setManifestHash(manifestHash);
+        existingEntity.setPersistenceVersion(0L);
+
+        when(repository.findById(id.toString())).thenReturn(Optional.of(existingEntity));
+        when(repository.saveAndFlush(any(MediaUploadSessionJpaEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Session to save has null manifestHash (e.g. status transition without repeating manifestHash)
+        MediaUploadSession sessionToSave = MediaUploadSession.rehydrate(
+                id,
+                "user-100",
+                "screen",
+                "ScreenItem",
+                UUID.fromString(existingEntity.getTargetEntityId()),
+                "idem-100",
+                MediaType.VIDEO,
+                "video/mp4",
+                MediaUploadSession.FIXED_PART_SIZE_BYTES * 2,
+                B2_PROVIDER,
+                B2_BUCKET,
+                STORAGE_KEY,
+                allocId,
+                "upload-100",
+                MediaUploadSession.FIXED_PART_SIZE_BYTES,
+                2,
+                null,
+                "video.mp4",
+                "screen",
+                MediaUploadSessionStatus.COMPLETING,
+                Instant.now().plus(24, ChronoUnit.HOURS),
+                null,
+                null,
+                null,
+                UploadSessionCleanupStatus.NONE,
+                0,
+                null,
+                null,
+                Instant.now().minus(1, ChronoUnit.HOURS),
+                Instant.now(),
+                null,
+                0L,
+                null // null manifestHash in update command
+        );
+
+        MediaUploadSession saved = adapter.save(sessionToSave);
+
+        assertThat(existingEntity.getManifestHash()).isEqualTo(manifestHash);
+        assertThat(saved.getManifestHash()).isEqualTo(manifestHash);
+    }
+
+    @Test
+    @DisplayName("Should reject overwriting existing manifestHash with a different hash")
+    void shouldRejectOverwritingExistingManifestHashWithDifferentHash() {
+        UUID id = UUID.randomUUID();
+        String originalHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        String differentHash = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
+        MediaUploadSessionJpaEntity existingEntity = new MediaUploadSessionJpaEntity();
+        existingEntity.setId(id.toString());
+        existingEntity.setInitiatorPrincipalId("user-100");
+        existingEntity.setConsumerContext("screen");
+        existingEntity.setTargetEntityType("ScreenItem");
+        existingEntity.setTargetEntityId(UUID.randomUUID().toString());
+        existingEntity.setIdempotencyKey("idem-100");
+        existingEntity.setMediaType("VIDEO");
+        existingEntity.setDeclaredMimeType("video/mp4");
+        existingEntity.setDeclaredSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES * 2);
+        existingEntity.setStorageProviderId("b2");
+        existingEntity.setStorageBucketName("kiemlai-video");
+        existingEntity.setStorageKey(STORAGE_KEY.value());
+        UUID allocId = UUID.randomUUID();
+        existingEntity.setStorageAllocationId(allocId.toString());
+        existingEntity.setPartSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        existingEntity.setExpectedPartCount(2);
+        existingEntity.setStatus(MediaUploadSessionStatus.INITIATED);
+        existingEntity.setProviderUploadId("upload-100");
+        existingEntity.setOriginalFilename("video.mp4");
+        existingEntity.setClientTag("screen");
+        existingEntity.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+        existingEntity.setCleanupStatus(UploadSessionCleanupStatus.NONE);
+        existingEntity.setCreatedAt(Instant.now());
+        existingEntity.setUpdatedAt(Instant.now());
+        existingEntity.setManifestHash(originalHash);
+        existingEntity.setPersistenceVersion(0L);
+
+        when(repository.findById(id.toString())).thenReturn(Optional.of(existingEntity));
+
+        MediaUploadSession sessionToSave = MediaUploadSession.rehydrate(
+                id,
+                "user-100",
+                "screen",
+                "ScreenItem",
+                UUID.fromString(existingEntity.getTargetEntityId()),
+                "idem-100",
+                MediaType.VIDEO,
+                "video/mp4",
+                MediaUploadSession.FIXED_PART_SIZE_BYTES * 2,
+                B2_PROVIDER,
+                B2_BUCKET,
+                STORAGE_KEY,
+                allocId,
+                "upload-100",
+                MediaUploadSession.FIXED_PART_SIZE_BYTES,
+                2,
+                null,
+                "video.mp4",
+                "screen",
+                MediaUploadSessionStatus.COMPLETING,
+                Instant.now().plus(24, ChronoUnit.HOURS),
+                null,
+                null,
+                null,
+                UploadSessionCleanupStatus.NONE,
+                0,
+                null,
+                null,
+                Instant.now().minus(1, ChronoUnit.HOURS),
+                Instant.now(),
+                null,
+                0L,
+                differentHash
+        );
+
+        assertThatThrownBy(() -> adapter.save(sessionToSave))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Cannot overwrite existing manifestHash on session");
+    }
+
+    @Test
+    @DisplayName("Should rehydrate entity with manifestHash in findById")
+    void shouldRehydrateEntityWithManifestHashInFindById() {
+        UUID id = UUID.randomUUID();
+        String manifestHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        MediaUploadSessionJpaEntity entity = new MediaUploadSessionJpaEntity();
+        entity.setId(id.toString());
+        entity.setInitiatorPrincipalId("user-100");
+        entity.setConsumerContext("screen");
+        entity.setTargetEntityType("ScreenItem");
+        entity.setTargetEntityId(UUID.randomUUID().toString());
+        entity.setIdempotencyKey("idem-100");
+        entity.setMediaType("VIDEO");
+        entity.setDeclaredMimeType("video/mp4");
+        entity.setDeclaredSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES * 2);
+        entity.setStorageProviderId("b2");
+        entity.setStorageBucketName("kiemlai-video");
+        entity.setStorageKey(STORAGE_KEY.value());
+        entity.setStorageAllocationId(UUID.randomUUID().toString());
+        entity.setPartSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        entity.setExpectedPartCount(2);
+        entity.setStatus(MediaUploadSessionStatus.ALLOCATED);
+        entity.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+        entity.setCleanupStatus(UploadSessionCleanupStatus.NONE);
+        entity.setCreatedAt(Instant.now());
+        entity.setUpdatedAt(Instant.now());
+        entity.setOriginalFilename("video.mp4");
+        entity.setClientTag("screen");
+        entity.setManifestHash(manifestHash);
+
+        when(repository.findById(id.toString())).thenReturn(Optional.of(entity));
+
+        Optional<MediaUploadSession> found = adapter.findById(id);
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getManifestHash()).isEqualTo(manifestHash);
+    }
 }

@@ -94,6 +94,10 @@ public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionR
                     && !entity.getRegisteredAssetId().equals(session.getRegisteredAssetId().toString())) {
                 throw new IllegalStateException("Cannot reassign registeredAssetId on session " + sessionId);
             }
+            if (entity.getManifestHash() != null && session.getManifestHash() != null
+                    && !entity.getManifestHash().equalsIgnoreCase(session.getManifestHash())) {
+                throw new IllegalStateException("Cannot overwrite existing manifestHash on session " + sessionId);
+            }
 
             // 5. Protect immutable storage location and session identity
             validateImmutableFields(entity, session);
@@ -105,6 +109,9 @@ public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionR
             }
             if (session.getDeclaredContentHash() != null) {
                 entity.setDeclaredContentHash(session.getDeclaredContentHash());
+            }
+            if (session.getManifestHash() != null) {
+                entity.setManifestHash(session.getManifestHash());
             }
             entity.setLeaseOwner(session.getLeaseOwner());
             entity.setLeaseExpiresAt(session.getLeaseExpiresAt());
@@ -136,6 +143,7 @@ public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionR
             entity.setPartSizeBytes(session.getPartSizeBytes());
             entity.setExpectedPartCount(session.getExpectedPartCount());
             entity.setDeclaredContentHash(session.getDeclaredContentHash());
+            entity.setManifestHash(session.getManifestHash());
             entity.setOriginalFilename(session.getOriginalFilename());
             entity.setClientTag(session.getClientTag());
             entity.setStatus(session.getStatus());
@@ -266,7 +274,8 @@ public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionR
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
                 entity.getCompletedAt(),
-                entity.getPersistenceVersion()
+                entity.getPersistenceVersion(),
+                entity.getManifestHash()
         );
     }
 }
