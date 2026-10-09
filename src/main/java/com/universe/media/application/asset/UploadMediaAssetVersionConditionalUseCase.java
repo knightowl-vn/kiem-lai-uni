@@ -7,12 +7,16 @@ import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
 import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.application.storage.StorageKeyAllocationService;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageKeyAllocation;
+import com.universe.media.domain.StorageKeyAllocationType;
 import com.universe.media.domain.StorageProviderId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -26,6 +30,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Application service for conditional media asset version replacement (MS-05G9, MS-05G9.1).
@@ -39,6 +44,8 @@ public class UploadMediaAssetVersionConditionalUseCase {
     private final RasterContentSignatureValidator rasterContentSignatureValidator;
     private final RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase;
     private final VideoUploadValidator videoUploadValidator;
+    private final StorageKeyAllocationService storageKeyAllocationService;
+    private final MediaStorageCutoverBarrier cutoverBarrier;
 
     @Autowired
     public UploadMediaAssetVersionConditionalUseCase(
@@ -47,7 +54,9 @@ public class UploadMediaAssetVersionConditionalUseCase {
             StorageProviderResolverPort storageProviderResolverPort,
             RasterContentSignatureValidator rasterContentSignatureValidator,
             RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
-            VideoUploadValidator videoUploadValidator
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageCutoverBarrier cutoverBarrier
     ) {
         this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
         this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
@@ -55,6 +64,49 @@ public class UploadMediaAssetVersionConditionalUseCase {
         this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
         this.registerMediaAssetVersionUseCase = Objects.requireNonNull(registerMediaAssetVersionUseCase, "RegisterMediaAssetVersionUseCase cannot be null.");
         this.videoUploadValidator = Objects.requireNonNull(videoUploadValidator, "VideoUploadValidator cannot be null.");
+        this.storageKeyAllocationService = storageKeyAllocationService;
+        this.cutoverBarrier = cutoverBarrier;
+    }
+
+    public UploadMediaAssetVersionConditionalUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                rasterContentSignatureValidator,
+                registerMediaAssetVersionUseCase,
+                videoUploadValidator,
+                storageKeyAllocationService,
+                null
+        );
+    }
+
+    public UploadMediaAssetVersionConditionalUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
+            VideoUploadValidator videoUploadValidator
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                rasterContentSignatureValidator,
+                registerMediaAssetVersionUseCase,
+                videoUploadValidator,
+                null,
+                null
+        );
     }
 
     public UploadMediaAssetVersionConditionalUseCase(
@@ -70,11 +122,15 @@ public class UploadMediaAssetVersionConditionalUseCase {
                 storageProviderResolverPort,
                 rasterContentSignatureValidator,
                 registerMediaAssetVersionUseCase,
-                new VideoUploadValidator()
+                new VideoUploadValidator(),
+                null,
+                null
         );
     }
 
-    public UploadMediaAssetVersionConditionalResult execute(UploadMediaAssetVersionCommand command) {
+    public UploadMediaAssetVersionConditionalResult execute(
+            UploadMediaAssetVersionCommand command
+    ) {
         Objects.requireNonNull(command, "UploadMediaAssetVersionCommand cannot be null.");
 
         MimeType mimeType = MimeType.of(command.mimeType());
@@ -102,17 +158,18 @@ public class UploadMediaAssetVersionConditionalUseCase {
         Path spoolFile = null;
         try {
             try {
-                spoolFile = Files.createTempFile("media-upload-spool-", ".tmp");
+                spoolFile = Files.createTempFile("media-conditional-upload-", ".tmp");
             } catch (IOException e) {
-                throw new StorageException("Failed to create temporary spool file: " + e.getMessage(), e);
+                throw new StorageException("Failed to create temporary file for conditional upload: " + e.getMessage(), e);
             }
-
             MessageDigest messageDigest = createSha256Digest();
+
             long bytesWritten = 0;
             byte[] buffer = new byte[8192];
-            try (OutputStream out = Files.newOutputStream(spoolFile)) {
+            try (OutputStream out = Files.newOutputStream(spoolFile);
+                 InputStream in = validatedContent) {
                 int read;
-                while ((read = validatedContent.read(buffer)) != -1) {
+                while ((read = in.read(buffer)) != -1) {
                     bytesWritten += read;
                     if (bytesWritten > command.sizeBytes()) {
                         throw new StorageException(
@@ -146,14 +203,14 @@ public class UploadMediaAssetVersionConditionalUseCase {
                     registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(command.assetId(), contentHash);
 
             if (probeResult.isDuplicate()) {
-                // Exact content match: zero storage write, zero version row creation
+                // Exact content match: zero storage write, zero version row creation, zero allocation
                 return UploadMediaAssetVersionConditionalResult.unchanged(
                         command.assetId(),
                         probeResult.currentVersionNumber()
                 );
             }
 
-            // Hashes differ (or current version has no hash) -> execute normal storage write
+            // Hashes differ -> execute storage write
             StorageProviderId providerId = mediaStorageRoutingService.resolveWriteProvider(asset.getMediaType(), asset.getClientTag());
             StorageKey storageKey = mediaStorageRoutingService.generateStorageKey(
                     asset.getMediaType(),
@@ -161,6 +218,21 @@ public class UploadMediaAssetVersionConditionalUseCase {
                     command.assetId(),
                     asset.getCurrentVersionNumber() + 1
             );
+
+            boolean cutoverActive = (cutoverBarrier != null && cutoverBarrier.isCutoverActive());
+            StorageKeyAllocation allocation = null;
+            UUID reservationCorrelationId = UUID.randomUUID();
+
+            if (cutoverActive && storageKeyAllocationService != null) {
+                String bucketName = mediaStorageRoutingService.resolveBucketName(providerId);
+                allocation = storageKeyAllocationService.reserveKey(
+                        providerId,
+                        bucketName,
+                        storageKey,
+                        StorageKeyAllocationType.ASSET_VERSION,
+                        reservationCorrelationId
+                );
+            }
 
             BinaryStoragePort binaryStoragePort = storageProviderResolverPort.resolve(providerId);
             StoredBinaryObject stored;
@@ -173,7 +245,23 @@ public class UploadMediaAssetVersionConditionalUseCase {
                         mimeType
                 );
             } catch (IOException e) {
+                if (cutoverActive && allocation != null) {
+                    try {
+                        storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                    } catch (RuntimeException tombstoneEx) {
+                        e.addSuppressed(tombstoneEx);
+                    }
+                }
                 throw new StorageException("Failed to stream spooled content to storage: " + e.getMessage(), e);
+            } catch (RuntimeException storeEx) {
+                if (cutoverActive && allocation != null) {
+                    try {
+                        storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                    } catch (RuntimeException tombstoneEx) {
+                        storeEx.addSuppressed(tombstoneEx);
+                    }
+                }
+                throw storeEx;
             }
 
             RegisterMediaAssetVersionCommand registerCommand = new RegisterMediaAssetVersionCommand(
@@ -184,7 +272,9 @@ public class UploadMediaAssetVersionConditionalUseCase {
                     contentHash,
                     mimeType.value(),
                     command.sizeBytes(),
-                    command.originalFilename()
+                    command.originalFilename(),
+                    (allocation != null) ? allocation.getId() : null,
+                    (allocation != null) ? reservationCorrelationId : null
             );
 
             RegisterMediaAssetVersionConditionalResult registerResult;
@@ -192,12 +282,26 @@ public class UploadMediaAssetVersionConditionalUseCase {
                 registerResult = registerMediaAssetVersionUseCase.registerConditionalVersion(registerCommand);
             } catch (RuntimeException primaryException) {
                 compensateStorage(binaryStoragePort, stored.location().key(), primaryException);
+                if (cutoverActive && allocation != null) {
+                    try {
+                        storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                    } catch (RuntimeException tombstoneException) {
+                        primaryException.addSuppressed(tombstoneException);
+                    }
+                }
                 throw primaryException;
             }
 
             if (registerResult.outcome() == MediaVersionUploadOutcome.UNCHANGED) {
-                // Concurrent race resolution: another worker committed this identical hash in the interim
+                // Concurrent race resolution: another worker committed this identical hash in the interim.
+                // Delete newly written candidate object and tombstone its allocation without touching winner.
                 binaryStoragePort.delete(stored.location().key());
+                if (cutoverActive && allocation != null) {
+                    try {
+                        storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                    } catch (RuntimeException ignored) {
+                    }
+                }
                 return UploadMediaAssetVersionConditionalResult.unchanged(
                         registerResult.assetId(),
                         registerResult.versionNumber()
@@ -228,8 +332,8 @@ public class UploadMediaAssetVersionConditionalUseCase {
     ) {
         try {
             binaryStoragePort.delete(storageKey);
-        } catch (RuntimeException cleanupException) {
-            primaryException.addSuppressed(cleanupException);
+        } catch (RuntimeException compensationException) {
+            primaryException.addSuppressed(compensationException);
         }
     }
 

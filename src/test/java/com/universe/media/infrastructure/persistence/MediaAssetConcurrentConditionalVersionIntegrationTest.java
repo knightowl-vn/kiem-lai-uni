@@ -8,7 +8,9 @@ import com.universe.media.application.asset.UploadMediaAssetVersionConditionalRe
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
 import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.application.storage.StorageKeyAllocationService;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
@@ -125,12 +127,22 @@ class MediaAssetConcurrentConditionalVersionIntegrationTest {
 
         @Bean
         public MediaStorageRoutingService mediaStorageRoutingService() {
-            return new MediaStorageRoutingService();
+            return new MediaStorageRoutingService("kiemlai-video-test", "kiemlai-audio-test");
         }
 
         @Bean
         public StorageProviderResolverPort storageProviderResolverPort(ConcurrentTrackingStoragePort storagePort) {
             return providerId -> storagePort;
+        }
+
+        @Bean
+        public MediaStorageCutoverBarrier mediaStorageCutoverBarrier() {
+            return new MediaStorageCutoverBarrier(false);
+        }
+
+        @Bean
+        public StorageKeyAllocationService storageKeyAllocationService() {
+            return org.mockito.Mockito.mock(StorageKeyAllocationService.class);
         }
     }
 

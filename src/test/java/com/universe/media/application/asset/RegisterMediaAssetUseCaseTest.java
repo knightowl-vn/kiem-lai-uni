@@ -46,6 +46,12 @@ class RegisterMediaAssetUseCaseTest {
     @Mock
     private MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
 
+    @Mock
+    private com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService;
+
+    @Mock
+    private com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier;
+
     private RegisterMediaAssetUseCase useCase;
 
     @BeforeEach
@@ -53,7 +59,9 @@ class RegisterMediaAssetUseCaseTest {
         useCase = new RegisterMediaAssetUseCase(
                 mediaAssetRepositoryPort,
                 mediaAssetVersionRepositoryPort,
-                FIXED_CLOCK
+                FIXED_CLOCK,
+                storageKeyAllocationService,
+                cutoverBarrier
         );
     }
 
@@ -133,5 +141,194 @@ class RegisterMediaAssetUseCaseTest {
 
         verifyNoInteractions(mediaAssetRepositoryPort);
         verify(mediaAssetVersionRepositoryPort, never()).save(any(MediaAssetVersion.class));
+    }
+
+    @Test
+    @DisplayName("cutover active: throws IllegalStateException when storage key allocation is missing")
+    void shouldRejectRegistrationWhenAllocationMissingUnderCutover() {
+        when(cutoverBarrier.isCutoverActive()).thenReturn(true);
+        when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
+        when(storageKeyAllocationService.findByStorageLocation(any(), any())).thenReturn(java.util.Optional.empty());
+
+        RegisterMediaAssetCommand command = createValidCommand();
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Active cutover barrier requires a valid storage key allocation");
+    }
+
+    @Test
+    @DisplayName("cutover active: throws IllegalStateException when storage key allocation is tombstoned")
+    void shouldRejectRegistrationWhenAllocationIsTombstonedUnderCutover() {
+        when(cutoverBarrier.isCutoverActive()).thenReturn(true);
+        when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
+
+        java.util.UUID allocationId = java.util.UUID.randomUUID();
+        com.universe.media.domain.StorageKeyAllocation allocation = com.universe.media.domain.StorageKeyAllocation.reserve(
+                allocationId,
+                com.universe.media.domain.StorageProviderId.of("cloudinary"),
+                "NONE",
+                com.universe.media.domain.StorageKey.of("covers/novel-cover.webp"),
+                com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION,
+                java.util.UUID.randomUUID(),
+                FIXED_NOW
+        );
+        allocation.tombstone(FIXED_NOW);
+        when(storageKeyAllocationService.findByStorageLocation(any(), any())).thenReturn(java.util.Optional.of(allocation));
+
+        RegisterMediaAssetCommand command = createValidCommand();
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("tombstoned storage key allocation");
+    }
+
+    @Test
+    @DisplayName("cutover active: throws IllegalStateException when storage key allocation is already COMMITTED (reuse rejection)")
+    void shouldRejectRegistrationWhenAllocationAlreadyCommittedUnderCutover() {
+        when(cutoverBarrier.isCutoverActive()).thenReturn(true);
+        when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
+
+        java.util.UUID allocationId = java.util.UUID.randomUUID();
+        com.universe.media.domain.StorageKeyAllocation allocation = com.universe.media.domain.StorageKeyAllocation.reserve(
+                allocationId,
+                com.universe.media.domain.StorageProviderId.of("cloudinary"),
+                "NONE",
+                com.universe.media.domain.StorageKey.of("covers/novel-cover.webp"),
+                com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION,
+                java.util.UUID.randomUUID(),
+                FIXED_NOW
+        );
+        allocation.commit(com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION, java.util.UUID.randomUUID(), FIXED_NOW);
+        when(storageKeyAllocationService.findByStorageLocation(any(), any())).thenReturn(java.util.Optional.of(allocation));
+
+        RegisterMediaAssetCommand command = createValidCommand();
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already committed storage key allocation");
+    }
+
+    @Test
+    @DisplayName("cutover active: throws IllegalStateException when expectedAllocationId does not match allocation id (reservation hijacking prevented)")
+    void shouldRejectRegistrationWhenExpectedAllocationIdMismatchesUnderCutover() {
+        when(cutoverBarrier.isCutoverActive()).thenReturn(true);
+        when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
+
+        java.util.UUID actualAllocationId = java.util.UUID.randomUUID();
+        java.util.UUID expectedAllocationId = java.util.UUID.randomUUID();
+
+        com.universe.media.domain.StorageKeyAllocation allocation = com.universe.media.domain.StorageKeyAllocation.reserve(
+                actualAllocationId,
+                com.universe.media.domain.StorageProviderId.of("cloudinary"),
+                "NONE",
+                com.universe.media.domain.StorageKey.of("covers/novel-cover.webp"),
+                com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION,
+                java.util.UUID.randomUUID(),
+                FIXED_NOW
+        );
+        when(storageKeyAllocationService.findByStorageLocation(any(), any())).thenReturn(java.util.Optional.of(allocation));
+
+        RegisterMediaAssetCommand command = new RegisterMediaAssetCommand(
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                "cloudinary",
+                "covers/novel-cover.webp",
+                "https://cdn.universe.com/covers/novel-cover.webp",
+                VALID_HASH,
+                "image/webp",
+                2048L,
+                "novel-cover.webp",
+                expectedAllocationId
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Reservation ownership mismatch");
+    }
+
+    @Test
+    @DisplayName("cutover active: throws IllegalStateException when reservationCorrelationId does not match allocatedById (ownership token mismatch)")
+    void shouldRejectRegistrationWhenReservationCorrelationIdMismatchesUnderCutover() {
+        when(cutoverBarrier.isCutoverActive()).thenReturn(true);
+        when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
+
+        java.util.UUID allocationId = java.util.UUID.randomUUID();
+        java.util.UUID actualOwnerId = java.util.UUID.randomUUID();
+        java.util.UUID rogueOwnerId = java.util.UUID.randomUUID();
+
+        com.universe.media.domain.StorageKeyAllocation allocation = com.universe.media.domain.StorageKeyAllocation.reserve(
+                allocationId,
+                com.universe.media.domain.StorageProviderId.of("cloudinary"),
+                "NONE",
+                com.universe.media.domain.StorageKey.of("covers/novel-cover.webp"),
+                com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION,
+                actualOwnerId,
+                FIXED_NOW
+        );
+        when(storageKeyAllocationService.findByStorageLocation(any(), any())).thenReturn(java.util.Optional.of(allocation));
+
+        RegisterMediaAssetCommand command = new RegisterMediaAssetCommand(
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                "cloudinary",
+                "covers/novel-cover.webp",
+                "https://cdn.universe.com/covers/novel-cover.webp",
+                VALID_HASH,
+                "image/webp",
+                2048L,
+                "novel-cover.webp",
+                null,
+                allocationId,
+                rogueOwnerId
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("caller does not hold the correlation token");
+    }
+
+    @Test
+    @DisplayName("cutover active: commits allocation atomically upon successful registration")
+    void shouldCommitAllocationUnderCutover() {
+        when(cutoverBarrier.isCutoverActive()).thenReturn(true);
+        when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
+
+        java.util.UUID allocationId = java.util.UUID.randomUUID();
+        java.util.UUID ownerId = java.util.UUID.randomUUID();
+        com.universe.media.domain.StorageKeyAllocation allocation = com.universe.media.domain.StorageKeyAllocation.reserve(
+                allocationId,
+                com.universe.media.domain.StorageProviderId.of("cloudinary"),
+                "NONE",
+                com.universe.media.domain.StorageKey.of("covers/novel-cover.webp"),
+                com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION,
+                ownerId,
+                FIXED_NOW
+        );
+        when(storageKeyAllocationService.findByStorageLocation(any(), any())).thenReturn(java.util.Optional.of(allocation));
+
+        RegisterMediaAssetCommand command = new RegisterMediaAssetCommand(
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                "cloudinary",
+                "covers/novel-cover.webp",
+                "https://cdn.universe.com/covers/novel-cover.webp",
+                VALID_HASH,
+                "image/webp",
+                2048L,
+                "novel-cover.webp",
+                null,
+                allocationId,
+                ownerId
+        );
+
+        RegisterMediaAssetResult result = useCase.execute(command);
+
+        assertThat(result).isNotNull();
+        verify(storageKeyAllocationService).commitAllocation(
+                org.mockito.ArgumentMatchers.eq(allocationId),
+                org.mockito.ArgumentMatchers.eq(com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION),
+                org.mockito.ArgumentMatchers.eq(result.versionId())
+        );
     }
 }

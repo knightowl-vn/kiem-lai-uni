@@ -52,6 +52,9 @@ public class GenerateMediaImageVariantUseCase {
     private final List<ImageVariantPublicUrlPort> imageVariantPublicUrlPorts;
     private final ImageProcessorPort imageProcessorPort;
     private final ClockPort clockPort;
+    private final com.universe.media.application.storage.MediaStorageRoutingService mediaStorageRoutingService;
+    private final com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService;
+    private final com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier;
 
     @Autowired
     public GenerateMediaImageVariantUseCase(
@@ -61,7 +64,10 @@ public class GenerateMediaImageVariantUseCase {
             StorageProviderResolverPort storageProviderResolverPort,
             List<ImageVariantPublicUrlPort> imageVariantPublicUrlPorts,
             ImageProcessorPort imageProcessorPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            com.universe.media.application.storage.MediaStorageRoutingService mediaStorageRoutingService,
+            com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService,
+            com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier
     ) {
         this.mediaAssetRepositoryPort = Objects.requireNonNull(
                 mediaAssetRepositoryPort,
@@ -89,6 +95,59 @@ public class GenerateMediaImageVariantUseCase {
         this.clockPort = Objects.requireNonNull(
                 clockPort,
                 "ClockPort cannot be null."
+        );
+        this.mediaStorageRoutingService = mediaStorageRoutingService != null
+                ? mediaStorageRoutingService
+                : new com.universe.media.application.storage.MediaStorageRoutingService(null, null);
+        this.storageKeyAllocationService = storageKeyAllocationService;
+        this.cutoverBarrier = cutoverBarrier;
+    }
+
+    public GenerateMediaImageVariantUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
+            StorageProviderResolverPort storageProviderResolverPort,
+            List<ImageVariantPublicUrlPort> imageVariantPublicUrlPorts,
+            ImageProcessorPort imageProcessorPort,
+            ClockPort clockPort,
+            com.universe.media.application.storage.MediaStorageRoutingService mediaStorageRoutingService,
+            com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                mediaImageVariantRepositoryPort,
+                storageProviderResolverPort,
+                imageVariantPublicUrlPorts,
+                imageProcessorPort,
+                clockPort,
+                mediaStorageRoutingService,
+                storageKeyAllocationService,
+                null
+        );
+    }
+
+    public GenerateMediaImageVariantUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
+            StorageProviderResolverPort storageProviderResolverPort,
+            List<ImageVariantPublicUrlPort> imageVariantPublicUrlPorts,
+            ImageProcessorPort imageProcessorPort,
+            ClockPort clockPort
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                mediaImageVariantRepositoryPort,
+                storageProviderResolverPort,
+                imageVariantPublicUrlPorts,
+                imageProcessorPort,
+                clockPort,
+                new com.universe.media.application.storage.MediaStorageRoutingService(null, null),
+                null,
+                null
         );
     }
 
@@ -210,6 +269,20 @@ public class GenerateMediaImageVariantUseCase {
         try (processedResource) {
             StorageKey derivativeKey = StorageKey.of("objects/variants/" + UUID.randomUUID());
             StorageLocation derivativeLocation = StorageLocation.of(versionProviderId, derivativeKey);
+
+            boolean cutoverActive = (cutoverBarrier != null && cutoverBarrier.isCutoverActive() && storageKeyAllocationService != null);
+            com.universe.media.domain.StorageKeyAllocation allocation = null;
+            if (cutoverActive) {
+                String bucketName = mediaStorageRoutingService.resolveBucketName(versionProviderId);
+                allocation = storageKeyAllocationService.reserveKey(
+                        versionProviderId,
+                        bucketName,
+                        derivativeKey,
+                        com.universe.media.domain.StorageKeyAllocationType.IMAGE_VARIANT,
+                        UUID.randomUUID()
+                );
+            }
+
             boolean storeSucceeded = false;
             boolean persisted = false;
 
@@ -225,7 +298,23 @@ public class GenerateMediaImageVariantUseCase {
                     );
                     storeSucceeded = true;
                 } catch (IOException e) {
+                    if (allocation != null) {
+                        try {
+                            storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                        } catch (RuntimeException tombstoneEx) {
+                            e.addSuppressed(tombstoneEx);
+                        }
+                    }
                     throw new StorageException("Failed to stream processed variant binary for asset " + assetId, e);
+                } catch (RuntimeException storeEx) {
+                    if (allocation != null) {
+                        try {
+                            storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                        } catch (RuntimeException tombstoneEx) {
+                            storeEx.addSuppressed(tombstoneEx);
+                        }
+                    }
+                    throw storeEx;
                 }
 
                 ContentHash derivativeHash = ContentHash.of(HexFormat.of().formatHex(messageDigest.digest()));
@@ -247,11 +336,32 @@ public class GenerateMediaImageVariantUseCase {
 
                 MediaImageVariant savedVariant = mediaImageVariantRepositoryPort.save(variant);
                 persisted = true;
+
+                if (allocation != null) {
+                    try {
+                        storageKeyAllocationService.commitAllocation(
+                                allocation.getId(),
+                                com.universe.media.domain.StorageKeyAllocationType.IMAGE_VARIANT,
+                                savedVariant.getId()
+                        );
+                    } catch (RuntimeException commitEx) {
+                        // Variant persisted; do not delete or compensate published object
+                        throw commitEx;
+                    }
+                }
+
                 return toResult(assetId, versionNumber, savedVariant);
 
             } catch (DataIntegrityViolationException integrityException) {
                 if (storeSucceeded && !persisted) {
                     boolean compensated = compensateStorage(binaryStoragePort, derivativeKey, integrityException);
+                    if (allocation != null) {
+                        try {
+                            storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                        } catch (RuntimeException tombstoneEx) {
+                            integrityException.addSuppressed(tombstoneEx);
+                        }
+                    }
                     if (compensated) {
                         try {
                             Optional<MediaImageVariant> winner = mediaImageVariantRepositoryPort
@@ -268,6 +378,13 @@ public class GenerateMediaImageVariantUseCase {
             } catch (RuntimeException primaryException) {
                 if (storeSucceeded && !persisted) {
                     compensateStorage(binaryStoragePort, derivativeKey, primaryException);
+                    if (allocation != null) {
+                        try {
+                            storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                        } catch (RuntimeException tombstoneEx) {
+                            primaryException.addSuppressed(tombstoneEx);
+                        }
+                    }
                 }
                 throw primaryException;
             }

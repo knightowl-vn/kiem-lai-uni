@@ -3,10 +3,14 @@ package com.universe.media.application.asset;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
 import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.application.storage.StorageKeyAllocationService;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageKeyAllocation;
+import com.universe.media.domain.StorageKeyAllocationType;
 import com.universe.media.domain.StorageProviderId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -17,6 +21,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
+import java.util.UUID;
 
 @Service
 public class UploadMediaAssetUseCase {
@@ -26,6 +31,8 @@ public class UploadMediaAssetUseCase {
     private final RegisterMediaAssetUseCase registerMediaAssetUseCase;
     private final RasterContentSignatureValidator rasterContentSignatureValidator;
     private final VideoUploadValidator videoUploadValidator;
+    private final StorageKeyAllocationService storageKeyAllocationService;
+    private final MediaStorageCutoverBarrier cutoverBarrier;
 
     @Autowired
     public UploadMediaAssetUseCase(
@@ -33,27 +40,53 @@ public class UploadMediaAssetUseCase {
             StorageProviderResolverPort storageProviderResolverPort,
             RegisterMediaAssetUseCase registerMediaAssetUseCase,
             RasterContentSignatureValidator rasterContentSignatureValidator,
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageCutoverBarrier cutoverBarrier
+    ) {
+        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
+        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
+        this.registerMediaAssetUseCase = Objects.requireNonNull(registerMediaAssetUseCase, "RegisterMediaAssetUseCase cannot be null.");
+        this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
+        this.videoUploadValidator = Objects.requireNonNull(videoUploadValidator, "VideoUploadValidator cannot be null.");
+        this.storageKeyAllocationService = storageKeyAllocationService;
+        this.cutoverBarrier = cutoverBarrier;
+    }
+
+    public UploadMediaAssetUseCase(
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RegisterMediaAssetUseCase registerMediaAssetUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService
+    ) {
+        this(
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                registerMediaAssetUseCase,
+                rasterContentSignatureValidator,
+                videoUploadValidator,
+                storageKeyAllocationService,
+                null
+        );
+    }
+
+    public UploadMediaAssetUseCase(
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RegisterMediaAssetUseCase registerMediaAssetUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
             VideoUploadValidator videoUploadValidator
     ) {
-        this.mediaStorageRoutingService = Objects.requireNonNull(
+        this(
                 mediaStorageRoutingService,
-                "MediaStorageRoutingService cannot be null."
-        );
-        this.storageProviderResolverPort = Objects.requireNonNull(
                 storageProviderResolverPort,
-                "StorageProviderResolverPort cannot be null."
-        );
-        this.registerMediaAssetUseCase = Objects.requireNonNull(
                 registerMediaAssetUseCase,
-                "RegisterMediaAssetUseCase cannot be null."
-        );
-        this.rasterContentSignatureValidator = Objects.requireNonNull(
                 rasterContentSignatureValidator,
-                "RasterContentSignatureValidator cannot be null."
-        );
-        this.videoUploadValidator = Objects.requireNonNull(
                 videoUploadValidator,
-                "VideoUploadValidator cannot be null."
+                null,
+                null
         );
     }
 
@@ -68,7 +101,9 @@ public class UploadMediaAssetUseCase {
                 storageProviderResolverPort,
                 registerMediaAssetUseCase,
                 rasterContentSignatureValidator,
-                new VideoUploadValidator()
+                new VideoUploadValidator(),
+                null,
+                null
         );
     }
 
@@ -100,18 +135,47 @@ public class UploadMediaAssetUseCase {
                 null,
                 1
         );
+        boolean cutoverActive = (cutoverBarrier != null && cutoverBarrier.isCutoverActive());
+        StorageKeyAllocation allocation = null;
+        UUID reservationCorrelationId = UUID.randomUUID();
+
+        if (cutoverActive && storageKeyAllocationService != null) {
+            String bucketName = mediaStorageRoutingService.resolveBucketName(providerId);
+            allocation = storageKeyAllocationService.reserveKey(
+                    providerId,
+                    bucketName,
+                    storageKey,
+                    StorageKeyAllocationType.ASSET_VERSION,
+                    reservationCorrelationId
+            );
+        }
 
         BinaryStoragePort binaryStoragePort = storageProviderResolverPort.resolve(providerId);
 
         MessageDigest messageDigest = createSha256Digest();
         DigestInputStream digestInputStream = new DigestInputStream(validatedContent, messageDigest);
 
-        StoredBinaryObject stored = binaryStoragePort.store(
-                storageKey,
-                digestInputStream,
-                command.sizeBytes(),
-                mimeType
-        );
+        StoredBinaryObject stored;
+        try {
+            stored = binaryStoragePort.store(
+                    storageKey,
+                    digestInputStream,
+                    command.sizeBytes(),
+                    mimeType
+            );
+        } catch (RuntimeException storeException) {
+            if (cutoverActive && allocation != null) {
+                try {
+                    storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                } catch (RuntimeException tombstoneException) {
+                    storeException.addSuppressed(tombstoneException);
+                }
+            }
+            // Do not treat store() failure as evidence that a new object was successfully created;
+            // no speculative delete is performed. When cutover is active, the reservation remains
+            // permanently TOMBSTONED to guarantee non-reuse for uncertain outcomes.
+            throw storeException;
+        }
 
         String contentHash = HexFormat.of().formatHex(messageDigest.digest());
 
@@ -125,7 +189,9 @@ public class UploadMediaAssetUseCase {
                 mimeType.value(),
                 command.sizeBytes(),
                 command.originalFilename(),
-                command.clientTag()
+                command.clientTag(),
+                (allocation != null) ? allocation.getId() : null,
+                (allocation != null) ? reservationCorrelationId : null
         );
 
         RegisterMediaAssetResult registerResult;
@@ -133,6 +199,13 @@ public class UploadMediaAssetUseCase {
             registerResult = registerMediaAssetUseCase.execute(registerCommand);
         } catch (RuntimeException primaryException) {
             compensateStorage(binaryStoragePort, stored.location().key(), primaryException);
+            if (cutoverActive && allocation != null) {
+                try {
+                    storageKeyAllocationService.tombstoneAllocation(allocation.getId());
+                } catch (RuntimeException tombstoneException) {
+                    primaryException.addSuppressed(tombstoneException);
+                }
+            }
             throw primaryException;
         }
 
@@ -154,8 +227,8 @@ public class UploadMediaAssetUseCase {
     ) {
         try {
             binaryStoragePort.delete(storageKey);
-        } catch (RuntimeException cleanupException) {
-            primaryException.addSuppressed(cleanupException);
+        } catch (RuntimeException compensationException) {
+            primaryException.addSuppressed(compensationException);
         }
     }
 

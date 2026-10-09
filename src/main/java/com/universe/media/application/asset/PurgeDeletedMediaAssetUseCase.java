@@ -50,14 +50,19 @@ public class PurgeDeletedMediaAssetUseCase {
     private final StorageProviderResolverPort storageProviderResolverPort;
     private final PurgeMediaAssetMetadataService purgeMediaAssetMetadataService;
     private final ClockPort clockPort;
+    private final com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService;
+    private final com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public PurgeDeletedMediaAssetUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
             MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
             StorageProviderResolverPort storageProviderResolverPort,
             PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
-            ClockPort clockPort
+            ClockPort clockPort,
+            com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService,
+            com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier
     ) {
         this.mediaAssetRepositoryPort = Objects.requireNonNull(
                 mediaAssetRepositoryPort,
@@ -82,6 +87,49 @@ public class PurgeDeletedMediaAssetUseCase {
         this.clockPort = Objects.requireNonNull(
                 clockPort,
                 "ClockPort cannot be null."
+        );
+        this.storageKeyAllocationService = storageKeyAllocationService;
+        this.cutoverBarrier = cutoverBarrier;
+    }
+
+    public PurgeDeletedMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
+            StorageProviderResolverPort storageProviderResolverPort,
+            PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
+            ClockPort clockPort,
+            com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                mediaImageVariantRepositoryPort,
+                storageProviderResolverPort,
+                purgeMediaAssetMetadataService,
+                clockPort,
+                storageKeyAllocationService,
+                null
+        );
+    }
+
+    public PurgeDeletedMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
+            StorageProviderResolverPort storageProviderResolverPort,
+            PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
+            ClockPort clockPort
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                mediaImageVariantRepositoryPort,
+                storageProviderResolverPort,
+                purgeMediaAssetMetadataService,
+                clockPort,
+                null,
+                null
         );
     }
 
@@ -123,11 +171,19 @@ public class PurgeDeletedMediaAssetUseCase {
                 : mediaImageVariantRepositoryPort.findAllByVersionIds(versionIds);
 
         // 4. Physical Storage Deletion (No DB transaction held)
+        boolean cutoverActive = (cutoverBarrier != null && cutoverBarrier.isCutoverActive() && storageKeyAllocationService != null);
+
         // 4a. Delete all derivative variant physical binaries (skip virtual CDN-transformed variants)
         for (MediaImageVariant variant : variants) {
             if (variant.isPhysical()) {
                 BinaryStoragePort port = storageProviderResolverPort.resolve(variant.getStorageLocation().providerId());
                 port.delete(variant.getStorageLocation().key());
+                if (cutoverActive) {
+                    storageKeyAllocationService.tombstoneAllocationByLocation(
+                            variant.getStorageLocation().providerId(),
+                            variant.getStorageLocation().key()
+                    );
+                }
             }
         }
 
@@ -135,6 +191,12 @@ public class PurgeDeletedMediaAssetUseCase {
         for (MediaAssetVersion version : versions) {
             BinaryStoragePort port = storageProviderResolverPort.resolve(version.getStorageLocation().providerId());
             port.delete(version.getStorageLocation().key());
+            if (cutoverActive) {
+                storageKeyAllocationService.tombstoneAllocationByLocation(
+                        version.getStorageLocation().providerId(),
+                        version.getStorageLocation().key()
+                );
+            }
         }
 
         // 5. Relational Metadata Deletion (Strict bottom-up in one short write transaction, accepts only assetId)

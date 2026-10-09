@@ -19,7 +19,7 @@ class MediaStorageRoutingServiceTest {
 
     @BeforeEach
     void setUp() {
-        routingService = new MediaStorageRoutingService();
+        routingService = new MediaStorageRoutingService("kiemlai-video-test", "kiemlai-audio-test");
     }
 
     @Test
@@ -188,5 +188,35 @@ class MediaStorageRoutingServiceTest {
                 2
         );
         assertThat(versionKey.value()).startsWith("objects/" + assetId + "_v2_");
+    }
+
+    @Test
+    @DisplayName("resolves bucket name correctly for B2, R2 and bucketless providers")
+    void shouldResolveBucketNameCorrectly() {
+        assertThat(routingService.resolveBucketName(MediaStorageRoutingService.B2_PROVIDER))
+                .isEqualTo("kiemlai-video-test");
+        assertThat(routingService.resolveBucketName(MediaStorageRoutingService.R2_PROVIDER))
+                .isEqualTo("kiemlai-audio-test");
+        assertThat(routingService.resolveBucketName(MediaStorageRoutingService.CLOUDINARY_PROVIDER))
+                .isEqualTo("NONE");
+    }
+
+    @Test
+    @DisplayName("fails closed when B2 bucket is missing, blank, or sentinel")
+    void shouldFailClosedWhenB2BucketIsInvalid() {
+        MediaStorageRoutingService nullB2Service = new MediaStorageRoutingService(null, "audio-bucket");
+        assertThatThrownBy(() -> nullB2Service.resolveBucketName(MediaStorageRoutingService.B2_PROVIDER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Storage provider 'b2' requires an authentic configured bucket");
+
+        MediaStorageRoutingService blankB2Service = new MediaStorageRoutingService("   ", "audio-bucket");
+        assertThatThrownBy(() -> blankB2Service.resolveBucketName(MediaStorageRoutingService.B2_PROVIDER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Storage provider 'b2' requires an authentic configured bucket");
+
+        MediaStorageRoutingService sentinelB2Service = new MediaStorageRoutingService("NONE", "audio-bucket");
+        assertThatThrownBy(() -> sentinelB2Service.resolveBucketName(MediaStorageRoutingService.B2_PROVIDER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Storage provider 'b2' requires an authentic configured bucket");
     }
 }

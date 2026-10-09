@@ -35,7 +35,7 @@ public class StorageKeyAllocationService {
     /**
      * Atomically reserves a globally unique storage key for an upload session or direct asset creation.
      */
-    @Transactional
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public StorageKeyAllocation reserveKey(
             StorageProviderId providerId,
             String bucketName,
@@ -91,7 +91,8 @@ public class StorageKeyAllocationService {
     }
 
     /**
-     * Permanently marks a storage key allocation as tombstoned.
+     * Permanently marks a storage key allocation as tombstoned within the current transaction.
+     * Enforces atomic rollback/commit when invoked from composite business operations (such as session abort).
      */
     @Transactional
     public void tombstoneAllocation(UUID allocationId) {
@@ -104,5 +105,39 @@ public class StorageKeyAllocationService {
         allocation.tombstone(now);
 
         repositoryPort.save(allocation);
+    }
+
+    /**
+     * Permanently marks a storage key allocation as tombstoned in an isolated independent transaction.
+     * Use when compensating a reservation from an exception handler where the outer transaction may be marked for rollback.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void tombstoneAllocationInNewTransaction(UUID allocationId) {
+        tombstoneAllocation(allocationId);
+    }
+
+    /**
+     * Looks up an existing allocation by its storage provider and key.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<StorageKeyAllocation> findByStorageLocation(StorageProviderId providerId, StorageKey key) {
+        Objects.requireNonNull(providerId, "StorageProviderId cannot be null.");
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+        return repositoryPort.findByStorageLocation(providerId, key);
+    }
+
+    /**
+     * Permanently marks a storage key allocation as tombstoned by its storage location.
+     * If no allocation exists (e.g. historical unbacked object), safely completes without error.
+     */
+    @Transactional
+    public void tombstoneAllocationByLocation(StorageProviderId providerId, StorageKey key) {
+        Objects.requireNonNull(providerId, "StorageProviderId cannot be null.");
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+        repositoryPort.findByStorageLocation(providerId, key).ifPresent(allocation -> {
+            Instant now = clockPort.now();
+            allocation.tombstone(now);
+            repositoryPort.save(allocation);
+        });
     }
 }

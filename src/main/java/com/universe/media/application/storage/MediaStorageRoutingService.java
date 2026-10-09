@@ -3,7 +3,10 @@ package com.universe.media.application.storage;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageKeyAllocation;
 import com.universe.media.domain.StorageProviderId;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -21,6 +24,51 @@ public class MediaStorageRoutingService {
 
     public static final String WIKI_ARTICLE_COVER_TAG_PREFIX = "wiki.article.cover";
     public static final String IDENTITY_AVATAR_TAG_PREFIX = "identity.avatar";
+
+    private final String b2Bucket;
+    private final String r2Bucket;
+
+    @Autowired
+    public MediaStorageRoutingService(
+            @Value("${media.storage.b2.bucket:}") String b2Bucket,
+            @Value("${media.storage.r2.bucket:}") String r2Bucket
+    ) {
+        this.b2Bucket = (b2Bucket != null && !b2Bucket.isBlank()) ? b2Bucket.trim() : null;
+        this.r2Bucket = (r2Bucket != null && !r2Bucket.isBlank()) ? r2Bucket.trim() : null;
+    }
+
+    /**
+     * Resolves the canonical bucket name for the specified storage provider.
+     * Providers requiring explicit buckets (e.g. b2) return their configured bucket name.
+     * Bucketless providers return {@link StorageKeyAllocation#CANONICAL_BUCKETLESS_SENTINEL}.
+     *
+     * <p>Fails closed if the provider requires an authentic bucket that has not been configured.
+     * Never returns the bucketless sentinel for B2.
+     *
+     * @param providerId the storage provider ID (must not be null)
+     * @return the authoritative bucket name or canonical bucketless sentinel
+     * @throws IllegalStateException if the provider requires an authentic bucket that is missing or sentinel
+     */
+    public String resolveBucketName(StorageProviderId providerId) {
+        Objects.requireNonNull(providerId, "StorageProviderId cannot be null.");
+        if (B2_PROVIDER.equals(providerId)) {
+            if (this.b2Bucket == null || this.b2Bucket.isBlank()
+                    || StorageKeyAllocation.CANONICAL_BUCKETLESS_SENTINEL.equalsIgnoreCase(this.b2Bucket)) {
+                throw new IllegalStateException(
+                        "Storage provider 'b2' requires an authentic configured bucket ('media.storage.b2.bucket'), but none was configured."
+                );
+            }
+            return this.b2Bucket;
+        }
+        if (R2_PROVIDER.equals(providerId)) {
+            if (this.r2Bucket != null && !this.r2Bucket.isBlank()
+                    && !StorageKeyAllocation.CANONICAL_BUCKETLESS_SENTINEL.equalsIgnoreCase(this.r2Bucket)) {
+                return this.r2Bucket;
+            }
+            return StorageKeyAllocation.CANONICAL_BUCKETLESS_SENTINEL;
+        }
+        return StorageKeyAllocation.CANONICAL_BUCKETLESS_SENTINEL;
+    }
 
     /**
      * Resolves the target storage provider ID for a new upload or version write.
