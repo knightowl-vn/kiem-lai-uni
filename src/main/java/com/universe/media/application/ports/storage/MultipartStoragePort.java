@@ -7,6 +7,7 @@ import com.universe.media.domain.StorageKey;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Outbound port for large-binary multipart storage operations.
@@ -24,7 +25,7 @@ import java.util.List;
 public interface MultipartStoragePort extends BinaryStoragePort {
 
     /**
-     * Initiates a multipart upload on the storage provider.
+     * Initiates a multipart upload on the storage provider without metadata.
      *
      * @param key the opaque target storage key
      * @param mimeType the validated MIME type of the upload
@@ -32,7 +33,21 @@ public interface MultipartStoragePort extends BinaryStoragePort {
      * @throws StorageException if initiating upload fails
      * @throws NullPointerException if key or mimeType is null
      */
-    String initiateMultipartUpload(StorageKey key, MimeType mimeType);
+    default String initiateMultipartUpload(StorageKey key, MimeType mimeType) {
+        return initiateMultipartUpload(key, mimeType, Map.of());
+    }
+
+    /**
+     * Initiates a multipart upload on the storage provider with bound metadata.
+     *
+     * @param key the opaque target storage key
+     * @param mimeType the validated MIME type of the upload
+     * @param metadata key-value metadata to attach to the initiated multipart upload
+     * @return provider-assigned upload ID
+     * @throws StorageException if initiating upload fails
+     * @throws NullPointerException if key, mimeType, or metadata is null
+     */
+    String initiateMultipartUpload(StorageKey key, MimeType mimeType, Map<String, String> metadata);
 
     /**
      * Generates a presigned URL allowing direct client PUT for an individual part.

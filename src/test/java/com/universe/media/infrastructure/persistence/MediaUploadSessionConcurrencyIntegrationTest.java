@@ -1,6 +1,7 @@
 package com.universe.media.infrastructure.persistence;
 
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
+import com.universe.media.application.ports.storage.MultipartStoragePort;
 import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.application.storage.MediaUploadSessionService;
 import com.universe.media.application.storage.StorageKeyAllocationService;
@@ -26,6 +27,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,14 +44,21 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -81,10 +91,21 @@ class MediaUploadSessionConcurrencyIntegrationTest {
         public ClockPort clockPort() {
             return Instant::now;
         }
+
+        @Bean
+        public MultipartStoragePort multipartStoragePort() {
+            MultipartStoragePort mock = org.mockito.Mockito.mock(MultipartStoragePort.class);
+            org.mockito.Mockito.when(mock.initiateMultipartUpload(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                    .thenAnswer(inv -> "b2-upload-" + java.util.UUID.randomUUID());
+            return mock;
+        }
     }
 
     @Autowired
     private MediaUploadSessionService sessionService;
+
+    @Autowired
+    private MultipartStoragePort multipartStoragePort;
 
     @Autowired
     private MediaUploadSessionPersistenceAdapter sessionAdapter;
@@ -386,7 +407,7 @@ class MediaUploadSessionConcurrencyIntegrationTest {
         createdSessionIds.add(session.getId());
         createdAllocationIds.add(session.getStorageAllocationId());
 
-        sessionService.markInitiated(session.getId(), "b2-upload-123", principalId);
+        sessionService.initiateMultipartUpload(session.getId(), principalId);
 
         // Execute abort
         MediaUploadSession aborted = sessionService.abortSession(session.getId(), principalId);
@@ -427,7 +448,7 @@ class MediaUploadSessionConcurrencyIntegrationTest {
         createdSessionIds.add(session.getId());
         createdAllocationIds.add(session.getStorageAllocationId());
 
-        sessionService.markInitiated(session.getId(), "b2-upload-fail", principalId);
+        sessionService.initiateMultipartUpload(session.getId(), principalId);
 
         // Inject a simulated failure in a composite transaction wrapping abortSession
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
@@ -473,7 +494,7 @@ class MediaUploadSessionConcurrencyIntegrationTest {
         createdSessionIds.add(session.getId());
         createdAllocationIds.add(session.getStorageAllocationId());
 
-        sessionService.markInitiated(session.getId(), "b2-upload-comp", principalId);
+        sessionService.initiateMultipartUpload(session.getId(), principalId);
 
         UUID assetId = UUID.randomUUID();
         jdbcTemplate.update(
@@ -510,5 +531,291 @@ class MediaUploadSessionConcurrencyIntegrationTest {
                 session.getStorageAllocationId().toString()
         );
         assertThat(allocRow.get("allocation_status")).isEqualTo("COMMITTED");
+    }
+
+    @Test
+    @DisplayName("Initiation is rejected when invoked within an active ambient Spring transaction")
+    void shouldRejectInitiationWhenAmbientTransactionActive() {
+        String principalId = "user-ambient-tx-" + UUID.randomUUID();
+        String idempotencyKey = "idem-ambient-tx-" + UUID.randomUUID();
+
+        MediaUploadSession session = sessionService.allocateSession(
+                principalId,
+                "screen",
+                "ScreenItem",
+                UUID.randomUUID(),
+                idempotencyKey,
+                52428800L,
+                "video.mp4",
+                "screen"
+        );
+        createdSessionIds.add(session.getId());
+        createdAllocationIds.add(session.getStorageAllocationId());
+
+        clearInvocations(multipartStoragePort);
+
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+
+        // 1. Spring-proxied invocation: Propagation.NEVER causes Spring's transaction interceptor
+        // to throw IllegalTransactionStateException before entering the method body.
+        assertThatThrownBy(() -> txTemplate.execute(status -> {
+            sessionService.initiateMultipartUpload(session.getId(), principalId);
+            return null;
+        })).isInstanceOf(IllegalTransactionStateException.class)
+          .hasMessageContaining("Existing transaction found for transaction marked with propagation 'never'");
+
+        // 2. Direct unproxied invocation guard: If invoked directly bypassing the Spring proxy,
+        // TransactionSynchronizationManager.isActualTransactionActive() runtime guard throws IllegalStateException.
+        MediaUploadSessionService unproxiedService = AopTestUtils.getUltimateTargetObject(sessionService);
+        assertThatThrownBy(() -> txTemplate.execute(status -> {
+            unproxiedService.initiateMultipartUpload(session.getId(), principalId);
+            return null;
+        })).isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("initiateMultipartUpload cannot be invoked from an active ambient transaction.");
+
+        // Assert provider was never invoked
+        verify(multipartStoragePort, never()).initiateMultipartUpload(any(), any(), any());
+
+        // Verify in MySQL: remains ALLOCATED and RESERVED with no lease or provider upload ID
+        Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
+                "SELECT status, lease_owner, provider_upload_id FROM media_upload_sessions WHERE id = ?",
+                session.getId().toString()
+        );
+        assertThat(sessionRow.get("status")).isEqualTo("ALLOCATED");
+        assertThat(sessionRow.get("lease_owner")).isNull();
+        assertThat(sessionRow.get("provider_upload_id")).isNull();
+
+        Map<String, Object> allocRow = jdbcTemplate.queryForMap(
+                "SELECT allocation_status FROM media_storage_key_allocations WHERE id = ?",
+                session.getStorageAllocationId().toString()
+        );
+        assertThat(allocRow.get("allocation_status")).isEqualTo("RESERVED");
+    }
+
+    @Test
+    @DisplayName("Concurrent abortSession is rejected when initiation claim (TX-A) is committed")
+    void shouldRejectConcurrentAbortWhenInitiationClaimIsCommitted() throws Exception {
+        String principalId = "user-race-claim-" + UUID.randomUUID();
+        String idempotencyKey = "idem-race-claim-" + UUID.randomUUID();
+
+        MediaUploadSession session = sessionService.allocateSession(
+                principalId,
+                "screen",
+                "ScreenItem",
+                UUID.randomUUID(),
+                idempotencyKey,
+                52428800L,
+                "video.mp4",
+                "screen"
+        );
+        createdSessionIds.add(session.getId());
+        createdAllocationIds.add(session.getStorageAllocationId());
+
+        CountDownLatch txACommittedLatch = new CountDownLatch(1);
+        CountDownLatch abortAttemptedLatch = new CountDownLatch(1);
+        AtomicReference<Throwable> abortError = new AtomicReference<>();
+
+        // Configure provider mock to hook immediately after TX-A commits
+        when(multipartStoragePort.initiateMultipartUpload(any(), any(), any())).thenAnswer(inv -> {
+            txACommittedLatch.countDown();
+            // Wait for competing abort thread to finish its abort attempt before completing B2 creation
+            assertThat(abortAttemptedLatch.await(10, TimeUnit.SECONDS)).isTrue();
+            return "b2-upload-race-" + UUID.randomUUID();
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            // Thread 1: Initiates multipart upload (executes TX-A, hooks in provider mock, then executes TX-B)
+            Future<MediaUploadSession> initiationFuture = executor.submit(() ->
+                    sessionService.initiateMultipartUpload(session.getId(), principalId)
+            );
+
+            // Thread 2: Competing thread attempting to abort the session while initiation is in flight
+            Future<?> abortFuture = executor.submit(() -> {
+                try {
+                    // Wait until TX-A has definitively committed in MySQL
+                    assertThat(txACommittedLatch.await(10, TimeUnit.SECONDS)).isTrue();
+                    // Attempt abortSession in independent transaction
+                    sessionService.abortSession(session.getId(), principalId);
+                } catch (Throwable t) {
+                    abortError.set(t);
+                } finally {
+                    abortAttemptedLatch.countDown();
+                }
+            });
+
+            abortFuture.get(15, TimeUnit.SECONDS);
+            MediaUploadSession initiatedSession = initiationFuture.get(15, TimeUnit.SECONDS);
+
+            // 1. Competing abort was rejected with IllegalStateException
+            assertThat(abortError.get())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("unresolved initiation claim");
+
+            // 2. Initiation succeeded
+            assertThat(initiatedSession.getStatus()).isEqualTo(MediaUploadSessionStatus.INITIATED);
+            assertThat(initiatedSession.getProviderUploadId()).isNotNull();
+
+            // 3. In MySQL: session is INITIATED and allocation is RESERVED (never tombstoned!)
+            Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
+                    "SELECT status, cleanup_status FROM media_upload_sessions WHERE id = ?",
+                    session.getId().toString()
+            );
+            assertThat(sessionRow.get("status")).isEqualTo("INITIATED");
+            assertThat(sessionRow.get("cleanup_status")).isEqualTo("NONE");
+
+            Map<String, Object> allocRow = jdbcTemplate.queryForMap(
+                    "SELECT allocation_status FROM media_storage_key_allocations WHERE id = ?",
+                    session.getStorageAllocationId().toString()
+            );
+            assertThat(allocRow.get("allocation_status")).isEqualTo("RESERVED");
+        } finally {
+            executor.shutdown();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("Concurrent abortBySystem is rejected when initiation claim (TX-A) is committed")
+    void shouldRejectConcurrentSystemAbortWhenInitiationClaimIsCommitted() throws Exception {
+        String principalId = "user-race-sys-claim-" + UUID.randomUUID();
+        String idempotencyKey = "idem-race-sys-claim-" + UUID.randomUUID();
+
+        MediaUploadSession session = sessionService.allocateSession(
+                principalId,
+                "screen",
+                "ScreenItem",
+                UUID.randomUUID(),
+                idempotencyKey,
+                52428800L,
+                "video.mp4",
+                "screen"
+        );
+        createdSessionIds.add(session.getId());
+        createdAllocationIds.add(session.getStorageAllocationId());
+
+        CountDownLatch txACommittedLatch = new CountDownLatch(1);
+        CountDownLatch abortAttemptedLatch = new CountDownLatch(1);
+        AtomicReference<Throwable> abortError = new AtomicReference<>();
+
+        // Configure provider mock to hook immediately after TX-A commits
+        when(multipartStoragePort.initiateMultipartUpload(any(), any(), any())).thenAnswer(inv -> {
+            txACommittedLatch.countDown();
+            // Wait for competing system abort thread before completing B2 creation
+            assertThat(abortAttemptedLatch.await(10, TimeUnit.SECONDS)).isTrue();
+            return "b2-upload-sys-race-" + UUID.randomUUID();
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            // Thread 1: Initiates multipart upload
+            Future<MediaUploadSession> initiationFuture = executor.submit(() ->
+                    sessionService.initiateMultipartUpload(session.getId(), principalId)
+            );
+
+            // Thread 2: Competing system abort attempting to reap the session while initiation is in flight
+            Future<?> abortFuture = executor.submit(() -> {
+                try {
+                    // Wait until TX-A has definitively committed in MySQL
+                    assertThat(txACommittedLatch.await(10, TimeUnit.SECONDS)).isTrue();
+                    // Attempt abortBySystem in independent transaction
+                    sessionService.abortBySystem(session.getId(), "concurrency-test-reaper");
+                } catch (Throwable t) {
+                    abortError.set(t);
+                } finally {
+                    abortAttemptedLatch.countDown();
+                }
+            });
+
+            abortFuture.get(15, TimeUnit.SECONDS);
+            MediaUploadSession initiatedSession = initiationFuture.get(15, TimeUnit.SECONDS);
+
+            // 1. Competing system abort was rejected with IllegalStateException
+            assertThat(abortError.get())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("unresolved initiation claim");
+
+            // 2. Initiation succeeded
+            assertThat(initiatedSession.getStatus()).isEqualTo(MediaUploadSessionStatus.INITIATED);
+
+            // 3. In MySQL: session is INITIATED and allocation is RESERVED (never tombstoned!)
+            Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
+                    "SELECT status, cleanup_status FROM media_upload_sessions WHERE id = ?",
+                    session.getId().toString()
+            );
+            assertThat(sessionRow.get("status")).isEqualTo("INITIATED");
+            assertThat(sessionRow.get("cleanup_status")).isEqualTo("NONE");
+
+            Map<String, Object> allocRow = jdbcTemplate.queryForMap(
+                    "SELECT allocation_status FROM media_storage_key_allocations WHERE id = ?",
+                    session.getStorageAllocationId().toString()
+            );
+            assertThat(allocRow.get("allocation_status")).isEqualTo("RESERVED");
+        } finally {
+            executor.shutdown();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("Committed initiation claim with expired lease cannot be aborted by user or system")
+    void shouldRejectAbortWhenCommittedInitiationClaimLeaseHasExpired() throws Exception {
+        String principalId = "user-expired-claim-" + UUID.randomUUID();
+        String idempotencyKey = "idem-expired-claim-" + UUID.randomUUID();
+
+        MediaUploadSession session = sessionService.allocateSession(
+                principalId,
+                "screen",
+                "ScreenItem",
+                UUID.randomUUID(),
+                idempotencyKey,
+                52428800L,
+                "video.mp4",
+                "screen"
+        );
+        createdSessionIds.add(session.getId());
+        createdAllocationIds.add(session.getStorageAllocationId());
+
+        // Simulate an unresolved initiation claim committed in MySQL whose lease has already EXPIRED in the past
+        jdbcTemplate.update(
+                "UPDATE media_upload_sessions SET lease_owner = 'EXPIRED-CLAIM-TOKEN', lease_expires_at = DATE_SUB(NOW(6), INTERVAL 5 MINUTE) WHERE id = ?",
+                session.getId().toString()
+        );
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            // Thread 1: User abortSession in independent transaction must fail
+            Future<?> userAbortFuture = executor.submit(() -> {
+                assertThatThrownBy(() -> sessionService.abortSession(session.getId(), principalId))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("unresolved initiation claim");
+            });
+            userAbortFuture.get(10, TimeUnit.SECONDS);
+
+            // Thread 2: System reaper abortBySystem in independent transaction must also fail
+            Future<?> systemAbortFuture = executor.submit(() -> {
+                assertThatThrownBy(() -> sessionService.abortBySystem(session.getId(), "expired-reaper-check"))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("unresolved initiation claim");
+            });
+            systemAbortFuture.get(10, TimeUnit.SECONDS);
+
+            // In MySQL: session remains ALLOCATED, lease_owner intact, and allocation remains RESERVED (never tombstoned!)
+            Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
+                    "SELECT status, lease_owner FROM media_upload_sessions WHERE id = ?",
+                    session.getId().toString()
+            );
+            assertThat(sessionRow.get("status")).isEqualTo("ALLOCATED");
+            assertThat(sessionRow.get("lease_owner")).isEqualTo("EXPIRED-CLAIM-TOKEN");
+
+            Map<String, Object> allocRow = jdbcTemplate.queryForMap(
+                    "SELECT allocation_status FROM media_storage_key_allocations WHERE id = ?",
+                    session.getStorageAllocationId().toString()
+            );
+            assertThat(allocRow.get("allocation_status")).isEqualTo("RESERVED");
+        } finally {
+            executor.shutdown();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
     }
 }

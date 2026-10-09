@@ -678,6 +678,34 @@ class B2StorageAdapterTest {
             }
 
             @Test
+            @DisplayName("initiate with metadata forwards bound metadata in CreateMultipartUploadRequest")
+            void shouldInitiateMultipartUploadWithMetadata() {
+                StorageKey key = StorageKey.of("videos/meta-video.mp4");
+                MimeType mimeType = MimeType.of("video/mp4");
+                java.util.Map<String, String> metadata = java.util.Map.of(
+                        "session-id", "s-123",
+                        "allocation-id", "a-456"
+                );
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class)))
+                        .thenReturn(CreateMultipartUploadResponse.builder().uploadId("b2-meta-upload-id").build());
+
+                String uploadId = adapter.initiateMultipartUpload(key, mimeType, metadata);
+
+                assertThat(uploadId).isEqualTo("b2-meta-upload-id");
+
+                ArgumentCaptor<CreateMultipartUploadRequest> captor = ArgumentCaptor.forClass(CreateMultipartUploadRequest.class);
+                verify(s3Client).createMultipartUpload(captor.capture());
+
+                CreateMultipartUploadRequest captured = captor.getValue();
+                assertThat(captured.bucket()).isEqualTo(BUCKET);
+                assertThat(captured.key()).isEqualTo("videos/meta-video.mp4");
+                assertThat(captured.contentType()).isEqualTo("video/mp4");
+                assertThat(captured.metadata()).containsEntry("session-id", "s-123");
+                assertThat(captured.metadata()).containsEntry("allocation-id", "a-456");
+            }
+
+            @Test
             @DisplayName("initiate validates non-null arguments")
             void shouldValidateInitiateArguments() {
                 StorageKey key = StorageKey.of("videos/k.mp4");
@@ -686,6 +714,8 @@ class B2StorageAdapterTest {
                 assertThatThrownBy(() -> adapter.initiateMultipartUpload(null, mime))
                         .isInstanceOf(NullPointerException.class);
                 assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, null))
+                        .isInstanceOf(NullPointerException.class);
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime, null))
                         .isInstanceOf(NullPointerException.class);
             }
         }

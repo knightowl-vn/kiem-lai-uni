@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
@@ -294,6 +295,81 @@ class MediaUploadSessionTest {
             session.markCleanupPending(now);
 
             assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("Successfully claims initiation lease on unclaimed session")
+        void claimInitiationSucceedsOnUnclaimedSession() {
+            MediaUploadSession session = createValidSession();
+            Instant now = Instant.now();
+            Instant leaseExpiry = now.plus(Duration.ofMinutes(5));
+
+            session.claimInitiation("CLAIM-123", leaseExpiry, now);
+
+            assertThat(session.getLeaseOwner()).isEqualTo("CLAIM-123");
+            assertThat(session.getLeaseExpiresAt()).isEqualTo(leaseExpiry);
+            assertThat(session.hasActiveInitiationLease(now)).isTrue();
+            assertThat(session.hasUnconfirmedInitiationClaim(now)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Rejects claimInitiation when active initiation lease is already held")
+        void claimInitiationRejectsWhenActiveLeaseHeld() {
+            MediaUploadSession session = createValidSession();
+            Instant now = Instant.now();
+            Instant leaseExpiry = now.plus(Duration.ofMinutes(5));
+            session.claimInitiation("WORKER-1", leaseExpiry, now);
+
+            assertThatThrownBy(() -> session.claimInitiation("WORKER-2", leaseExpiry.plus(Duration.ofMinutes(5)), now))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Active initiation lease already held by: WORKER-1");
+        }
+
+        @Test
+        @DisplayName("Rejects claimInitiation when unresolved initiation claim exists even if lease has expired")
+        void claimInitiationRejectsWhenExpiredLeaseHeldWithoutReconciliation() {
+            Instant now = Instant.now();
+            Instant past = now.minus(Duration.ofHours(1));
+            MediaUploadSession session = MediaUploadSession.create(
+                    UUID.randomUUID(),
+                    "user-123",
+                    "screen",
+                    "ScreenItem",
+                    UUID.randomUUID(),
+                    "idem-key-1",
+                    MediaUploadSession.FIXED_PART_SIZE_BYTES * 2,
+                    B2_PROVIDER,
+                    B2_BUCKET,
+                    STORAGE_KEY,
+                    UUID.randomUUID(),
+                    "video.mp4",
+                    "screen",
+                    now.plus(Duration.ofDays(1)),
+                    past
+            );
+            Instant claimTime = past.plus(Duration.ofMinutes(1));
+            Instant expiredLease = past.plus(Duration.ofMinutes(4));
+            session.claimInitiation("WORKER-DEAD", expiredLease, claimTime);
+
+            // Calling claimInitiation at 'now' (when lease is expired) must be rejected
+            assertThatThrownBy(() -> session.claimInitiation("WORKER-NEW", now.plus(Duration.ofMinutes(5)), now))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Cannot overwrite unresolved initiation claim held by: WORKER-DEAD");
+        }
+
+        @Test
+        @DisplayName("Allows claimInitiation after previous lease was explicitly cleared")
+        void claimInitiationSucceedsAfterLeaseExplicitlyCleared() {
+            MediaUploadSession session = createValidSession();
+            Instant now = Instant.now();
+            Instant leaseExpiry = now.plus(Duration.ofMinutes(5));
+            session.claimInitiation("WORKER-OLD", leaseExpiry, now);
+
+            session.clearLease(now.plus(Duration.ofMinutes(1)));
+            assertThat(session.getLeaseOwner()).isNull();
+
+            session.claimInitiation("WORKER-NEW", now.plus(Duration.ofMinutes(10)), now.plus(Duration.ofMinutes(2)));
+            assertThat(session.getLeaseOwner()).isEqualTo("WORKER-NEW");
         }
     }
 

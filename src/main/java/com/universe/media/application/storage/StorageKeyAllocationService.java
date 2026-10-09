@@ -117,6 +117,15 @@ public class StorageKeyAllocationService {
     }
 
     /**
+     * Looks up an existing allocation by its allocation ID.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<StorageKeyAllocation> findById(UUID allocationId) {
+        Objects.requireNonNull(allocationId, "Allocation ID cannot be null.");
+        return repositoryPort.findById(allocationId);
+    }
+
+    /**
      * Looks up an existing allocation by its storage provider and key.
      */
     @Transactional(readOnly = true)

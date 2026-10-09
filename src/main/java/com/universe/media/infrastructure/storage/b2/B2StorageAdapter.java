@@ -60,6 +60,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -362,17 +363,26 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
 
     @Override
     public String initiateMultipartUpload(StorageKey key, MimeType mimeType) {
+        return initiateMultipartUpload(key, mimeType, Map.of());
+    }
+
+    @Override
+    public String initiateMultipartUpload(StorageKey key, MimeType mimeType, Map<String, String> metadata) {
         Objects.requireNonNull(key, "StorageKey cannot be null.");
         Objects.requireNonNull(mimeType, "MimeType cannot be null.");
+        Objects.requireNonNull(metadata, "Metadata cannot be null.");
 
-        CreateMultipartUploadRequest createRequest = CreateMultipartUploadRequest.builder()
+        CreateMultipartUploadRequest.Builder createRequestBuilder = CreateMultipartUploadRequest.builder()
                 .bucket(bucket)
                 .key(key.value())
-                .contentType(mimeType.value())
-                .build();
+                .contentType(mimeType.value());
+
+        if (!metadata.isEmpty()) {
+            createRequestBuilder.metadata(metadata);
+        }
 
         try {
-            CreateMultipartUploadResponse response = s3Client.createMultipartUpload(createRequest);
+            CreateMultipartUploadResponse response = s3Client.createMultipartUpload(createRequestBuilder.build());
             return response.uploadId();
         } catch (AwsServiceException | SdkClientException e) {
             throw new StorageException("Failed to initiate multipart upload for key: " + key.value(), e);

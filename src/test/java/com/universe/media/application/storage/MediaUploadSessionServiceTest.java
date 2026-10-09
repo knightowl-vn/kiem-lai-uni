@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
@@ -743,6 +744,7 @@ class MediaUploadSessionServiceTest {
         @DisplayName("Successfully marks session initiated")
         void initiatesSession() {
             UUID sessionId = UUID.randomUUID();
+            UUID allocId = UUID.randomUUID();
             MediaUploadSession session = MediaUploadSession.create(
                     sessionId,
                     "user-1",
@@ -754,17 +756,31 @@ class MediaUploadSessionServiceTest {
                     B2_PROVIDER,
                     B2_BUCKET,
                     STORAGE_KEY,
-                    UUID.randomUUID(),
+                    allocId,
                     "movie.mp4",
                     "screen",
                     NOW.plus(24, ChronoUnit.HOURS),
                     NOW
             );
 
+            String claimToken = "CLAIM-TEST-1";
+            session.claimInitiation(claimToken, NOW.plus(5, ChronoUnit.MINUTES), NOW);
+
+            StorageKeyAllocation allocation = StorageKeyAllocation.reserve(
+                    allocId,
+                    B2_PROVIDER,
+                    B2_BUCKET,
+                    STORAGE_KEY,
+                    StorageKeyAllocationType.UPLOAD_SESSION,
+                    sessionId,
+                    NOW
+            );
+
             when(sessionRepositoryPort.findById(sessionId)).thenReturn(Optional.of(session));
+            when(storageKeyAllocationService.findById(allocId)).thenReturn(Optional.of(allocation));
             when(sessionRepositoryPort.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            MediaUploadSession initiated = service.markInitiated(sessionId, "b2-upload-123", "user-1");
+            MediaUploadSession initiated = service.markInitiated(sessionId, "b2-upload-123", "user-1", claimToken);
 
             assertThat(initiated.getStatus()).isEqualTo(MediaUploadSessionStatus.INITIATED);
             assertThat(initiated.getProviderUploadId()).isEqualTo("b2-upload-123");
@@ -842,6 +858,7 @@ class MediaUploadSessionServiceTest {
         @DisplayName("Rejects markInitiated when requesting principal does not match session owner")
         void rejectsUnauthorizedInitiation() {
             UUID sessionId = UUID.randomUUID();
+            UUID allocId = UUID.randomUUID();
             MediaUploadSession session = MediaUploadSession.create(
                     sessionId,
                     "owner-user",
@@ -853,18 +870,30 @@ class MediaUploadSessionServiceTest {
                     B2_PROVIDER,
                     B2_BUCKET,
                     STORAGE_KEY,
-                    UUID.randomUUID(),
+                    allocId,
                     "movie.mp4",
                     "screen",
                     NOW.plus(24, ChronoUnit.HOURS),
                     NOW
             );
+            String claimToken = "CLAIM-TEST-1";
+            session.claimInitiation(claimToken, NOW.plus(Duration.ofMinutes(5)), NOW);
 
             when(sessionRepositoryPort.findById(sessionId)).thenReturn(Optional.of(session));
 
             org.junit.jupiter.api.Assertions.assertThrows(
                     IllegalStateException.class,
-                    () -> service.markInitiated(sessionId, "b2-upload-123", "attacker-user")
+                    () -> service.markInitiated(sessionId, "b2-upload-123", "attacker-user", claimToken)
+            );
+        }
+
+        @Test
+        @DisplayName("Rejects legacy 3-arg markInitiated bypass without claim token")
+        void rejectsLegacyMarkInitiatedBypass() {
+            UUID sessionId = UUID.randomUUID();
+            org.junit.jupiter.api.Assertions.assertThrows(
+                    UnsupportedOperationException.class,
+                    () -> service.markInitiated(sessionId, "b2-upload-123", "user-1")
             );
         }
 

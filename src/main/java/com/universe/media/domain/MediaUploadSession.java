@@ -29,7 +29,7 @@ public final class MediaUploadSession {
     public static final long MAX_VIDEO_SIZE_BYTES = 53687091200L; // 50 GiB
     public static final String REQUIRED_MIME_TYPE = "video/mp4";
     public static final StorageProviderId REQUIRED_PROVIDER = StorageProviderId.of("b2");
-    private static final Pattern SHA256_PATTERN = Pattern.compile("^[0-9a-f]{64}$");
+    public static final Pattern SHA256_PATTERN = Pattern.compile("^[0-9a-f]{64}$");
 
     private final UUID id;
     private final String initiatorPrincipalId;
@@ -410,6 +410,46 @@ public final class MediaUploadSession {
     // State Transitions
     // ---------------------------------------------------------------------------------------------
 
+    public void claimInitiation(String leaseOwner, Instant leaseExpiresAt, Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (this.status != MediaUploadSessionStatus.ALLOCATED) {
+            throw new IllegalStateException("Cannot claim initiation on session with status: " + this.status);
+        }
+        if (this.leaseOwner != null) {
+            if (this.leaseExpiresAt != null && this.leaseExpiresAt.isAfter(now)) {
+                throw new IllegalStateException("Active initiation lease already held by: " + this.leaseOwner);
+            }
+            throw new IllegalStateException("Cannot overwrite unresolved initiation claim held by: " + this.leaseOwner);
+        }
+        this.leaseOwner = requireNonBlank(leaseOwner, "leaseOwner");
+        this.leaseExpiresAt = Objects.requireNonNull(leaseExpiresAt, "leaseExpiresAt cannot be null.");
+        this.updatedAt = now;
+        validateInvariants();
+    }
+
+    public void clearLease(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
+        this.updatedAt = now;
+        validateInvariants();
+    }
+
+    public boolean hasActiveInitiationLease(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return this.status == MediaUploadSessionStatus.ALLOCATED
+                && this.leaseOwner != null
+                && this.leaseExpiresAt != null
+                && this.leaseExpiresAt.isAfter(now);
+    }
+
+    public boolean hasUnconfirmedInitiationClaim(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return this.status == MediaUploadSessionStatus.ALLOCATED
+                && this.leaseOwner != null
+                && this.providerUploadId == null;
+    }
+
     public void markInitiated(String providerUploadId, Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
         if (this.status != MediaUploadSessionStatus.ALLOCATED) {
@@ -417,6 +457,8 @@ public final class MediaUploadSession {
         }
         this.providerUploadId = requireNonBlank(providerUploadId, "providerUploadId");
         this.status = MediaUploadSessionStatus.INITIATED;
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
         this.updatedAt = now;
         validateInvariants();
     }
@@ -446,6 +488,12 @@ public final class MediaUploadSession {
 
     public void abort(Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (this.status == MediaUploadSessionStatus.ALLOCATED && this.leaseOwner != null) {
+            throw new IllegalStateException("Cannot abort session with unresolved initiation claim: " + this.id + " (lease owner: " + this.leaseOwner + ")");
+        }
+        if (this.status == MediaUploadSessionStatus.COMPLETING) {
+            throw new IllegalStateException("Cannot abort session with active completion claim: " + this.id);
+        }
         if (this.status == MediaUploadSessionStatus.COMPLETED || this.status == MediaUploadSessionStatus.CLEANED_UP) {
             throw new IllegalStateException("Cannot abort session in terminal state: " + this.status);
         }
