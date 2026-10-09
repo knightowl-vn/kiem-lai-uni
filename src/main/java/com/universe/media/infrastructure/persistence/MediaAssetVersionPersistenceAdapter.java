@@ -45,6 +45,7 @@ public class MediaAssetVersionPersistenceAdapter implements MediaAssetVersionRep
         entity.setStorageKey(version.getStorageLocation().key().value());
         entity.setPublicUrl(version.getPublicUrl());
         entity.setContentHash(version.getContentHash().value());
+        entity.setContentHashStatus(version.getContentHashStatus());
         entity.setMimeType(version.getMimeType().value());
         entity.setSizeBytes(version.getSizeBytes());
         entity.setOriginalFilename(version.getOriginalFilename());
@@ -163,6 +164,7 @@ public class MediaAssetVersionPersistenceAdapter implements MediaAssetVersionRep
                 StorageLocation.of(entity.getStorageProviderId(), entity.getStorageKey()),
                 entity.getPublicUrl(),
                 ContentHash.of(entity.getContentHash()),
+                entity.getContentHashStatus(),
                 MimeType.of(entity.getMimeType()),
                 entity.getSizeBytes(),
                 entity.getOriginalFilename(),

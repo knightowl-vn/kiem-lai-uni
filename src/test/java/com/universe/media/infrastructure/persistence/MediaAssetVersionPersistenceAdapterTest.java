@@ -308,4 +308,84 @@ class MediaAssetVersionPersistenceAdapterTest {
                 .hasMessageContaining("Content hash cannot be null.");
         verifyNoInteractions(repository);
     }
+
+    @Test
+    @DisplayName("save round-trips SERVER_COMPUTED contentHashStatus")
+    void shouldSaveAndMapServerComputedProvenance() {
+        MediaAssetVersion domainVersion = MediaAssetVersion.create(
+                versionId,
+                assetId,
+                1,
+                StorageLocation.of("b2", "videos/v1.mp4"),
+                "https://cdn.universe.local/v1.mp4",
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                com.universe.media.domain.ContentHashStatus.SERVER_COMPUTED,
+                MimeType.of("video/mp4"),
+                5000L,
+                "v1.mp4",
+                createdAt
+        );
+
+        when(repository.saveAndFlush(any(MediaAssetVersionJpaEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        MediaAssetVersion saved = adapter.save(domainVersion);
+
+        ArgumentCaptor<MediaAssetVersionJpaEntity> captor = ArgumentCaptor.forClass(MediaAssetVersionJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getContentHashStatus()).isEqualTo(com.universe.media.domain.ContentHashStatus.SERVER_COMPUTED);
+        assertThat(saved.getContentHashStatus()).isEqualTo(com.universe.media.domain.ContentHashStatus.SERVER_COMPUTED);
+    }
+
+    @Test
+    @DisplayName("save round-trips CLIENT_DECLARED_UNVERIFIED contentHashStatus")
+    void shouldSaveAndMapClientDeclaredProvenance() {
+        MediaAssetVersion domainVersion = MediaAssetVersion.create(
+                versionId,
+                assetId,
+                1,
+                StorageLocation.of("b2", "videos/v2.mp4"),
+                "https://cdn.universe.local/v2.mp4",
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                com.universe.media.domain.ContentHashStatus.CLIENT_DECLARED_UNVERIFIED,
+                MimeType.of("video/mp4"),
+                5000L,
+                "v2.mp4",
+                createdAt
+        );
+
+        when(repository.saveAndFlush(any(MediaAssetVersionJpaEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        MediaAssetVersion saved = adapter.save(domainVersion);
+
+        ArgumentCaptor<MediaAssetVersionJpaEntity> captor = ArgumentCaptor.forClass(MediaAssetVersionJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getContentHashStatus()).isEqualTo(com.universe.media.domain.ContentHashStatus.CLIENT_DECLARED_UNVERIFIED);
+        assertThat(saved.getContentHashStatus()).isEqualTo(com.universe.media.domain.ContentHashStatus.CLIENT_DECLARED_UNVERIFIED);
+    }
+
+    @Test
+    @DisplayName("save round-trips historical null contentHashStatus")
+    void shouldSaveAndMapHistoricalNullProvenance() {
+        MediaAssetVersion domainVersion = MediaAssetVersion.create(
+                versionId,
+                assetId,
+                1,
+                StorageLocation.of("b2", "videos/v3.mp4"),
+                "https://cdn.universe.local/v3.mp4",
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                MimeType.of("video/mp4"),
+                5000L,
+                "v3.mp4",
+                createdAt
+        );
+
+        when(repository.saveAndFlush(any(MediaAssetVersionJpaEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        MediaAssetVersion saved = adapter.save(domainVersion);
+
+        ArgumentCaptor<MediaAssetVersionJpaEntity> captor = ArgumentCaptor.forClass(MediaAssetVersionJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getContentHashStatus()).isNull();
+        assertThat(saved.getContentHashStatus()).isNull();
+    }
 }

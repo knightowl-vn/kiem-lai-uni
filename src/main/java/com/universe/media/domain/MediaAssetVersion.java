@@ -32,6 +32,8 @@ public final class MediaAssetVersion {
 
     private final ContentHash contentHash;
 
+    private final ContentHashStatus contentHashStatus;
+
     private final MimeType mimeType;
 
     private final long sizeBytes;
@@ -47,6 +49,7 @@ public final class MediaAssetVersion {
             StorageLocation storageLocation,
             String publicUrl,
             ContentHash contentHash,
+            ContentHashStatus contentHashStatus,
             MimeType mimeType,
             long sizeBytes,
             String originalFilename,
@@ -87,6 +90,9 @@ public final class MediaAssetVersion {
                         "ContentHash cannot be null."
                 );
 
+        this.contentHashStatus =
+                contentHashStatus;
+
         this.mimeType =
                 Objects.requireNonNull(
                         mimeType,
@@ -118,6 +124,7 @@ public final class MediaAssetVersion {
             StorageLocation storageLocation,
             String publicUrl,
             ContentHash contentHash,
+            ContentHashStatus contentHashStatus,
             MimeType mimeType,
             long sizeBytes,
             String originalFilename,
@@ -130,6 +137,62 @@ public final class MediaAssetVersion {
                 storageLocation,
                 publicUrl,
                 contentHash,
+                contentHashStatus,
+                mimeType,
+                sizeBytes,
+                originalFilename,
+                createdAt
+        );
+    }
+
+    public static MediaAssetVersion create(
+            UUID id,
+            UUID assetId,
+            int versionNumber,
+            StorageLocation storageLocation,
+            String publicUrl,
+            ContentHash contentHash,
+            MimeType mimeType,
+            long sizeBytes,
+            String originalFilename,
+            Instant createdAt
+    ) {
+        return create(
+                id,
+                assetId,
+                versionNumber,
+                storageLocation,
+                publicUrl,
+                contentHash,
+                null,
+                mimeType,
+                sizeBytes,
+                originalFilename,
+                createdAt
+        );
+    }
+
+    public static MediaAssetVersion rehydrate(
+            UUID id,
+            UUID assetId,
+            int versionNumber,
+            StorageLocation storageLocation,
+            String publicUrl,
+            ContentHash contentHash,
+            ContentHashStatus contentHashStatus,
+            MimeType mimeType,
+            long sizeBytes,
+            String originalFilename,
+            Instant createdAt
+    ) {
+        return new MediaAssetVersion(
+                id,
+                assetId,
+                versionNumber,
+                storageLocation,
+                publicUrl,
+                contentHash,
+                contentHashStatus,
                 mimeType,
                 sizeBytes,
                 originalFilename,
@@ -149,13 +212,14 @@ public final class MediaAssetVersion {
             String originalFilename,
             Instant createdAt
     ) {
-        return new MediaAssetVersion(
+        return rehydrate(
                 id,
                 assetId,
                 versionNumber,
                 storageLocation,
                 publicUrl,
                 contentHash,
+                null,
                 mimeType,
                 sizeBytes,
                 originalFilename,
@@ -232,6 +296,10 @@ public final class MediaAssetVersion {
 
     public ContentHash getContentHash() {
         return contentHash;
+    }
+
+    public ContentHashStatus getContentHashStatus() {
+        return contentHashStatus;
     }
 
     public MimeType getMimeType() {

@@ -1,7 +1,10 @@
 package com.universe.media.infrastructure.persistence;
 
+import com.universe.media.domain.ContentHashStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.PostLoad;
@@ -91,6 +94,13 @@ public class MediaAssetVersionJpaEntity implements Persistable<String> {
             columnDefinition = "CHAR(64)"
     )
     private String contentHash;
+
+    @Enumerated(EnumType.STRING)
+    @Column(
+            name = "content_hash_status",
+            length = 30
+    )
+    private ContentHashStatus contentHashStatus;
 
     @Column(
             name = "mime_type",
@@ -190,6 +200,14 @@ public class MediaAssetVersionJpaEntity implements Persistable<String> {
 
     public void setContentHash(String contentHash) {
         this.contentHash = contentHash;
+    }
+
+    public ContentHashStatus getContentHashStatus() {
+        return contentHashStatus;
+    }
+
+    public void setContentHashStatus(ContentHashStatus contentHashStatus) {
+        this.contentHashStatus = contentHashStatus;
     }
 
     public String getMimeType() {
