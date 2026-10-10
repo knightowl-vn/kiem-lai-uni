@@ -1,16 +1,30 @@
 package com.universe.media.application.storage;
 
+import com.universe.media.application.exceptions.DuplicateStorageLocationException;
+import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.ports.MediaAssetRepositoryPort;
+import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
+import com.universe.media.application.ports.storage.MultipartCompletedObject;
+import com.universe.media.application.ports.storage.MultipartObjectMetadata;
+import com.universe.media.application.ports.storage.MultipartPartETag;
 import com.universe.media.application.ports.storage.MultipartStoragePort;
 import com.universe.media.application.ports.storage.MultipartUploadedPart;
+import com.universe.media.domain.ContentHash;
+import com.universe.media.domain.ContentHashStatus;
+import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaUploadSession;
 import com.universe.media.domain.MediaUploadSessionStatus;
+import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageKeyAllocation;
 import com.universe.media.domain.StorageKeyAllocationStatus;
 import com.universe.media.domain.StorageKeyAllocationType;
+import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import com.universe.shared.time.ClockPort;
 import org.slf4j.Logger;
@@ -27,6 +41,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -43,6 +58,7 @@ public class MediaUploadSessionService {
 
     public static final Duration DEFAULT_SESSION_TTL = Duration.ofDays(1); // 24 hours
     public static final Duration DEFAULT_INITIATION_LEASE_DURATION = Duration.ofMinutes(5);
+    public static final Duration DEFAULT_COMPLETION_LEASE_DURATION = Duration.ofMinutes(5);
     public static final String METADATA_SESSION_ID = "session-id";
     public static final String METADATA_ALLOCATION_ID = "allocation-id";
 
@@ -52,6 +68,8 @@ public class MediaUploadSessionService {
     private final ClockPort clockPort;
     private final PlatformTransactionManager transactionManager;
     private final MultipartStoragePort multipartStoragePort;
+    private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
+    private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
 
     @Autowired
     public MediaUploadSessionService(
@@ -60,7 +78,9 @@ public class MediaUploadSessionService {
             MediaStorageRoutingService mediaStorageRoutingService,
             ClockPort clockPort,
             PlatformTransactionManager transactionManager,
-            @Autowired(required = false) MultipartStoragePort multipartStoragePort
+            @Autowired(required = false) MultipartStoragePort multipartStoragePort,
+            @Autowired(required = false) MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            @Autowired(required = false) MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort
     ) {
         this.sessionRepositoryPort = Objects.requireNonNull(sessionRepositoryPort, "MediaUploadSessionRepositoryPort cannot be null.");
         this.storageKeyAllocationService = Objects.requireNonNull(storageKeyAllocationService, "StorageKeyAllocationService cannot be null.");
@@ -68,6 +88,19 @@ public class MediaUploadSessionService {
         this.clockPort = Objects.requireNonNull(clockPort, "ClockPort cannot be null.");
         this.transactionManager = transactionManager;
         this.multipartStoragePort = multipartStoragePort;
+        this.mediaAssetRepositoryPort = mediaAssetRepositoryPort;
+        this.mediaAssetVersionRepositoryPort = mediaAssetVersionRepositoryPort;
+    }
+
+    public MediaUploadSessionService(
+            MediaUploadSessionRepositoryPort sessionRepositoryPort,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            ClockPort clockPort,
+            PlatformTransactionManager transactionManager,
+            MultipartStoragePort multipartStoragePort
+    ) {
+        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, transactionManager, multipartStoragePort, null, null);
     }
 
     public MediaUploadSessionService(
@@ -77,7 +110,7 @@ public class MediaUploadSessionService {
             ClockPort clockPort,
             PlatformTransactionManager transactionManager
     ) {
-        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, transactionManager, null);
+        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, transactionManager, null, null, null);
     }
 
     public MediaUploadSessionService(
@@ -86,7 +119,7 @@ public class MediaUploadSessionService {
             MediaStorageRoutingService mediaStorageRoutingService,
             ClockPort clockPort
     ) {
-        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, null, null);
+        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, null, null, null, null);
     }
 
     /**
@@ -797,5 +830,658 @@ public class MediaUploadSessionService {
                             session.getStorageAllocationId(), session.getId())
             );
         }
+    }
+
+    /**
+     * Transaction-safe multipart upload completion adhering strictly to TX-A -> Provider -> TX-B ordering.
+     *
+     * <ul>
+     *     <li><b>TX-A (MySQL):</b> Authorizes principal, verifies COMPLETING state, verifies allocation binding,
+     *         validates accepted completion manifest, claims completion lease, commits.</li>
+     *     <li><b>Provider verification (Outside DB transaction):</b>
+     *         Authoritatively queries provider ListParts with complete pagination, verifies exact part numbers,
+     *         ordering, sizes, and opaque ETags against accepted manifest.</li>
+     *     <li><b>Provider completion (Outside DB transaction):</b>
+     *         Calls CompleteMultipartUpload on provider. Ambiguous remote outcomes (timeouts, NoSuchUpload)
+     *         probe storage metadata rather than failing blindly or aborting.</li>
+     *     <li><b>Provenance verification (Outside DB transaction):</b>
+     *         Inspects completed object metadata (HeadObject), verifies size, MIME (video/mp4),
+     *         and mandatory session-id and allocation-id metadata bindings. Mismatch fails closed.</li>
+     *     <li><b>TX-B (MySQL):</b> Atomically revalidates lease/fencing and state, creates or idempotently locates MediaAsset
+     *         and MediaAssetVersion, transfers allocation ownership to ASSET_VERSION, marks session COMPLETED, commits.</li>
+     * </ul>
+     */
+    @Transactional(propagation = Propagation.NEVER)
+    public MediaUploadSession completeMultipartUpload(
+            UUID sessionId,
+            String requestingPrincipalId,
+            List<MultipartManifestPart> manifest
+    ) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("completeMultipartUpload cannot be invoked from an active ambient transaction.");
+        }
+
+        Objects.requireNonNull(sessionId, "Session ID cannot be null.");
+        requireNonBlank(requestingPrincipalId, "requestingPrincipalId");
+
+        if (multipartStoragePort == null) {
+            throw new IllegalStateException("MultipartStoragePort is not configured or available.");
+        }
+        if (transactionManager == null) {
+            throw new IllegalStateException("PlatformTransactionManager is required for multipart completion.");
+        }
+        if (mediaAssetRepositoryPort == null || mediaAssetVersionRepositoryPort == null) {
+            throw new IllegalStateException("MediaAssetRepositoryPort and MediaAssetVersionRepositoryPort are required for multipart completion.");
+        }
+
+        // =========================================================================
+        // TX-A — MySQL: Authorize, validate state & allocation, claim completion lease, commit
+        // =========================================================================
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        String claimToken = "COMPLETION_CLAIM:" + UUID.randomUUID();
+        MediaUploadSession claimedSession = txTemplate.execute(status ->
+                executeTxACompletionClaim(sessionId, requestingPrincipalId, manifest, claimToken)
+        );
+
+        // If the session was already COMPLETED (idempotent retry), return directly without second B2 completion
+        if (claimedSession.getStatus() == MediaUploadSessionStatus.COMPLETED) {
+            return claimedSession;
+        }
+
+        // Defensive check: guarantee no ambient transaction is active before invoking remote provider
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("B2 multipart completion operations cannot be invoked while a database transaction is active.");
+        }
+
+        // =========================================================================
+        // B2 Provider Verification & Complete — Outside MySQL Transaction
+        // =========================================================================
+        List<MultipartUploadedPart> providerParts = null;
+        MultipartCompletedObject completedObject = null;
+
+        try {
+            providerParts = multipartStoragePort.listUploadedParts(
+                    claimedSession.getStorageKey(),
+                    claimedSession.getProviderUploadId()
+            );
+        } catch (StorageObjectNotFoundException listNotFoundEx) {
+            // NoSuchUpload on listParts: the multipart upload ID no longer exists on provider.
+            // On B2/S3, HEAD object metadata only contains session-id, allocation-id, size, and MIME;
+            // it does NOT contain providerUploadId, manifest_hash, or cryptographic payload verification.
+            // Under the existing contract, HEAD metadata agreement cannot independently prove that
+            // the object was assembled from the accepted multipart manifest or providerUploadId.
+            // Therefore, we must NOT prematurely register an asset. We preserve the session as
+            // ambiguous for later reconciliation (S2D) by rethrowing the exception.
+            try {
+                MultipartObjectMetadata probe = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+                log.warn("NoSuchUpload on listParts for session {}: object exists on storage (size={}, eTag={}), but assembly from providerUploadId {} / manifest {} cannot be proven. Preserving ambiguous state.",
+                        sessionId, probe.contentLength(), probe.eTag(), claimedSession.getProviderUploadId(), claimedSession.getManifestHash());
+            } catch (Exception probeEx) {
+                log.warn("NoSuchUpload on listParts for session {} and probe failed. Preserving ambiguous state.", sessionId, probeEx);
+                listNotFoundEx.addSuppressed(probeEx);
+            }
+            throw listNotFoundEx;
+        } catch (StorageException genericListException) {
+            // Generic network or storage failure listing parts without conclusive completion evidence.
+            // Preserve ambiguous state for S2D reconciliation.
+            log.warn("Failed to list uploaded parts for upload session {} due to storage failure. Preserving state for reconciliation.",
+                    sessionId, genericListException);
+            throw genericListException;
+        }
+
+        // If completedObject was not already recovered via probe, proceed with standard validation and CompleteMultipartUpload
+        if (completedObject == null) {
+            if (providerParts == null || providerParts.isEmpty()) {
+                throw new IllegalStateException("Provider returned no parts for upload session: " + sessionId);
+            }
+
+            // Validate provider parts against accepted manifest
+            List<MultipartManifestPart> effectiveManifest = (manifest != null)
+                    ? manifest
+                    : providerParts.stream().map(MultipartManifestPart::from).toList();
+
+            String providerManifestHash = MultipartManifestCanonicalizer.validateAndCanonicalize(claimedSession, effectiveManifest);
+            if (claimedSession.getManifestHash() == null || !claimedSession.getManifestHash().equalsIgnoreCase(providerManifestHash)) {
+                throw new IllegalStateException(
+                        String.format("Provider uploaded parts manifest hash '%s' does not match session accepted manifest hash '%s'",
+                                providerManifestHash, claimedSession.getManifestHash())
+                );
+            }
+
+            verifyPartsMatchManifest(providerParts, effectiveManifest);
+
+            List<MultipartUploadedPart> sortedProviderParts = providerParts.stream()
+                    .sorted(Comparator.comparingInt(MultipartUploadedPart::partNumber))
+                    .toList();
+
+            List<MultipartPartETag> partsToComplete = sortedProviderParts.stream()
+                    .map(p -> new MultipartPartETag(p.partNumber(), p.eTag()))
+                    .toList();
+
+            // Complete remote multipart upload on provider
+            try {
+                completedObject = multipartStoragePort.completeMultipartUpload(
+                        claimedSession.getStorageKey(),
+                        claimedSession.getProviderUploadId(),
+                        partsToComplete
+                );
+            } catch (StorageException remoteCompleteException) {
+                // Ambiguous completion failure: socket timeout, 5xx, or NoSuchUpload.
+                // Under the currently approved contract, HEAD-only evidence does not prove that
+                // the object resulted from the accepted providerUploadId and canonical manifest.
+                // Therefore, do NOT automatically register based solely on HEAD metadata.
+                // Preserve COMPLETING and allocation evidence for later reconciliation (S2D).
+                // Perform an optional diagnostic HEAD probe for logging/evidence preservation,
+                // but never authorize TX-B registration without an acknowledged completion response.
+                try {
+                    MultipartObjectMetadata probe = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+                    log.warn("CompleteMultipartUpload threw {} for session {}: diagnostic probe detected object on storage (size={}, eTag={}, versionId={}), but assembly cannot be definitively proven without acknowledged completion response. Preserving COMPLETING state for reconciliation.",
+                            remoteCompleteException.getClass().getSimpleName(), sessionId, probe.contentLength(), probe.eTag(), probe.versionId());
+                } catch (Exception probeException) {
+                    log.warn("CompleteMultipartUpload failed and diagnostic probe also failed for session {}. Preserving state for reconciliation.",
+                            sessionId, probeException);
+                    remoteCompleteException.addSuppressed(probeException);
+                }
+                throw remoteCompleteException;
+            }
+        }
+
+        // =========================================================================
+        // Provenance Verification — Outside MySQL Transaction
+        // =========================================================================
+        MultipartObjectMetadata headMetadata;
+        try {
+            headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+        } catch (RuntimeException headException) {
+            log.warn("inspectObjectMetadata failed after completion for session {}. Preserving state for reconciliation.",
+                    sessionId, headException);
+            throw headException;
+        }
+
+        verifyCompletedObjectProvenance(
+                claimedSession,
+                headMetadata,
+                completedObject.location(),
+                completedObject.eTag(),
+                completedObject.versionId()
+        );
+
+        // =========================================================================
+        // TX-B — MySQL: Atomically register MediaAsset & MediaAssetVersion, commit allocation, mark COMPLETED
+        // =========================================================================
+        try {
+            return txTemplate.execute(status -> executeTxBRegistration(sessionId, requestingPrincipalId, claimToken));
+        } catch (RuntimeException txBException) {
+            log.error("TX-B persistence failed after successful provider completion for session {}. Preserving state for reconciliation.",
+                    sessionId, txBException);
+            throw txBException;
+        }
+    }
+
+    /**
+     * Convenience overload for completeMultipartUpload querying parts authoritatively from provider.
+     */
+    @Transactional(propagation = Propagation.NEVER)
+    public MediaUploadSession completeMultipartUpload(
+            UUID sessionId,
+            String requestingPrincipalId
+    ) {
+        return completeMultipartUpload(sessionId, requestingPrincipalId, null);
+    }
+
+    private MediaUploadSession executeTxACompletionClaim(
+            UUID sessionId,
+            String requestingPrincipalId,
+            List<MultipartManifestPart> manifest,
+            String claimToken
+    ) {
+        MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Upload session not found for ID: " + sessionId));
+
+        // 1. Authorize requesting principal
+        if (!session.getInitiatorPrincipalId().equals(requestingPrincipalId)) {
+            throw new IllegalStateException(
+                    String.format("Principal '%s' is not authorized to complete upload session '%s' owned by '%s'",
+                            requestingPrincipalId, sessionId, session.getInitiatorPrincipalId())
+            );
+        }
+
+        // 2. Check session status
+        if (session.getStatus() == MediaUploadSessionStatus.COMPLETED) {
+            // Already completed: validate manifest if provided, verify full persisted relationship, and return idempotently
+            if (manifest != null) {
+                String manifestHash = MultipartManifestCanonicalizer.validateAndCanonicalize(session, manifest);
+                if (session.getManifestHash() != null && !session.getManifestHash().equalsIgnoreCase(manifestHash)) {
+                    throw new IllegalStateException("Submitted manifest does not match completed session manifestHash");
+                }
+            }
+            return verifyAndReturnIdempotentSession(session);
+        }
+
+        if (session.getStatus() != MediaUploadSessionStatus.COMPLETING) {
+            throw new IllegalStateException(
+                    String.format("Cannot complete upload session %s in status %s. Durable completion intent must be claimed first.",
+                            sessionId, session.getStatus())
+            );
+        }
+
+        Instant now = clockPort.now();
+
+        // 3. Check session expiry
+        if (session.getExpiresAt().isBefore(now)) {
+            throw new IllegalStateException("Upload session has expired: " + sessionId);
+        }
+
+        // 4. Validate accepted manifest fingerprint if manifest provided
+        if (manifest != null) {
+            String submittedHash = MultipartManifestCanonicalizer.validateAndCanonicalize(session, manifest);
+            if (session.getManifestHash() == null || !session.getManifestHash().equalsIgnoreCase(submittedHash)) {
+                throw new IllegalStateException(
+                        String.format("Submitted manifest hash '%s' does not match accepted completion intent '%s' for session %s",
+                                submittedHash, session.getManifestHash(), sessionId)
+                );
+            }
+        }
+
+        // 5. Validate completion lease/fencing
+        if (session.hasActiveCompletionLease(now)) {
+            throw new IllegalStateException(
+                    String.format("Concurrent completion in progress for upload session %s (lease held by %s)",
+                            sessionId, session.getLeaseOwner())
+            );
+        }
+
+        // 6. Validate allocation binding
+        StorageKeyAllocation allocation = storageKeyAllocationService.findById(session.getStorageAllocationId())
+                .orElseThrow(() -> new IllegalStateException("Storage key allocation not found for session: " + sessionId));
+        validateAllocationBinding(allocation, session);
+
+        // 7. Claim completion lease
+        Instant leaseExpiresAt = now.plus(DEFAULT_COMPLETION_LEASE_DURATION);
+        session.claimCompletion(claimToken, leaseExpiresAt, now);
+
+        return sessionRepositoryPort.save(session);
+    }
+
+    private void verifyPartsMatchManifest(List<MultipartUploadedPart> providerParts, List<MultipartManifestPart> manifest) {
+        if (providerParts.size() != manifest.size()) {
+            throw new IllegalStateException(
+                    String.format("Provider uploaded part count (%d) does not match manifest part count (%d)",
+                            providerParts.size(), manifest.size())
+            );
+        }
+
+        List<MultipartManifestPart> sortedManifest = manifest.stream()
+                .sorted(Comparator.comparingInt(MultipartManifestPart::partNumber))
+                .toList();
+
+        List<MultipartUploadedPart> sortedProviderParts = providerParts.stream()
+                .sorted(Comparator.comparingInt(MultipartUploadedPart::partNumber))
+                .toList();
+
+        for (int i = 0; i < sortedManifest.size(); i++) {
+            MultipartManifestPart m = sortedManifest.get(i);
+            MultipartUploadedPart p = sortedProviderParts.get(i);
+
+            if (p.partNumber() != m.partNumber()) {
+                throw new IllegalStateException(
+                        String.format("Part number mismatch at index %d: manifest part %d, provider part %d",
+                                i, m.partNumber(), p.partNumber())
+                );
+            }
+
+            if (p.sizeBytes() != m.sizeBytes()) {
+                throw new IllegalStateException(
+                        String.format("Part size mismatch for part %d: manifest size %d, provider size %d",
+                                m.partNumber(), m.sizeBytes(), p.sizeBytes())
+                );
+            }
+
+            String normManifestETag = MultipartManifestCanonicalizer.normalizeETag(m.eTag());
+            String normProviderETag = MultipartManifestCanonicalizer.normalizeETag(p.eTag());
+            if (!normManifestETag.equals(normProviderETag)) {
+                throw new IllegalStateException(
+                        String.format("Part ETag mismatch for part %d: manifest ETag %s, provider ETag %s",
+                                m.partNumber(), m.eTag(), p.eTag())
+                );
+            }
+        }
+    }
+
+    private void verifyCompletedObjectProvenance(
+            MediaUploadSession session,
+            MultipartObjectMetadata headMetadata,
+            StorageLocation completedLocation,
+            String expectedETag,
+            String expectedVersionId
+    ) {
+        Objects.requireNonNull(headMetadata, "MultipartObjectMetadata cannot be null.");
+
+        // Provider completion location check (where available from provider completion result)
+        if (completedLocation != null) {
+            if (!session.getStorageProviderId().equals(completedLocation.providerId())) {
+                throw new IllegalStateException(
+                        String.format("Provider completed object location provider mismatch: expected %s, got %s",
+                                session.getStorageProviderId(), completedLocation.providerId())
+                );
+            }
+            if (!session.getStorageKey().equals(completedLocation.key())) {
+                throw new IllegalStateException(
+                        String.format("Provider completed object location key mismatch: expected %s, got %s",
+                                session.getStorageKey(), completedLocation.key())
+                );
+            }
+        }
+
+        // Provider identity check (where available from adapter)
+        if (headMetadata.providerId() != null && !session.getStorageProviderId().equals(headMetadata.providerId())) {
+            throw new IllegalStateException(
+                    String.format("Completed object provider mismatch: expected %s, got %s",
+                            session.getStorageProviderId(), headMetadata.providerId())
+            );
+        }
+
+        // Bucket name check (where available from adapter)
+        if (headMetadata.bucketName() != null && !session.getStorageBucketName().equals(headMetadata.bucketName())) {
+            throw new IllegalStateException(
+                    String.format("Completed object bucket mismatch: expected %s, got %s",
+                            session.getStorageBucketName(), headMetadata.bucketName())
+            );
+        }
+
+        // Exact storage key check
+        if (!session.getStorageKey().equals(headMetadata.key())) {
+            throw new IllegalStateException(
+                    String.format("Completed object storage key mismatch: expected %s, got %s",
+                            session.getStorageKey(), headMetadata.key())
+            );
+        }
+
+        // Exact content length check
+        if (headMetadata.contentLength() != session.getDeclaredSizeBytes()) {
+            throw new IllegalStateException(
+                    String.format("Completed object size mismatch: declared %d bytes, remote object is %d bytes",
+                            session.getDeclaredSizeBytes(), headMetadata.contentLength())
+            );
+        }
+
+        // Content type check (video/mp4)
+        if (headMetadata.contentType() == null || !MediaUploadSession.REQUIRED_MIME_TYPE.equalsIgnoreCase(headMetadata.contentType().trim())) {
+            throw new IllegalStateException(
+                    String.format("Completed object content type mismatch: expected %s, got %s",
+                            MediaUploadSession.REQUIRED_MIME_TYPE, headMetadata.contentType())
+            );
+        }
+
+        // Mandatory initiation metadata bindings check: session-id and allocation-id
+        String metaSessionId = getMetadataValue(headMetadata.userMetadata(), METADATA_SESSION_ID);
+        if (metaSessionId == null || !metaSessionId.equalsIgnoreCase(session.getId().toString())) {
+            throw new IllegalStateException(
+                    String.format("Completed object provenance metadata [%s] mismatch or missing: expected %s, got %s",
+                            METADATA_SESSION_ID, session.getId(), metaSessionId)
+            );
+        }
+
+        String metaAllocId = getMetadataValue(headMetadata.userMetadata(), METADATA_ALLOCATION_ID);
+        if (metaAllocId == null || !metaAllocId.equalsIgnoreCase(session.getStorageAllocationId().toString())) {
+            throw new IllegalStateException(
+                    String.format("Completed object provenance metadata [%s] mismatch or missing: expected %s, got %s",
+                            METADATA_ALLOCATION_ID, session.getStorageAllocationId(), metaAllocId)
+            );
+        }
+
+        // ETag check against provider completion result to protect against concurrent overwrite races
+        if (expectedETag != null && !expectedETag.isBlank()) {
+            String normHead = MultipartManifestCanonicalizer.normalizeETag(headMetadata.eTag());
+            String normExpected = MultipartManifestCanonicalizer.normalizeETag(expectedETag);
+            if (!normHead.equals(normExpected)) {
+                throw new IllegalStateException(
+                        String.format("Completed object ETag mismatch (potential concurrent overwrite): expected %s, got %s",
+                                expectedETag, headMetadata.eTag())
+                );
+            }
+        }
+
+        // Version ID check: when nonblank versionId is expected from provider completion result,
+        // missing/blank HEAD versionId or versionId mismatch must fail closed.
+        if (expectedVersionId != null && !expectedVersionId.isBlank()) {
+            if (headMetadata.versionId() == null || headMetadata.versionId().isBlank()) {
+                throw new IllegalStateException(
+                        String.format("Completed object versionId missing on HEAD metadata: expected %s, got null/blank",
+                                expectedVersionId)
+                );
+            }
+            if (!expectedVersionId.equals(headMetadata.versionId())) {
+                throw new IllegalStateException(
+                        String.format("Completed object versionId mismatch (potential concurrent overwrite): expected %s, got %s",
+                                expectedVersionId, headMetadata.versionId())
+                );
+            }
+        }
+    }
+
+    private static String getMetadataValue(Map<String, String> metadata, String keyName) {
+        if (metadata == null || metadata.isEmpty()) {
+            return null;
+        }
+        String resolvedValue = null;
+        for (Map.Entry<String, String> entry : metadata.entrySet()) {
+            String k = entry.getKey();
+            if (k != null) {
+                if (k.equalsIgnoreCase(keyName) || k.equalsIgnoreCase("x-amz-meta-" + keyName)) {
+                    String v = entry.getValue();
+                    if (resolvedValue != null && !resolvedValue.equalsIgnoreCase(v)) {
+                        throw new IllegalStateException(
+                                String.format("Conflicting metadata values found for key [%s]: '%s' vs '%s'",
+                                        keyName, resolvedValue, v)
+                        );
+                    }
+                    resolvedValue = v;
+                }
+            }
+        }
+        return resolvedValue;
+    }
+
+    private MediaUploadSession executeTxBRegistration(UUID sessionId, String requestingPrincipalId, String claimToken) {
+        MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Upload session not found for ID: " + sessionId));
+
+        Instant now = clockPort.now();
+
+        // 1. Check for already completed session (idempotent path)
+        if (session.getStatus() == MediaUploadSessionStatus.COMPLETED) {
+            return verifyAndReturnIdempotentSession(session);
+        }
+
+        // 2. Validate session status
+        if (session.getStatus() != MediaUploadSessionStatus.COMPLETING) {
+            throw new IllegalStateException("Upload session in invalid status for registration: " + session.getStatus());
+        }
+
+        // 3. Validate requesting principal
+        if (!session.getInitiatorPrincipalId().equals(requestingPrincipalId)) {
+            throw new IllegalStateException(
+                    String.format("Principal '%s' is not authorized to register upload session '%s' owned by '%s'",
+                            requestingPrincipalId, sessionId, session.getInitiatorPrincipalId())
+            );
+        }
+
+        // 4. Validate completion lease ownership AND current lease expiration
+        if (claimToken != null) {
+            if (!Objects.equals(session.getLeaseOwner(), claimToken)) {
+                throw new IllegalStateException(
+                        String.format("Completion claim token mismatch for session %s. Expected %s, found %s",
+                                sessionId, claimToken, session.getLeaseOwner())
+                );
+            }
+            if (session.isCompletionLeaseExpired(now)) {
+                throw new IllegalStateException(
+                        String.format("Completion lease held by %s for session %s expired at %s (current time: %s). Stale worker cannot commit registration.",
+                                claimToken, sessionId, session.getLeaseExpiresAt(), now)
+                );
+            }
+        }
+
+        // 5. Validate storage allocation binding
+        StorageKeyAllocation allocation = storageKeyAllocationService.findById(session.getStorageAllocationId())
+                .orElseThrow(() -> new IllegalStateException("Storage key allocation not found for session: " + sessionId));
+
+        // Fail-closed on inconsistent state: session is COMPLETING but allocation is already COMMITTED
+        if (allocation.getStatus() == StorageKeyAllocationStatus.COMMITTED) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s is already COMMITTED but upload session %s is still in status %s. Inconsistent state.",
+                            allocation.getId(), session.getId(), session.getStatus())
+            );
+        }
+
+        if (allocation.getStatus() != StorageKeyAllocationStatus.RESERVED) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s is not in RESERVED status (found: %s)",
+                            allocation.getId(), allocation.getStatus())
+            );
+        }
+        if (!allocation.getProviderId().equals(session.getStorageProviderId())
+                || !allocation.getBucketName().equals(session.getStorageBucketName())
+                || !allocation.getStorageKey().equals(session.getStorageKey())
+                || allocation.getAllocatedByType() != StorageKeyAllocationType.UPLOAD_SESSION
+                || !allocation.getAllocatedById().equals(session.getId())) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s does not match upload session %s binding.",
+                            allocation.getId(), session.getId())
+            );
+        }
+
+        // 6. Enforce atomic registration invariant: a session in COMPLETING status cannot have a pre-existing registeredAssetId.
+        // Under an atomic TX-B contract, asset, version, session, and allocation mutations commit or roll back together.
+        if (session.getRegisteredAssetId() != null) {
+            throw new IllegalStateException(
+                    String.format("Upload session %s in COMPLETING status already references registeredAssetId %s. Inconsistent partial registration state.",
+                            session.getId(), session.getRegisteredAssetId())
+            );
+        }
+
+        UUID assetId = UUID.randomUUID();
+        MediaAsset asset = MediaAsset.registerInitial(
+                assetId,
+                session.getMediaType(),
+                MediaVisibility.PUBLIC,
+                session.getClientTag(),
+                now
+        );
+        asset = mediaAssetRepositoryPort.save(asset);
+
+        // 7. Create MediaAssetVersion
+        StorageLocation storageLocation = StorageLocation.of(session.getStorageProviderId(), session.getStorageKey());
+        if (mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(asset.getId(), 1).isPresent()) {
+            throw new IllegalStateException(
+                    String.format("Unexpected existing MediaAssetVersion 1 found for newly created asset %s. Inconsistent state.",
+                            asset.getId())
+            );
+        }
+        if (mediaAssetVersionRepositoryPort.existsByStorageLocation(storageLocation)) {
+            throw new DuplicateStorageLocationException(storageLocation);
+        }
+        UUID versionId = UUID.randomUUID();
+        ContentHash contentHash = ContentHash.of(session.getDeclaredContentHash());
+        MimeType mimeType = MimeType.of(session.getDeclaredMimeType());
+        MediaAssetVersion version = MediaAssetVersion.create(
+                versionId,
+                asset.getId(),
+                1,
+                storageLocation,
+                null,
+                contentHash,
+                ContentHashStatus.CLIENT_DECLARED_UNVERIFIED,
+                mimeType,
+                session.getDeclaredSizeBytes(),
+                session.getOriginalFilename(),
+                now
+        );
+        version = mediaAssetVersionRepositoryPort.save(version);
+
+        // 8. Transfer allocation ownership from UPLOAD_SESSION to ASSET_VERSION
+        storageKeyAllocationService.commitAllocation(
+                allocation.getId(),
+                StorageKeyAllocationType.ASSET_VERSION,
+                version.getId()
+        );
+
+        // 9. Mark session COMPLETED and save
+        session.markCompleted(asset.getId(), now);
+        return sessionRepositoryPort.save(session);
+    }
+
+    private MediaUploadSession verifyAndReturnIdempotentSession(MediaUploadSession session) {
+        if (session.getRegisteredAssetId() == null) {
+            throw new IllegalStateException("Upload session is COMPLETED but registeredAssetId is null: " + session.getId());
+        }
+
+        MediaAsset asset = mediaAssetRepositoryPort.findById(session.getRegisteredAssetId())
+                .orElseThrow(() -> new IllegalStateException("Registered MediaAsset not found for completed session: " + session.getRegisteredAssetId()));
+
+        if (asset.getMediaType() != session.getMediaType()) {
+            throw new IllegalStateException(
+                    String.format("Registered MediaAsset %s mediaType %s does not match session mediaType %s",
+                            asset.getId(), asset.getMediaType(), session.getMediaType())
+            );
+        }
+
+        MediaAssetVersion version = mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(asset.getId(), 1)
+                .orElseThrow(() -> new IllegalStateException("MediaAssetVersion 1 not found for completed asset: " + asset.getId()));
+
+        if (version.getVersionNumber() != 1) {
+            throw new IllegalStateException("MediaAssetVersion number is not 1: " + version.getVersionNumber());
+        }
+
+        if (!version.getStorageLocation().providerId().equals(session.getStorageProviderId())
+                || !version.getStorageLocation().key().equals(session.getStorageKey())) {
+            throw new IllegalStateException(
+                    String.format("MediaAssetVersion location %s does not match completed session storage %s/%s",
+                            version.getStorageLocation(), session.getStorageProviderId(), session.getStorageKey())
+            );
+        }
+
+        if (version.getSizeBytes() != session.getDeclaredSizeBytes()) {
+            throw new IllegalStateException(
+                    String.format("MediaAssetVersion size %d does not match session declared size %d",
+                            version.getSizeBytes(), session.getDeclaredSizeBytes())
+            );
+        }
+
+        if (session.getDeclaredContentHash() != null
+                && (version.getContentHash() == null || !session.getDeclaredContentHash().equalsIgnoreCase(version.getContentHash().value()))) {
+            throw new IllegalStateException(
+                    String.format("MediaAssetVersion content hash does not match session declared hash %s",
+                            session.getDeclaredContentHash())
+            );
+        }
+
+        StorageKeyAllocation allocation = storageKeyAllocationService.findById(session.getStorageAllocationId())
+                .orElseThrow(() -> new IllegalStateException("Storage key allocation not found for session: " + session.getId()));
+
+        if (allocation.getStatus() != StorageKeyAllocationStatus.COMMITTED
+                || allocation.getAllocatedByType() != StorageKeyAllocationType.ASSET_VERSION
+                || !allocation.getAllocatedById().equals(version.getId())) {
+            throw new IllegalStateException(
+                    String.format("Storage allocation %s state is inconsistent with completed session: status=%s, owner=%s/%s",
+                            allocation.getId(), allocation.getStatus(), allocation.getAllocatedByType(), allocation.getAllocatedById())
+            );
+        }
+
+        if (!allocation.getProviderId().equals(session.getStorageProviderId())
+                || !allocation.getBucketName().equals(session.getStorageBucketName())
+                || !allocation.getStorageKey().equals(session.getStorageKey())) {
+            throw new IllegalStateException(
+                    String.format("Storage allocation %s provider/bucket/key (%s/%s/%s) does not match session (%s/%s/%s)",
+                            allocation.getId(),
+                            allocation.getProviderId(), allocation.getBucketName(), allocation.getStorageKey(),
+                            session.getStorageProviderId(), session.getStorageBucketName(), session.getStorageKey())
+            );
+        }
+
+        return session;
     }
 }

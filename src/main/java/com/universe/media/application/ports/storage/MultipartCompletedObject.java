@@ -9,8 +9,13 @@ import java.util.Objects;
  */
 public record MultipartCompletedObject(
         StorageLocation location,
-        String eTag
+        String eTag,
+        String versionId
 ) {
+    public MultipartCompletedObject(StorageLocation location, String eTag) {
+        this(location, eTag, null);
+    }
+
     public MultipartCompletedObject {
         Objects.requireNonNull(location, "StorageLocation cannot be null.");
         Objects.requireNonNull(eTag, "eTag cannot be null.");

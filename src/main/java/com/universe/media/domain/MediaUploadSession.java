@@ -474,6 +474,35 @@ public final class MediaUploadSession {
         validateInvariants();
     }
 
+    public void claimCompletion(String leaseOwner, Instant leaseExpiresAt, Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (this.status != MediaUploadSessionStatus.COMPLETING) {
+            throw new IllegalStateException("Cannot claim completion on session with status: " + this.status);
+        }
+        if (this.leaseOwner != null && !this.leaseOwner.equals(leaseOwner)) {
+            if (this.leaseExpiresAt != null && this.leaseExpiresAt.isAfter(now)) {
+                throw new IllegalStateException("Active completion lease already held by: " + this.leaseOwner);
+            }
+        }
+        this.leaseOwner = requireNonBlank(leaseOwner, "leaseOwner");
+        this.leaseExpiresAt = Objects.requireNonNull(leaseExpiresAt, "leaseExpiresAt cannot be null.");
+        this.updatedAt = now;
+        validateInvariants();
+    }
+
+    public boolean hasActiveCompletionLease(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return this.status == MediaUploadSessionStatus.COMPLETING
+                && this.leaseOwner != null
+                && this.leaseExpiresAt != null
+                && this.leaseExpiresAt.isAfter(now);
+    }
+
+    public boolean isCompletionLeaseExpired(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return this.leaseExpiresAt == null || !this.leaseExpiresAt.isAfter(now);
+    }
+
     public void markCompleted(UUID registeredAssetId, Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
         if (this.status != MediaUploadSessionStatus.COMPLETING) {
@@ -481,6 +510,8 @@ public final class MediaUploadSession {
         }
         this.registeredAssetId = Objects.requireNonNull(registeredAssetId, "registeredAssetId cannot be null.");
         this.status = MediaUploadSessionStatus.COMPLETED;
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
         this.completedAt = now;
         this.updatedAt = now;
         validateInvariants();

@@ -23,7 +23,10 @@ import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
 import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.application.storage.StorageKeyAllocationService;
+import com.universe.media.infrastructure.persistence.StorageKeyAllocationPersistenceAdapter;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageLocation;
@@ -122,6 +125,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         LocalFilesystemStorageAdapter.class,
         MediaStorageRoutingService.class,
         DefaultStorageProviderRegistry.class,
+        StorageKeyAllocationService.class,
+        MediaStorageCutoverBarrier.class,
+        StorageKeyAllocationPersistenceAdapter.class,
         RasterContentSignatureValidator.class,
         VideoUploadValidator.class,
         MediaFacade.class,

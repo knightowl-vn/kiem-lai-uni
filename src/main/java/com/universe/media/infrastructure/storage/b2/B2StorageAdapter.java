@@ -596,7 +596,7 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         try {
             CompleteMultipartUploadResponse response = s3Client.completeMultipartUpload(completeRequest);
             StorageLocation location = StorageLocation.of(PROVIDER_ID, key);
-            return new MultipartCompletedObject(location, response.eTag());
+            return new MultipartCompletedObject(location, response.eTag(), response.versionId());
         } catch (NoSuchUploadException e) {
             throw new StorageObjectNotFoundException(key, e);
         } catch (S3Exception e) {
@@ -649,11 +649,18 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
 
         try {
             HeadObjectResponse response = s3Client.headObject(headRequest);
+            Map<String, String> userMetadata = (response.hasMetadata() && response.metadata() != null)
+                    ? response.metadata()
+                    : Map.of();
             return new MultipartObjectMetadata(
                     key,
                     response.contentLength(),
                     response.contentType(),
-                    response.eTag()
+                    response.eTag(),
+                    userMetadata,
+                    response.versionId(),
+                    PROVIDER_ID,
+                    this.bucket
             );
         } catch (NoSuchKeyException e) {
             throw new StorageObjectNotFoundException(key, e);

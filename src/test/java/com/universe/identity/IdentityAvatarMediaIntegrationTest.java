@@ -37,7 +37,10 @@ import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
 import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.application.storage.StorageKeyAllocationService;
+import com.universe.media.infrastructure.persistence.StorageKeyAllocationPersistenceAdapter;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
@@ -131,6 +134,9 @@ import static org.mockito.Mockito.mock;
         LocalFilesystemStorageAdapter.class,
         MediaStorageRoutingService.class,
         DefaultStorageProviderRegistry.class,
+        StorageKeyAllocationService.class,
+        MediaStorageCutoverBarrier.class,
+        StorageKeyAllocationPersistenceAdapter.class,
         com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
         com.universe.media.infrastructure.image.JavaImageProcessorAdapter.class,
         com.universe.media.application.variant.GenerateMediaImageVariantUseCase.class,

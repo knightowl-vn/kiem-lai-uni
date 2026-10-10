@@ -4,6 +4,7 @@ import com.universe.test.TestDatabaseSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.MigrationState;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,9 +36,11 @@ class MediaFlywayRuntimeVerificationTest {
         resetDatabase(dbName);
         DataSource ds = createDataSource(dbName);
 
+        MigrationVersion targetVersion = MigrationVersion.fromVersion("31");
         Flyway flyway = Flyway.configure()
                 .dataSource(ds)
                 .locations("classpath:db/migration")
+                .target(targetVersion)
                 .load();
 
         int migrationsApplied = flyway.migrate().migrationsExecuted;
@@ -48,9 +51,14 @@ class MediaFlywayRuntimeVerificationTest {
 
         MigrationInfo v31Info = null;
         for (MigrationInfo mi : info) {
-            assertThat(mi.getState()).isEqualTo(MigrationState.SUCCESS);
-            if ("31".equals(mi.getVersion().getVersion())) {
-                v31Info = mi;
+            MigrationVersion version = mi.getVersion();
+            if (version != null && version.compareTo(targetVersion) <= 0) {
+                assertThat(mi.getState()).isEqualTo(MigrationState.SUCCESS);
+                if (targetVersion.equals(version)) {
+                    v31Info = mi;
+                }
+            } else {
+                assertThat(mi.getState()).isEqualTo(MigrationState.ABOVE_TARGET);
             }
         }
 
@@ -85,7 +93,6 @@ class MediaFlywayRuntimeVerificationTest {
                 "id",
                 "media_type",
                 "visibility",
-                "client_tag",
                 "status",
                 "current_version_number",
                 "created_at",

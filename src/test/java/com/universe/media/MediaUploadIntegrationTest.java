@@ -20,7 +20,10 @@ import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
 import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.application.storage.StorageKeyAllocationService;
+import com.universe.media.infrastructure.persistence.StorageKeyAllocationPersistenceAdapter;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -125,6 +128,9 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
         LocalFilesystemStorageAdapter.class,
         MediaStorageRoutingService.class,
         DefaultStorageProviderRegistry.class,
+        StorageKeyAllocationService.class,
+        MediaStorageCutoverBarrier.class,
+        StorageKeyAllocationPersistenceAdapter.class,
         MediaFacade.class,
         MediaUploadIntegrationTest.TestConfig.class
 })
@@ -340,6 +346,13 @@ class MediaUploadIntegrationTest {
             jdbcTemplate.update("DELETE FROM media_assets WHERE id = ?", assetId.toString());
         }
         createdAssetIds.clear();
+    }
+
+    private List<String> snapshotMediaAssetIds() {
+        return jdbcTemplate.queryForList(
+                "SELECT id FROM media_assets ORDER BY id",
+                String.class
+        );
     }
 
     @AfterAll
@@ -570,14 +583,16 @@ class MediaUploadIntegrationTest {
                 excessivelyLongFilename
         );
 
+        List<String> assetIdsBefore = snapshotMediaAssetIds();
+
         assertThrows(IllegalArgumentException.class, () -> mediaContract.uploadAsset(request));
 
         assertThat(testB2StoragePort.getStoredKeys()).hasSize(1);
         StorageKey storedKey = testB2StoragePort.getStoredKeys().get(0);
         assertThat(testB2StoragePort.getDeletedKeys()).contains(storedKey);
 
-        Integer assetCount = jdbcTemplate.queryForObject("SELECT count(*) FROM media_assets", Integer.class);
-        assertThat(assetCount).isZero();
+        assertThat(snapshotMediaAssetIds())
+                .containsExactlyElementsOf(assetIdsBefore);
     }
 
     @Test
@@ -596,6 +611,8 @@ class MediaUploadIntegrationTest {
                 excessivelyLongFilename
         );
 
+        List<String> assetIdsBefore = snapshotMediaAssetIds();
+
         IllegalArgumentException primaryEx = assertThrows(
                 IllegalArgumentException.class,
                 () -> mediaContract.uploadAsset(request)
@@ -604,8 +621,8 @@ class MediaUploadIntegrationTest {
         assertThat(primaryEx.getSuppressed())
                 .anyMatch(suppressed -> suppressed.getMessage() != null && suppressed.getMessage().contains("Simulated B2 delete network timeout"));
 
-        Integer assetCount = jdbcTemplate.queryForObject("SELECT count(*) FROM media_assets", Integer.class);
-        assertThat(assetCount).isZero();
+        assertThat(snapshotMediaAssetIds())
+                .containsExactlyElementsOf(assetIdsBefore);
     }
 
     @Test
@@ -623,6 +640,8 @@ class MediaUploadIntegrationTest {
                 "commit_fail.mp4"
         );
 
+        List<String> assetIdsBefore = snapshotMediaAssetIds();
+
         RuntimeException thrown = assertThrows(
                 RuntimeException.class,
                 () -> mediaContract.uploadAsset(request)
@@ -634,8 +653,8 @@ class MediaUploadIntegrationTest {
         StorageKey storedKey = testB2StoragePort.getStoredKeys().get(0);
         assertThat(testB2StoragePort.getDeletedKeys()).contains(storedKey);
 
-        Integer assetCount = jdbcTemplate.queryForObject("SELECT count(*) FROM media_assets", Integer.class);
-        assertThat(assetCount).isZero();
+        assertThat(snapshotMediaAssetIds())
+                .containsExactlyElementsOf(assetIdsBefore);
     }
 
     @Test

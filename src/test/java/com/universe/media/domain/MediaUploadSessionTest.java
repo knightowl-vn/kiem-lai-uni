@@ -469,4 +469,144 @@ class MediaUploadSessionTest {
                     .hasMessageContaining("Cannot overwrite existing manifestHash");
         }
     }
+
+    @Nested
+    @DisplayName("S2C-C: Completion Lease & Transition Tests")
+    class CompletionLeaseTests {
+
+        @Test
+        @DisplayName("claimCompletion successfully claims lease on COMPLETING session")
+        void claimCompletionSuccessfully() {
+            MediaUploadSession session = createValidSession();
+            Instant now = Instant.now();
+            session.markInitiated("b2-upload-1", now);
+            session.markCompleting(VALID_HASH, now);
+
+            Instant leaseExpiresAt = now.plus(Duration.ofMinutes(5));
+            session.claimCompletion("worker-1", leaseExpiresAt, now);
+
+            assertThat(session.getLeaseOwner()).isEqualTo("worker-1");
+            assertThat(session.getLeaseExpiresAt()).isEqualTo(leaseExpiresAt);
+            assertThat(session.hasActiveCompletionLease(now)).isTrue();
+        }
+
+        @Test
+        @DisplayName("claimCompletion throws if session is not in COMPLETING status")
+        void claimCompletionRejectsNonCompletingStatus() {
+            MediaUploadSession session = createValidSession();
+            Instant now = Instant.now();
+            Instant leaseExpiresAt = now.plus(Duration.ofMinutes(5));
+
+            assertThatThrownBy(() -> session.claimCompletion("worker-1", leaseExpiresAt, now))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Cannot claim completion on session with status: ALLOCATED");
+        }
+
+        @Test
+        @DisplayName("claimCompletion rejects when active lease is already held")
+        void claimCompletionRejectsActiveLease() {
+            MediaUploadSession session = createValidSession();
+            Instant now = Instant.now();
+            session.markInitiated("b2-upload-1", now);
+            session.markCompleting(VALID_HASH, now);
+
+            Instant leaseExpiresAt = now.plus(Duration.ofMinutes(5));
+            session.claimCompletion("worker-1", leaseExpiresAt, now);
+
+            assertThatThrownBy(() -> session.claimCompletion("worker-2", leaseExpiresAt, now))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Active completion lease already held by: worker-1");
+        }
+
+        @Test
+        @DisplayName("claimCompletion succeeds if previous lease is expired")
+        void claimCompletionAllowsExpiredLeaseReclaim() {
+            MediaUploadSession session = createValidSession();
+            Instant now = session.getCreatedAt();
+            Instant t1 = now.plus(Duration.ofMinutes(1));
+            session.markInitiated("b2-upload-1", t1);
+            Instant t2 = now.plus(Duration.ofMinutes(2));
+            session.markCompleting(VALID_HASH, t2);
+
+            Instant t3 = now.plus(Duration.ofMinutes(3));
+            Instant oldLeaseExpiresAt = t3.plus(Duration.ofSeconds(10));
+            session.claimCompletion("worker-old", oldLeaseExpiresAt, t3);
+
+            Instant t4 = oldLeaseExpiresAt.plus(Duration.ofSeconds(1));
+            Instant newLeaseExpiresAt = t4.plus(Duration.ofMinutes(5));
+            session.claimCompletion("worker-new", newLeaseExpiresAt, t4);
+
+            assertThat(session.getLeaseOwner()).isEqualTo("worker-new");
+            assertThat(session.getLeaseExpiresAt()).isEqualTo(newLeaseExpiresAt);
+        }
+
+        @Test
+        @DisplayName("hasActiveCompletionLease and isCompletionLeaseExpired correctly reflect lease state")
+        void hasActiveCompletionLeaseReturnsFalseWhenExpired() {
+            MediaUploadSession session = createValidSession();
+            Instant now = session.getCreatedAt();
+            Instant t1 = now.plus(Duration.ofMinutes(1));
+            session.markInitiated("b2-upload-1", t1);
+            Instant t2 = now.plus(Duration.ofMinutes(2));
+            session.markCompleting(VALID_HASH, t2);
+
+            assertThat(session.hasActiveCompletionLease(t2)).isFalse();
+            assertThat(session.isCompletionLeaseExpired(t2)).isTrue();
+
+            Instant t3 = now.plus(Duration.ofMinutes(3));
+            Instant leaseExpiresAt = t3.plus(Duration.ofSeconds(10));
+            session.claimCompletion("worker-1", leaseExpiresAt, t3);
+
+            assertThat(session.hasActiveCompletionLease(t3)).isTrue();
+            assertThat(session.isCompletionLeaseExpired(t3)).isFalse();
+
+            Instant afterExpiry = leaseExpiresAt.plus(Duration.ofSeconds(1));
+            assertThat(session.hasActiveCompletionLease(afterExpiry)).isFalse();
+            assertThat(session.isCompletionLeaseExpired(afterExpiry)).isTrue();
+        }
+
+        @Test
+        @DisplayName("claimCompletion allows re-entrant lease renewal by the same worker")
+        void claimCompletionAllowsRenewalBySameWorker() {
+            MediaUploadSession session = createValidSession();
+            Instant now = session.getCreatedAt();
+            Instant t1 = now.plus(Duration.ofMinutes(1));
+            session.markInitiated("b2-upload-1", t1);
+            Instant t2 = now.plus(Duration.ofMinutes(2));
+            session.markCompleting(VALID_HASH, t2);
+
+            Instant t3 = now.plus(Duration.ofMinutes(3));
+            Instant leaseExpiresAt = t3.plus(Duration.ofMinutes(5));
+            session.claimCompletion("worker-1", leaseExpiresAt, t3);
+
+            Instant t4 = now.plus(Duration.ofMinutes(4));
+            Instant extendedLease = t4.plus(Duration.ofMinutes(5));
+            session.claimCompletion("worker-1", extendedLease, t4);
+
+            assertThat(session.getLeaseOwner()).isEqualTo("worker-1");
+            assertThat(session.getLeaseExpiresAt()).isEqualTo(extendedLease);
+        }
+
+        @Test
+        @DisplayName("markCompleted clears leaseOwner and leaseExpiresAt upon completion")
+        void markCompletedClearsLease() {
+            MediaUploadSession session = createValidSession();
+            Instant now = Instant.now();
+            session.markInitiated("b2-upload-1", now);
+            session.markCompleting(VALID_HASH, now);
+
+            Instant leaseExpiresAt = now.plus(Duration.ofMinutes(5));
+            session.claimCompletion("worker-1", leaseExpiresAt, now);
+
+            UUID assetId = UUID.randomUUID();
+            session.markCompleted(assetId, now);
+
+            assertThat(session.getStatus()).isEqualTo(MediaUploadSessionStatus.COMPLETED);
+            assertThat(session.getRegisteredAssetId()).isEqualTo(assetId);
+            assertThat(session.getCompletedAt()).isEqualTo(now);
+            assertThat(session.getLeaseOwner()).isNull();
+            assertThat(session.getLeaseExpiresAt()).isNull();
+            assertThat(session.hasActiveCompletionLease(now)).isFalse();
+        }
+    }
 }

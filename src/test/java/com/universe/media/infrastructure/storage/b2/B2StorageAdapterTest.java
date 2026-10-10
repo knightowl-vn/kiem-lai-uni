@@ -1124,6 +1124,7 @@ class B2StorageAdapterTest {
                                 .bucket(BUCKET)
                                 .key(key.value())
                                 .eTag("\"final-multipart-etag-2\"")
+                                .versionId("b2-ver-cm-1")
                                 .build());
 
                 MultipartCompletedObject completed = adapter.completeMultipartUpload(key, uploadId, parts);
@@ -1131,6 +1132,7 @@ class B2StorageAdapterTest {
                 assertThat(completed.location().providerId()).isEqualTo(StorageProviderId.of("b2"));
                 assertThat(completed.location().key()).isEqualTo(key);
                 assertThat(completed.eTag()).isEqualTo("\"final-multipart-etag-2\"");
+                assertThat(completed.versionId()).isEqualTo("b2-ver-cm-1");
 
                 ArgumentCaptor<CompleteMultipartUploadRequest> captor = ArgumentCaptor.forClass(CompleteMultipartUploadRequest.class);
                 verify(s3Client).completeMultipartUpload(captor.capture());
@@ -1549,6 +1551,33 @@ class B2StorageAdapterTest {
                 HeadObjectRequest captured = captor.getValue();
                 assertThat(captured.bucket()).isEqualTo(BUCKET);
                 assertThat(captured.key()).isEqualTo(key.value());
+            }
+
+            @Test
+            @DisplayName("inspectObjectMetadata extracts userMetadata and versionId when present")
+            void shouldExtractUserMetadataAndVersionId() {
+                StorageKey key = StorageKey.of("videos/inspect-provenance.mp4");
+
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenReturn(HeadObjectResponse.builder()
+                                .contentLength(52428800L)
+                                .contentType("video/mp4")
+                                .eTag("\"head-etag-prov\"")
+                                .metadata(java.util.Map.of("session-id", "sess-123", "allocation-id", "alloc-456"))
+                                .versionId("b2-ver-789")
+                                .build());
+
+                MultipartObjectMetadata metadata = adapter.inspectObjectMetadata(key);
+
+                assertThat(metadata.key()).isEqualTo(key);
+                assertThat(metadata.contentLength()).isEqualTo(52428800L);
+                assertThat(metadata.contentType()).isEqualTo("video/mp4");
+                assertThat(metadata.eTag()).isEqualTo("\"head-etag-prov\"");
+                assertThat(metadata.userMetadata()).containsEntry("session-id", "sess-123");
+                assertThat(metadata.userMetadata()).containsEntry("allocation-id", "alloc-456");
+                assertThat(metadata.versionId()).isEqualTo("b2-ver-789");
+                assertThat(metadata.providerId()).isEqualTo(StorageProviderId.of("b2"));
+                assertThat(metadata.bucketName()).isEqualTo(BUCKET);
             }
 
             @Test
