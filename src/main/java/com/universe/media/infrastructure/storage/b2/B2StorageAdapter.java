@@ -4,6 +4,7 @@ import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
 import com.universe.media.application.ports.storage.MultipartObjectMetadata;
 import com.universe.media.application.ports.storage.MultipartPartETag;
@@ -28,6 +29,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
@@ -610,7 +612,7 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
     }
 
     @Override
-    public void abortMultipartUpload(StorageKey key, String uploadId) {
+    public MultipartAbortResult abortMultipartUpload(StorageKey key, String uploadId) {
         Objects.requireNonNull(key, "StorageKey cannot be null.");
         Objects.requireNonNull(uploadId, "uploadId cannot be null.");
         if (uploadId.isBlank()) {
@@ -624,13 +626,16 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                 .build();
 
         try {
-            s3Client.abortMultipartUpload(abortRequest);
+            AbortMultipartUploadResponse response = s3Client.abortMultipartUpload(abortRequest);
+            if (response == null) {
+                throw new StorageException("B2 abort multipart upload returned null response for key: " + key.value());
+            }
+            return MultipartAbortResult.ABORT_ACCEPTED;
         } catch (NoSuchUploadException e) {
-            // Idempotent success: upload does not exist or was already completed/aborted
+            return MultipartAbortResult.UPLOAD_ALREADY_ABSENT;
         } catch (S3Exception e) {
             if (isNoSuchUpload(e)) {
-                // Idempotent success: confirmed NoSuchUpload condition
-                return;
+                return MultipartAbortResult.UPLOAD_ALREADY_ABSENT;
             }
             throw new StorageException("Failed to abort multipart upload for key: " + key.value(), e);
         } catch (AwsServiceException | SdkClientException e) {

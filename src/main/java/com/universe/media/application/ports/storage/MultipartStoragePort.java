@@ -92,14 +92,15 @@ public interface MultipartStoragePort extends BinaryStoragePort {
      * Aborts the multipart upload on the provider and cleans up any uncompleted parts.
      * <p>
      * <b>Idempotency:</b> Aborting an upload that does not exist or was already completed/aborted
-     * must succeed silently.
+     * must return {@link MultipartAbortResult#UPLOAD_ALREADY_ABSENT}.
      *
      * @param key the target storage key
      * @param uploadId provider-assigned upload ID
+     * @return typed outcome indicating whether the provider acknowledged the abort or reported the upload was absent
      * @throws StorageException if abort fails due to provider errors other than missing upload
      * @throws NullPointerException if key or uploadId is null
      */
-    void abortMultipartUpload(StorageKey key, String uploadId);
+    MultipartAbortResult abortMultipartUpload(StorageKey key, String uploadId);
 
     /**
      * Inspects metadata of a completed object in storage without downloading its content.

@@ -3,6 +3,7 @@ package com.universe.media.infrastructure.storage.b2;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
 import com.universe.media.application.ports.storage.MultipartObjectMetadata;
 import com.universe.media.application.ports.storage.MultipartPartETag;
@@ -1394,7 +1395,7 @@ class B2StorageAdapterTest {
                 when(s3Client.abortMultipartUpload(any(AbortMultipartUploadRequest.class)))
                         .thenReturn(AbortMultipartUploadResponse.builder().build());
 
-                adapter.abortMultipartUpload(key, uploadId);
+                MultipartAbortResult result = adapter.abortMultipartUpload(key, uploadId);
 
                 ArgumentCaptor<AbortMultipartUploadRequest> captor = ArgumentCaptor.forClass(AbortMultipartUploadRequest.class);
                 verify(s3Client).abortMultipartUpload(captor.capture());
@@ -1403,6 +1404,23 @@ class B2StorageAdapterTest {
                 assertThat(captured.bucket()).isEqualTo(BUCKET);
                 assertThat(captured.key()).isEqualTo(key.value());
                 assertThat(captured.uploadId()).isEqualTo(uploadId);
+                assertThat(result).isEqualTo(MultipartAbortResult.ABORT_ACCEPTED);
+                assertThat(result.isAbortAccepted()).isTrue();
+                assertThat(result.isUploadAlreadyAbsent()).isFalse();
+            }
+
+            @Test
+            @DisplayName("abort throws StorageException when S3 client unexpectedly returns null response")
+            void shouldThrowStorageExceptionWhenAbortReturnsNullResponse() {
+                StorageKey key = StorageKey.of("videos/null-abort.mp4");
+                String uploadId = "u-null-123";
+
+                when(s3Client.abortMultipartUpload(any(AbortMultipartUploadRequest.class)))
+                        .thenReturn(null);
+
+                assertThatThrownBy(() -> adapter.abortMultipartUpload(key, uploadId))
+                        .isInstanceOf(StorageException.class)
+                        .hasMessageContaining("returned null response");
             }
 
             @Test
@@ -1413,7 +1431,10 @@ class B2StorageAdapterTest {
                 when(s3Client.abortMultipartUpload(any(AbortMultipartUploadRequest.class)))
                         .thenThrow(NoSuchUploadException.builder().statusCode(404).build());
 
-                assertThatCode(() -> adapter.abortMultipartUpload(key, "u-done")).doesNotThrowAnyException();
+                MultipartAbortResult result = adapter.abortMultipartUpload(key, "u-done");
+                assertThat(result).isEqualTo(MultipartAbortResult.UPLOAD_ALREADY_ABSENT);
+                assertThat(result.isUploadAlreadyAbsent()).isTrue();
+                assertThat(result.isAbortAccepted()).isFalse();
             }
 
             @Test
@@ -1429,7 +1450,10 @@ class B2StorageAdapterTest {
 
                 when(s3Client.abortMultipartUpload(any(AbortMultipartUploadRequest.class))).thenThrow(noSuchUploadEx);
 
-                assertThatCode(() -> adapter.abortMultipartUpload(key, "u-done")).doesNotThrowAnyException();
+                MultipartAbortResult result = adapter.abortMultipartUpload(key, "u-done");
+                assertThat(result).isEqualTo(MultipartAbortResult.UPLOAD_ALREADY_ABSENT);
+                assertThat(result.isUploadAlreadyAbsent()).isTrue();
+                assertThat(result.isAbortAccepted()).isFalse();
             }
 
             @Test

@@ -30,6 +30,11 @@ public final class MediaUploadSession {
     public static final String REQUIRED_MIME_TYPE = "video/mp4";
     public static final StorageProviderId REQUIRED_PROVIDER = StorageProviderId.of("b2");
     public static final Pattern SHA256_PATTERN = Pattern.compile("^[0-9a-f]{64}$");
+    public static final String CLEANUP_CLAIM_PREFIX = "CLEANUP_CLAIM:";
+    public static final Pattern CLEANUP_CLAIM_PATTERN = Pattern.compile(
+            "^CLEANUP_CLAIM:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    );
+    public static final Duration MAX_CLEANUP_LEASE_DURATION = Duration.ofMinutes(5);
 
     private final UUID id;
     private final String initiatorPrincipalId;
@@ -427,8 +432,40 @@ public final class MediaUploadSession {
         validateInvariants();
     }
 
+    /**
+     * Determines whether the supplied token strictly conforms to the cleanup claim format {@code CLEANUP_CLAIM:<UUID>}.
+     */
+    public static boolean isValidCleanupClaimToken(String token) {
+        return token != null && CLEANUP_CLAIM_PATTERN.matcher(token).matches();
+    }
+
+    private static String requireValidCleanupClaimToken(String token) {
+        if (token == null || token.isBlank()) {
+            throw new IllegalArgumentException("claimToken must not be blank.");
+        }
+        if (!token.startsWith(CLEANUP_CLAIM_PREFIX)) {
+            throw new IllegalArgumentException("claimToken must belong to cleanup namespace with prefix '"
+                    + CLEANUP_CLAIM_PREFIX + "', got: " + token);
+        }
+        if (!CLEANUP_CLAIM_PATTERN.matcher(token).matches()) {
+            throw new IllegalArgumentException("claimToken must match format CLEANUP_CLAIM:<UUID>, got: " + token);
+        }
+        return token;
+    }
+
+    /**
+     * Helper to determine if this session currently has an outstanding cleanup-owned lease (active or expired).
+     */
+    public boolean isCleanupLeaseHeld() {
+        return this.leaseOwner != null
+                && (isValidCleanupClaimToken(this.leaseOwner) || this.cleanupStatus == UploadSessionCleanupStatus.IN_PROGRESS);
+    }
+
     public void clearLease(Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (isCleanupLeaseHeld()) {
+            throw new IllegalStateException("Cannot clear cleanup lease using generic clearLease(); cleanup leases must be resolved via claim-token outcome methods: " + this.leaseOwner);
+        }
         this.leaseOwner = null;
         this.leaseExpiresAt = null;
         this.updatedAt = now;
@@ -519,6 +556,9 @@ public final class MediaUploadSession {
 
     public void abort(Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (isCleanupLeaseHeld()) {
+            throw new IllegalStateException("Cannot abort session while cleanup lease is held: " + this.leaseOwner);
+        }
         if (this.status == MediaUploadSessionStatus.ALLOCATED && this.leaseOwner != null) {
             throw new IllegalStateException("Cannot abort session with unresolved initiation claim: " + this.id + " (lease owner: " + this.leaseOwner + ")");
         }
@@ -538,6 +578,9 @@ public final class MediaUploadSession {
 
     public void fail(String errorDetail, Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (isCleanupLeaseHeld()) {
+            throw new IllegalStateException("Cannot fail session while cleanup lease is held: " + this.leaseOwner);
+        }
         if (this.status == MediaUploadSessionStatus.COMPLETED || this.status == MediaUploadSessionStatus.CLEANED_UP) {
             throw new IllegalStateException("Cannot fail session in terminal state: " + this.status);
         }
@@ -552,6 +595,9 @@ public final class MediaUploadSession {
 
     public void expire(Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (isCleanupLeaseHeld()) {
+            throw new IllegalStateException("Cannot expire session while cleanup lease is held: " + this.leaseOwner);
+        }
         if (this.status == MediaUploadSessionStatus.COMPLETED || this.status == MediaUploadSessionStatus.CLEANED_UP) {
             throw new IllegalStateException("Cannot expire session in terminal state: " + this.status);
         }
@@ -563,33 +609,248 @@ public final class MediaUploadSession {
         validateInvariants();
     }
 
-    public void markCleanupPending(Instant now) {
+    // ---------------------------------------------------------------------------------------------
+    // Cleanup Eligibility, Claim & Fencing (S2D-2A)
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Determines whether this session is locally eligible to be claimed for cleanup.
+     * <p>
+     * <b>Important Safety Boundary:</b> Local eligibility indicates ONLY that local session state
+     * meets candidate criteria (ABORTED/EXPIRED, PENDING/FAILED, no completion evidence, unleased,
+     * and valid provider upload ID). It is NOT authorization to execute remote destructive provider
+     * actions or release durable storage allocations.
+     *
+     * @param now current evaluation timestamp
+     * @return true if locally eligible for cleanup claim, false otherwise
+     */
+    public boolean isLocallyEligibleForCleanup(Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
-        this.cleanupStatus = UploadSessionCleanupStatus.PENDING;
-        this.updatedAt = now;
+        return (this.status == MediaUploadSessionStatus.ABORTED || this.status == MediaUploadSessionStatus.EXPIRED)
+                && (this.cleanupStatus == UploadSessionCleanupStatus.PENDING || this.cleanupStatus == UploadSessionCleanupStatus.FAILED)
+                && this.declaredContentHash == null
+                && this.manifestHash == null
+                && this.registeredAssetId == null
+                && this.providerUploadId != null && !this.providerUploadId.isBlank()
+                && this.leaseOwner == null;
     }
 
-    public void markCleanupInProgress(Instant now) {
+    /**
+     * Validates that this session satisfies local cleanup eligibility requirements, throwing an informative
+     * exception if any requirement fails.
+     * <p>
+     * <b>Important Safety Boundary:</b> Local eligibility checks purely local domain state and does NOT
+     * authorize destructive remote operations.
+     *
+     * @param now current evaluation timestamp
+     * @throws IllegalStateException if any local eligibility prerequisite is violated
+     * @throws NullPointerException if now is null
+     */
+    public void validateLocalCleanupEligibility(Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (this.status != MediaUploadSessionStatus.ABORTED && this.status != MediaUploadSessionStatus.EXPIRED) {
+            throw new IllegalStateException("Upload session is not locally eligible for cleanup due to lifecycle status: " + this.status);
+        }
+        if (this.cleanupStatus != UploadSessionCleanupStatus.PENDING && this.cleanupStatus != UploadSessionCleanupStatus.FAILED) {
+            throw new IllegalStateException("Upload session is not locally eligible for cleanup due to cleanup status: " + this.cleanupStatus);
+        }
+        if (this.declaredContentHash != null) {
+            throw new IllegalStateException("Upload session is not eligible for cleanup because declaredContentHash is present on session " + this.id);
+        }
+        if (this.manifestHash != null) {
+            throw new IllegalStateException("Upload session is not eligible for cleanup because manifestHash is present on session " + this.id);
+        }
+        if (this.registeredAssetId != null) {
+            throw new IllegalStateException("Upload session is not eligible for cleanup because registeredAssetId is present on session " + this.id);
+        }
+        if (this.providerUploadId == null || this.providerUploadId.isBlank()) {
+            throw new IllegalStateException("Upload session is not eligible for cleanup because providerUploadId is missing or blank on session " + this.id);
+        }
+        if (this.leaseOwner != null) {
+            throw new IllegalStateException("Upload session is not locally eligible for cleanup because lease is held by: " + this.leaseOwner);
+        }
+    }
+
+    /**
+     * Claims this upload session for cleanup processing with a bounded lease.
+     *
+     * @param claimToken unique claim token identifying the cleanup leaseholder (must match {@code CLEANUP_CLAIM:<UUID>})
+     * @param leaseExpiresAt bounded timestamp when this cleanup lease expires (must be strictly in future, up to 5 min)
+     * @param now current claim timestamp
+     * @throws IllegalStateException if session is not locally eligible for cleanup or already leased
+     * @throws IllegalArgumentException if claimToken is invalid/malformed or lease duration is non-positive or exceeds 5 min
+     * @throws NullPointerException if any argument is null
+     */
+    public void claimCleanup(String claimToken, Instant leaseExpiresAt, Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        String token = requireValidCleanupClaimToken(claimToken);
+        Objects.requireNonNull(leaseExpiresAt, "leaseExpiresAt cannot be null.");
+        Duration leaseDuration = Duration.between(now, leaseExpiresAt);
+        if (leaseDuration.isNegative() || leaseDuration.isZero()) {
+            throw new IllegalArgumentException("leaseExpiresAt must be strictly after now: " + leaseExpiresAt + " vs " + now);
+        }
+        if (leaseDuration.compareTo(MAX_CLEANUP_LEASE_DURATION) > 0) {
+            throw new IllegalArgumentException("leaseExpiresAt duration (" + leaseDuration.toSeconds()
+                    + "s) exceeds maximum allowed cleanup lease duration (" + MAX_CLEANUP_LEASE_DURATION.toMinutes() + " minutes).");
+        }
+        validateLocalCleanupEligibility(now);
+
+        this.leaseOwner = token;
+        this.leaseExpiresAt = leaseExpiresAt;
         this.cleanupStatus = UploadSessionCleanupStatus.IN_PROGRESS;
         this.cleanupLastAttemptAt = now;
         this.updatedAt = now;
+        validateInvariants();
     }
 
-    public void markCleanupCompleted(Instant now) {
+    /**
+     * Verifies that this session holds an active cleanup lease owned by the specified claim token.
+     *
+     * @param claimToken expected claim token
+     * @param now verification timestamp
+     * @return true if an unexpired cleanup lease matching claimToken is active
+     */
+    public boolean hasActiveCleanupLease(String claimToken, Instant now) {
+        Objects.requireNonNull(claimToken, "claimToken cannot be null.");
         Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return isValidCleanupClaimToken(claimToken)
+                && (this.status == MediaUploadSessionStatus.ABORTED || this.status == MediaUploadSessionStatus.EXPIRED)
+                && this.cleanupStatus == UploadSessionCleanupStatus.IN_PROGRESS
+                && claimToken.equals(this.leaseOwner)
+                && this.leaseExpiresAt != null
+                && this.leaseExpiresAt.isAfter(now)
+                && this.declaredContentHash == null
+                && this.manifestHash == null
+                && this.registeredAssetId == null;
+    }
+
+    /**
+     * Checks if this session has any active, unexpired cleanup lease.
+     *
+     * @param now verification timestamp
+     * @return true if an unexpired cleanup lease is active
+     */
+    public boolean hasActiveCleanupLease(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return isValidCleanupClaimToken(this.leaseOwner)
+                && (this.status == MediaUploadSessionStatus.ABORTED || this.status == MediaUploadSessionStatus.EXPIRED)
+                && this.cleanupStatus == UploadSessionCleanupStatus.IN_PROGRESS
+                && this.leaseExpiresAt != null
+                && this.leaseExpiresAt.isAfter(now);
+    }
+
+    /**
+     * Checks whether the cleanup lease has expired relative to the specified timestamp.
+     *
+     * @param now evaluation timestamp
+     * @return true if no lease exists or the lease expiration timestamp is not strictly after now
+     */
+    public boolean isCleanupLeaseExpired(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return this.leaseExpiresAt == null || !this.leaseExpiresAt.isAfter(now);
+    }
+
+    private void validateCleanupClaimForOutcome(String claimToken, Instant now, boolean isCompletion) {
+        String token = requireValidCleanupClaimToken(claimToken);
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (this.leaseOwner == null || !this.leaseOwner.equals(token)) {
+            throw new IllegalStateException("Cannot " + (isCompletion ? "complete" : "record")
+                    + " cleanup outcome without holding active claim token; held by: " + this.leaseOwner);
+        }
+        if (isCleanupLeaseExpired(now)) {
+            throw new IllegalStateException("Cannot " + (isCompletion ? "complete" : "record")
+                    + " cleanup outcome because cleanup lease has expired: " + this.leaseExpiresAt + " vs " + now);
+        }
+        if (this.cleanupStatus != UploadSessionCleanupStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Cannot " + (isCompletion ? "complete" : "record")
+                    + " cleanup outcome when cleanupStatus is not IN_PROGRESS: " + this.cleanupStatus);
+        }
+        if (this.status != MediaUploadSessionStatus.ABORTED && this.status != MediaUploadSessionStatus.EXPIRED) {
+            throw new IllegalStateException("Cannot " + (isCompletion ? "complete" : "record")
+                    + " cleanup outcome for session in lifecycle status: " + this.status);
+        }
+        if (isCompletion) {
+            if (this.declaredContentHash != null || this.manifestHash != null || this.registeredAssetId != null) {
+                throw new IllegalStateException("Cannot complete cleanup when completion intent or registered asset is present.");
+            }
+        }
+    }
+
+    /**
+     * Records successful completion of cleanup under a verified active claim token, transitioning
+     * cleanup status to COMPLETED and lifecycle status to CLEANED_UP, and releasing the lease.
+     * <p>
+     * <b>Important Safety Boundary:</b> This method records a locally acknowledged cleanup outcome
+     * fenced by the claim token. It does not prove remote provider state.
+     *
+     * @param claimToken active claim token held by the caller
+     * @param now completion timestamp
+     * @throws IllegalStateException if claim token is invalid, expired, or session state violates cleanup prerequisites
+     */
+    public void markCleanupCompleted(String claimToken, Instant now) {
+        validateCleanupClaimForOutcome(claimToken, now, true);
+
         this.cleanupStatus = UploadSessionCleanupStatus.COMPLETED;
         this.status = MediaUploadSessionStatus.CLEANED_UP;
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
         this.updatedAt = now;
+        validateInvariants();
     }
 
-    public void markCleanupFailed(String errorDetail, Instant now) {
-        Objects.requireNonNull(now, "Timestamp cannot be null.");
+    /**
+     * Records failure of a cleanup attempt under a verified active claim token, incrementing the retry
+     * count, recording error details, transitioning cleanup status to FAILED, and releasing the lease.
+     *
+     * @param claimToken active claim token held by the caller
+     * @param errorDetail diagnostic error detail describing the failure
+     * @param now failure timestamp
+     * @throws IllegalStateException if claim token is invalid, expired, or session state violates cleanup prerequisites
+     */
+    public void markCleanupFailed(String claimToken, String errorDetail, Instant now) {
+        validateCleanupClaimForOutcome(claimToken, now, false);
+
         this.cleanupStatus = UploadSessionCleanupStatus.FAILED;
         this.cleanupRetryCount++;
         this.cleanupLastAttemptAt = now;
         this.cleanupErrorDetail = errorDetail;
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
         this.updatedAt = now;
+        validateInvariants();
+    }
+
+    public void markCleanupPending(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (this.leaseOwner != null) {
+            throw new IllegalStateException("Cannot mark cleanup pending while lease is held by: " + this.leaseOwner);
+        }
+        if (this.cleanupStatus != UploadSessionCleanupStatus.NONE) {
+            throw new IllegalStateException("Cannot mark cleanup pending from cleanup status: " + this.cleanupStatus + ". Cleanup status cannot be reset to PENDING.");
+        }
+        if (this.status != MediaUploadSessionStatus.ABORTED && this.status != MediaUploadSessionStatus.EXPIRED) {
+            throw new IllegalStateException("Cannot mark cleanup pending for session in lifecycle status: " + this.status);
+        }
+        if (this.declaredContentHash != null || this.manifestHash != null || this.registeredAssetId != null) {
+            throw new IllegalStateException("Cannot mark cleanup pending when completion intent or registered asset is present.");
+        }
+        this.cleanupStatus = UploadSessionCleanupStatus.PENDING;
+        this.updatedAt = now;
+    }
+
+    @Deprecated
+    public void markCleanupInProgress(Instant now) {
+        throw new IllegalStateException("Direct un-tokened cleanup progress transition is prohibited. Use claimCleanup with an active claim token.");
+    }
+
+    @Deprecated
+    public void markCleanupCompleted(Instant now) {
+        throw new IllegalStateException("Direct un-tokened cleanup completion is prohibited. An active cleanup claim token is required.");
+    }
+
+    @Deprecated
+    public void markCleanupFailed(String errorDetail, Instant now) {
+        throw new IllegalStateException("Direct un-tokened cleanup failure recording is prohibited. An active cleanup claim token is required.");
     }
 
     // ---------------------------------------------------------------------------------------------
