@@ -22,10 +22,13 @@ import org.springframework.stereotype.Component;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.retries.StandardRetryStrategy;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
@@ -90,55 +93,98 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
     public static final StorageProviderId PROVIDER_ID = StorageProviderId.of("b2");
     private static final int BUFFER_SIZE = 8192;
 
+    public static final Duration ABORT_API_CALL_TIMEOUT = Duration.ofSeconds(30);
+    public static final Duration ABORT_API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(25);
+    public static final int ABORT_MAX_ATTEMPTS = 1;
+
     private final String bucket;
     private final S3Client s3Client;
+    private final S3Client abortS3Client;
     private final S3Presigner s3Presigner;
     private final boolean ownsS3Client;
+    private final boolean ownsAbortS3Client;
     private final boolean ownsS3Presigner;
     private final Path tempDirectory;
 
     @Autowired
     public B2StorageAdapter(B2StorageProperties properties) {
-        this(
-                Objects.requireNonNull(properties, "B2StorageProperties cannot be null.").bucket(),
-                createS3Client(properties),
-                createS3Presigner(properties),
-                true,
-                true,
-                null
-        );
+        Objects.requireNonNull(properties, "B2StorageProperties cannot be null.");
+        S3Client generalClient = null;
+        S3Client abortClient = null;
+        S3Presigner presigner = null;
+        try {
+            generalClient = createS3Client(properties);
+            abortClient = createAbortS3Client(properties);
+            presigner = createS3Presigner(properties);
+
+            this.bucket = properties.bucket();
+            this.s3Client = generalClient;
+            this.abortS3Client = abortClient;
+            this.s3Presigner = presigner;
+            this.ownsS3Client = true;
+            this.ownsAbortS3Client = true;
+            this.ownsS3Presigner = true;
+            this.tempDirectory = null;
+        } catch (RuntimeException e) {
+            if (generalClient != null) {
+                try { generalClient.close(); } catch (Exception ignored) {}
+            }
+            if (abortClient != null) {
+                try { abortClient.close(); } catch (Exception ignored) {}
+            }
+            if (presigner != null) {
+                try { presigner.close(); } catch (Exception ignored) {}
+            }
+            throw e;
+        }
     }
 
     public B2StorageAdapter(String bucket, S3Client s3Client) {
-        this(bucket, s3Client, null, false, false, null);
+        this(bucket, s3Client, s3Client, null, false, false, false, null);
     }
 
     B2StorageAdapter(String bucket, S3Client s3Client, Path tempDirectory) {
-        this(bucket, s3Client, null, false, false, tempDirectory);
+        this(bucket, s3Client, s3Client, null, false, false, false, tempDirectory);
     }
 
     public B2StorageAdapter(String bucket, S3Client s3Client, S3Presigner s3Presigner) {
-        this(bucket, s3Client, s3Presigner, false, false, null);
+        this(bucket, s3Client, s3Client, s3Presigner, false, false, false, null);
     }
 
     B2StorageAdapter(String bucket, S3Client s3Client, S3Presigner s3Presigner, Path tempDirectory) {
-        this(bucket, s3Client, s3Presigner, false, false, tempDirectory);
+        this(bucket, s3Client, s3Client, s3Presigner, false, false, false, tempDirectory);
+    }
+
+    B2StorageAdapter(String bucket, S3Client s3Client, S3Client abortS3Client, S3Presigner s3Presigner, Path tempDirectory) {
+        this(bucket, s3Client, abortS3Client, s3Presigner, false, false, false, tempDirectory);
     }
 
     private B2StorageAdapter(
             String bucket,
             S3Client s3Client,
+            S3Client abortS3Client,
             S3Presigner s3Presigner,
             boolean ownsS3Client,
+            boolean ownsAbortS3Client,
             boolean ownsS3Presigner,
             Path tempDirectory
     ) {
         this.bucket = Objects.requireNonNull(bucket, "Bucket cannot be null.");
         this.s3Client = Objects.requireNonNull(s3Client, "S3Client cannot be null.");
+        this.abortS3Client = Objects.requireNonNull(abortS3Client, "Abort S3Client cannot be null.");
         this.s3Presigner = s3Presigner;
         this.ownsS3Client = ownsS3Client;
+        this.ownsAbortS3Client = ownsAbortS3Client;
         this.ownsS3Presigner = ownsS3Presigner;
         this.tempDirectory = tempDirectory;
+    }
+
+    static ClientOverrideConfiguration createAbortClientOverrideConfiguration() {
+        return ClientOverrideConfiguration.builder()
+                .apiCallTimeout(ABORT_API_CALL_TIMEOUT)
+                .apiCallAttemptTimeout(ABORT_API_CALL_ATTEMPT_TIMEOUT)
+                .retryStrategy(StandardRetryStrategy.builder().maxAttempts(ABORT_MAX_ATTEMPTS).build())
+                .build();
     }
 
     private static S3Client createS3Client(B2StorageProperties properties) {
@@ -155,6 +201,63 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                 ))
                 .serviceConfiguration(serviceConfig)
                 .httpClientBuilder(UrlConnectionHttpClient.builder())
+                .build();
+    }
+
+    static S3Client createS3Client(B2StorageProperties properties, SdkHttpClient httpClient) {
+        S3Configuration serviceConfig = S3Configuration.builder()
+                .pathStyleAccessEnabled(true)
+                .chunkedEncodingEnabled(false)
+                .build();
+
+        return S3Client.builder()
+                .endpointOverride(URI.create(properties.endpoint()))
+                .region(Region.of(properties.region()))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(properties.accessKeyId(), properties.secretAccessKey())
+                ))
+                .serviceConfiguration(serviceConfig)
+                .httpClient(httpClient)
+                .build();
+    }
+
+    static S3Client createAbortS3Client(B2StorageProperties properties) {
+        return createAbortS3Client(properties, UrlConnectionHttpClient.builder());
+    }
+
+    static S3Client createAbortS3Client(B2StorageProperties properties, SdkHttpClient httpClient) {
+        S3Configuration serviceConfig = S3Configuration.builder()
+                .pathStyleAccessEnabled(true)
+                .chunkedEncodingEnabled(false)
+                .build();
+
+        return S3Client.builder()
+                .endpointOverride(URI.create(properties.endpoint()))
+                .region(Region.of(properties.region()))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(properties.accessKeyId(), properties.secretAccessKey())
+                ))
+                .serviceConfiguration(serviceConfig)
+                .httpClient(httpClient)
+                .overrideConfiguration(createAbortClientOverrideConfiguration())
+                .build();
+    }
+
+    static S3Client createAbortS3Client(B2StorageProperties properties, SdkHttpClient.Builder<?> httpClientBuilder) {
+        S3Configuration serviceConfig = S3Configuration.builder()
+                .pathStyleAccessEnabled(true)
+                .chunkedEncodingEnabled(false)
+                .build();
+
+        return S3Client.builder()
+                .endpointOverride(URI.create(properties.endpoint()))
+                .region(Region.of(properties.region()))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(properties.accessKeyId(), properties.secretAccessKey())
+                ))
+                .serviceConfiguration(serviceConfig)
+                .httpClientBuilder(httpClientBuilder)
+                .overrideConfiguration(createAbortClientOverrideConfiguration())
                 .build();
     }
 
@@ -626,7 +729,7 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                 .build();
 
         try {
-            AbortMultipartUploadResponse response = s3Client.abortMultipartUpload(abortRequest);
+            AbortMultipartUploadResponse response = abortS3Client.abortMultipartUpload(abortRequest);
             if (response == null) {
                 throw new StorageException("B2 abort multipart upload returned null response for key: " + key.value());
             }
@@ -641,6 +744,11 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         } catch (AwsServiceException | SdkClientException e) {
             throw new StorageException("Failed to abort multipart upload for key: " + key.value(), e);
         }
+    }
+
+    @Override
+    public String configuredBucketName() {
+        return this.bucket;
     }
 
     @Override
@@ -684,6 +792,9 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
     public void close() {
         if (ownsS3Client && s3Client != null) {
             s3Client.close();
+        }
+        if (ownsAbortS3Client && abortS3Client != null && abortS3Client != s3Client) {
+            abortS3Client.close();
         }
         if (ownsS3Presigner && s3Presigner != null) {
             s3Presigner.close();

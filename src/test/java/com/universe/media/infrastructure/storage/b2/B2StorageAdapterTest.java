@@ -119,6 +119,12 @@ class B2StorageAdapterTest {
         assertThat(adapter.providerId()).isEqualTo(StorageProviderId.of("b2"));
     }
 
+    @Test
+    @DisplayName("configuredBucketName returns configured bucket")
+    void shouldReturnConfiguredBucketName() {
+        assertThat(adapter.configuredBucketName()).isEqualTo(BUCKET);
+    }
+
     @Nested
     @DisplayName("Store Tests")
     class StoreTests {
@@ -1544,6 +1550,24 @@ class B2StorageAdapterTest {
 
                 verify(s3Client, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
             }
+
+            @Test
+            @DisplayName("abort routes to abortS3Client when separate abort client is provided")
+            void shouldRouteAbortToDedicatedAbortS3Client() {
+                S3Client separateAbortClient = mock(S3Client.class);
+                B2StorageAdapter dualAdapter = new B2StorageAdapter(BUCKET, s3Client, separateAbortClient, s3Presigner, testTempDir);
+                StorageKey key = StorageKey.of("videos/dedicated-abort.mp4");
+                String uploadId = "u-dedicated-1";
+
+                when(separateAbortClient.abortMultipartUpload(any(AbortMultipartUploadRequest.class)))
+                        .thenReturn(AbortMultipartUploadResponse.builder().build());
+
+                MultipartAbortResult result = dualAdapter.abortMultipartUpload(key, uploadId);
+
+                assertThat(result).isEqualTo(MultipartAbortResult.ABORT_ACCEPTED);
+                verify(separateAbortClient).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+                verify(s3Client, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+            }
         }
 
         @Nested
@@ -1659,6 +1683,17 @@ class B2StorageAdapterTest {
         void shouldNotCloseUnownedClient() {
             adapter.close();
             verify(s3Client, never()).close();
+            verify(s3Presigner, never()).close();
+        }
+
+        @Test
+        @DisplayName("close does not close unowned abort S3 client")
+        void shouldNotCloseUnownedAbortClient() {
+            S3Client separateAbortClient = mock(S3Client.class);
+            B2StorageAdapter dualAdapter = new B2StorageAdapter(BUCKET, s3Client, separateAbortClient, s3Presigner, testTempDir);
+            dualAdapter.close();
+            verify(s3Client, never()).close();
+            verify(separateAbortClient, never()).close();
             verify(s3Presigner, never()).close();
         }
     }

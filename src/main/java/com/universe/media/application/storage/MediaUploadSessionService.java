@@ -6,6 +6,7 @@ import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
+import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
 import com.universe.media.application.ports.storage.MultipartObjectMetadata;
 import com.universe.media.application.ports.storage.MultipartPartETag;
@@ -26,6 +27,7 @@ import com.universe.media.domain.StorageKeyAllocationStatus;
 import com.universe.media.domain.StorageKeyAllocationType;
 import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
+import com.universe.media.domain.UploadSessionCleanupStatus;
 import com.universe.shared.time.ClockPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +61,7 @@ public class MediaUploadSessionService {
     public static final Duration DEFAULT_SESSION_TTL = Duration.ofDays(1); // 24 hours
     public static final Duration DEFAULT_INITIATION_LEASE_DURATION = Duration.ofMinutes(5);
     public static final Duration DEFAULT_COMPLETION_LEASE_DURATION = Duration.ofMinutes(5);
+    public static final Duration DEFAULT_CLEANUP_LEASE_DURATION = Duration.ofMinutes(5);
     public static final Duration DEFAULT_PART_URL_EXPIRY = Duration.ofMinutes(15);
     public static final Duration MIN_PART_URL_EXPIRY = Duration.ofSeconds(10);
     public static final Duration MAX_PART_URL_EXPIRY = Duration.ofHours(1);
@@ -1612,4 +1615,462 @@ public class MediaUploadSessionService {
 
         return session;
     }
+
+    // =============================================================================================
+    // Guarded Single-Session Abort Orchestration (S2D-2B2A)
+    // =============================================================================================
+
+    /**
+     * Executes a transactionally guarded multipart abort for a single upload session, adhering strictly to
+     * TX-A (durable cleanup claim) -&gt; Provider abort (outside DB transaction) -&gt; TX-B (outcome quarantine) ordering.
+     * <p>
+     * <b>Important Safety Boundaries (MS-08E2 / S2D-2B2A):</b>
+     * <ul>
+     *     <li>Provider acknowledgment is not proof of physical cleanup. Both {@link MultipartAbortResult#ABORT_ACCEPTED}
+     *         and {@link MultipartAbortResult#UPLOAD_ALREADY_ABSENT} (as well as unexpired provider errors/timeouts)
+     *         transition the session to {@link UploadSessionCleanupStatus#QUARANTINED} for later physical reconciliation (S2D-3).</li>
+     *     <li>Under no circumstance does this operation transition a session to {@link MediaUploadSessionStatus#CLEANED_UP}
+     *         or {@link UploadSessionCleanupStatus#COMPLETED}.</li>
+     *     <li>Under no circumstance does this operation mutate, release, or tombstone {@link StorageKeyAllocation}.</li>
+     *     <li>If the cleanup lease expires during the remote provider call or tokens mismatch, the operation fails closed
+     *         without mutating database state, preserving durable evidence for offline reconciliation (S2D-3).</li>
+     * </ul>
+     *
+     * @param sessionId the upload session to abort
+     * @return the quarantined upload session after outcome persistence
+     * @throws IllegalStateException if ambient transaction active, eligibility prerequisites violated, or lease/fence expired
+     * @throws IllegalArgumentException if session is not found
+     * @throws NullPointerException if sessionId is null
+     */
+    @Transactional(propagation = Propagation.NEVER)
+    public MediaUploadSession executeGuardedMultipartAbort(UUID sessionId) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("executeGuardedMultipartAbort cannot be invoked from an active ambient transaction.");
+        }
+        Objects.requireNonNull(sessionId, "Session ID cannot be null.");
+
+        if (multipartStoragePort == null) {
+            throw new IllegalStateException("MultipartStoragePort is not configured or available.");
+        }
+        if (transactionManager == null) {
+            throw new IllegalStateException("PlatformTransactionManager is required for guarded abort orchestration.");
+        }
+
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        String claimToken = MediaUploadSession.CLEANUP_CLAIM_PREFIX + UUID.randomUUID();
+
+        // =========================================================================
+        // TX-A — MySQL: Authorize, validate state & allocation, claim cleanup lease, commit
+        // =========================================================================
+        CleanupTargetContext context = txTemplate.execute(status -> executeTxACleanupClaim(sessionId, claimToken));
+        if (context == null) {
+            throw new IllegalStateException("TX-A cleanup claim returned null context for session: " + sessionId);
+        }
+
+        // Defensive check: guarantee no ambient transaction is active before invoking remote provider
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("Provider abort operations cannot be invoked while a database transaction is active.");
+        }
+
+        // =========================================================================
+        // Provider Phase — Outside MySQL Transaction
+        // =========================================================================
+        MultipartAbortResult abortResult = null;
+        Exception providerException = null;
+
+        try {
+            abortResult = multipartStoragePort.abortMultipartUpload(context.storageKey(), context.providerUploadId());
+        } catch (Exception ex) {
+            providerException = ex;
+        }
+
+        // =========================================================================
+        // Outcome Classification & Pre-TX-B Lease Check
+        // =========================================================================
+        Instant now = clockPort.now();
+        if (!now.isBefore(context.leaseExpiresAt())) {
+            log.warn("Cleanup lease expired during provider abort call for session {}: lease expired at {}, now is {}. Failing closed.",
+                    sessionId, context.leaseExpiresAt(), now);
+            throw new IllegalStateException(
+                    String.format("Cleanup lease expired during provider abort call for session %s (lease expired at %s, now %s). Failing closed.",
+                            sessionId, context.leaseExpiresAt(), now)
+            );
+        }
+
+        String quarantineReason;
+        if (providerException != null) {
+            log.warn("Provider multipart abort failed for upload session {} with {}. Quarantining for reconciliation.",
+                    sessionId, providerException.getClass().getSimpleName());
+            quarantineReason = classifyProviderExceptionDiagnostic(providerException);
+        } else if (abortResult == MultipartAbortResult.ABORT_ACCEPTED) {
+            quarantineReason = "Provider abort acknowledged; physical cleanup verification pending (S2D-3)";
+        } else if (abortResult == MultipartAbortResult.UPLOAD_ALREADY_ABSENT) {
+            quarantineReason = "Provider reported upload already absent (NoSuchUpload); unresolved upload-history ambiguity pending reconciliation (S2D-3)";
+        } else {
+            throw new IllegalStateException("Provider abortMultipartUpload returned null or unrecognized result for session: " + sessionId);
+        }
+
+        // =========================================================================
+        // TX-B — MySQL: Conservative outcome persistence (QUARANTINED)
+        // =========================================================================
+        try {
+            final String finalReason = quarantineReason;
+            return txTemplate.execute(status -> executeTxBOutcomeQuarantine(context, finalReason));
+        } catch (RuntimeException txBException) {
+            log.error("TX-B outcome persistence failed for upload session {}. Preserving state for reconciliation.",
+                    sessionId, txBException);
+            throw txBException;
+        }
+    }
+
+    private CleanupTargetContext executeTxACleanupClaim(UUID sessionId, String claimToken) {
+        MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Upload session not found for ID: " + sessionId));
+
+        Instant now = clockPort.now();
+
+        // 1. Lifecycle eligibility: strictly ABORTED or EXPIRED
+        if (session.getStatus() != MediaUploadSessionStatus.ABORTED && session.getStatus() != MediaUploadSessionStatus.EXPIRED) {
+            throw new IllegalStateException(
+                    String.format("Upload session %s is not eligible for cleanup abort: lifecycle status must be ABORTED or EXPIRED, found %s",
+                            sessionId, session.getStatus())
+            );
+        }
+
+        // 2. Cleanup status eligibility: strictly PENDING (reject FAILED, QUARANTINED, IN_PROGRESS, COMPLETED, NONE)
+        if (session.getCleanupStatus() != UploadSessionCleanupStatus.PENDING) {
+            throw new IllegalStateException(
+                    String.format("Upload session %s is not eligible for cleanup abort: cleanup status must be PENDING, found %s",
+                            sessionId, session.getCleanupStatus())
+            );
+        }
+
+        // 3. Reject completion intent markers and registered asset evidence
+        if (session.getDeclaredContentHash() != null) {
+            throw new IllegalStateException("Upload session " + sessionId + " is not eligible for cleanup abort: declaredContentHash is present.");
+        }
+        if (session.getManifestHash() != null) {
+            throw new IllegalStateException("Upload session " + sessionId + " is not eligible for cleanup abort: manifestHash is present.");
+        }
+        if (session.getRegisteredAssetId() != null) {
+            throw new IllegalStateException("Upload session " + sessionId + " is not eligible for cleanup abort: registeredAssetId is present.");
+        }
+        if (session.getCompletedAt() != null) {
+            throw new IllegalStateException("Upload session " + sessionId + " is not eligible for cleanup abort: completedAt is present.");
+        }
+
+        // 4. Validate nonblank persisted provider upload ID
+        if (session.getProviderUploadId() == null || session.getProviderUploadId().isBlank()) {
+            throw new IllegalStateException("Upload session " + sessionId + " is not eligible for cleanup abort: providerUploadId is missing or blank.");
+        }
+
+        // 5. Reject unresolved or active lease (even if expired in past)
+        if (session.getLeaseOwner() != null || session.getLeaseExpiresAt() != null) {
+            throw new IllegalStateException(
+                    String.format("Upload session %s has unresolved lease (owner: %s, expiresAt: %s); cannot claim for cleanup abort.",
+                            sessionId, session.getLeaseOwner(), session.getLeaseExpiresAt())
+            );
+        }
+
+        // 6. Validate storage provider identity and authoritative configured bucket binding
+        if (!StorageProviderId.of("b2").equals(session.getStorageProviderId())) {
+            throw new IllegalStateException(
+                    String.format("Storage provider mismatch for upload session %s: expected 'b2', got '%s'",
+                            sessionId, session.getStorageProviderId().value())
+            );
+        }
+        if (multipartStoragePort.providerId() == null || !multipartStoragePort.providerId().equals(session.getStorageProviderId())) {
+            throw new IllegalStateException(
+                    String.format("MultipartStoragePort provider '%s' does not match session storage provider '%s' for session %s",
+                            multipartStoragePort.providerId() != null ? multipartStoragePort.providerId().value() : "null",
+                            session.getStorageProviderId().value(), sessionId)
+            );
+        }
+        if (session.getStorageBucketName() == null
+                || session.getStorageBucketName().isBlank()
+                || StorageKeyAllocation.CANONICAL_BUCKETLESS_SENTINEL.equals(session.getStorageBucketName())) {
+            throw new IllegalStateException("Upload session " + sessionId + " must have authentic non-sentinel bucket name for cleanup abort.");
+        }
+        String configuredBucket = mediaStorageRoutingService.resolveBucketName(session.getStorageProviderId());
+        if (configuredBucket == null || !configuredBucket.equals(session.getStorageBucketName())) {
+            throw new IllegalStateException(
+                    String.format("Upload session %s bucket '%s' does not match authoritative configured provider bucket '%s'",
+                            sessionId, session.getStorageBucketName(), configuredBucket)
+            );
+        }
+        String adapterBucket = multipartStoragePort.configuredBucketName();
+        if (adapterBucket == null || adapterBucket.isBlank()) {
+            throw new IllegalStateException(
+                    String.format("MultipartStoragePort provider '%s' has null or blank configured bucket name for session %s",
+                            multipartStoragePort.providerId().value(), sessionId)
+            );
+        }
+        if (!adapterBucket.equals(configuredBucket)) {
+            throw new IllegalStateException(
+                    String.format("MultipartStoragePort configured bucket '%s' does not match authoritative routing bucket '%s' for session %s",
+                            adapterBucket, configuredBucket, sessionId)
+            );
+        }
+        if (!adapterBucket.equals(session.getStorageBucketName())) {
+            throw new IllegalStateException(
+                    String.format("MultipartStoragePort configured bucket '%s' does not match upload session bucket '%s' for session %s",
+                            adapterBucket, session.getStorageBucketName(), sessionId)
+            );
+        }
+        if (session.getStorageKey() == null) {
+            throw new IllegalStateException("Upload session " + sessionId + " has null storage key.");
+        }
+
+        // 7. Validate storage allocation binding and ownership
+        if (session.getStorageAllocationId() == null) {
+            throw new IllegalStateException("Upload session " + sessionId + " has null storage allocation ID.");
+        }
+        StorageKeyAllocation allocation = storageKeyAllocationService.findById(session.getStorageAllocationId())
+                .orElseThrow(() -> new IllegalStateException("Storage key allocation not found for session: " + sessionId));
+        validateAllocationBindingForCleanup(allocation, session, configuredBucket);
+
+        // 8. Claim cleanup lease and persist
+        Instant leaseExpiresAt = now.plus(DEFAULT_CLEANUP_LEASE_DURATION);
+        session.claimCleanup(claimToken, leaseExpiresAt, now);
+        MediaUploadSession savedSession = sessionRepositoryPort.save(session);
+
+        return new CleanupTargetContext(
+                savedSession.getId(),
+                savedSession.getStorageProviderId(),
+                savedSession.getStorageBucketName(),
+                savedSession.getStorageKey(),
+                savedSession.getProviderUploadId(),
+                claimToken,
+                leaseExpiresAt,
+                savedSession.getStorageAllocationId()
+        );
+    }
+
+    private MediaUploadSession executeTxBOutcomeQuarantine(CleanupTargetContext context, String quarantineReason) {
+        MediaUploadSession session = sessionRepositoryPort.findById(context.sessionId())
+                .orElseThrow(() -> new IllegalStateException("Upload session not found in TX-B: " + context.sessionId()));
+
+        Instant now = clockPort.now();
+
+        // 1. Verify exact claim token
+        if (session.getLeaseOwner() == null || !session.getLeaseOwner().equals(context.claimToken())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort claim token mismatch for session %s: expected '%s', found '%s'",
+                            context.sessionId(), context.claimToken(), session.getLeaseOwner())
+            );
+        }
+
+        // 2. Verify cleanup lease has not expired
+        if (session.isCleanupLeaseExpired(now)) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort cleanup lease expired for session %s (lease expires at %s, now %s). Failing closed.",
+                            context.sessionId(), session.getLeaseExpiresAt(), now)
+            );
+        }
+
+        // 3. Verify cleanup status is IN_PROGRESS
+        if (session.getCleanupStatus() != UploadSessionCleanupStatus.IN_PROGRESS) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort cleanup status is not IN_PROGRESS for session %s (found: %s)",
+                            context.sessionId(), session.getCleanupStatus())
+            );
+        }
+
+        // 4. Verify lifecycle status remains ABORTED or EXPIRED
+        if (session.getStatus() != MediaUploadSessionStatus.ABORTED && session.getStatus() != MediaUploadSessionStatus.EXPIRED) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort lifecycle status is not ABORTED or EXPIRED for session %s (found: %s)",
+                            context.sessionId(), session.getStatus())
+            );
+        }
+
+        // 5. Verify provider and bucket binding remain unchanged and match authoritative config
+        if (!session.getStorageProviderId().equals(context.storageProviderId())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort storage provider changed for session %s: expected '%s', found '%s'",
+                            context.sessionId(), context.storageProviderId().value(), session.getStorageProviderId().value())
+            );
+        }
+        if (!session.getStorageBucketName().equals(context.storageBucketName())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort storage bucket changed for session %s: expected '%s', found '%s'",
+                            context.sessionId(), context.storageBucketName(), session.getStorageBucketName())
+            );
+        }
+        if (multipartStoragePort.providerId() == null || !multipartStoragePort.providerId().equals(session.getStorageProviderId())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort MultipartStoragePort provider '%s' does not match session provider '%s' for session %s",
+                            multipartStoragePort.providerId() != null ? multipartStoragePort.providerId().value() : "null", session.getStorageProviderId().value(), context.sessionId())
+            );
+        }
+        String configuredBucket = mediaStorageRoutingService.resolveBucketName(session.getStorageProviderId());
+        if (configuredBucket == null || !configuredBucket.equals(session.getStorageBucketName())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort session bucket '%s' does not match authoritative configured bucket '%s' for session %s",
+                            session.getStorageBucketName(), configuredBucket, context.sessionId())
+            );
+        }
+        String adapterBucket = multipartStoragePort.configuredBucketName();
+        if (adapterBucket == null || adapterBucket.isBlank()) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort MultipartStoragePort provider '%s' has null or blank configured bucket name for session %s",
+                            multipartStoragePort.providerId().value(), context.sessionId())
+            );
+        }
+        if (!adapterBucket.equals(configuredBucket)) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort MultipartStoragePort configured bucket '%s' does not match authoritative routing bucket '%s' for session %s",
+                            adapterBucket, configuredBucket, context.sessionId())
+            );
+        }
+        if (!adapterBucket.equals(session.getStorageBucketName())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort MultipartStoragePort configured bucket '%s' does not match session bucket '%s' for session %s",
+                            adapterBucket, session.getStorageBucketName(), context.sessionId())
+            );
+        }
+        if (!adapterBucket.equals(context.storageBucketName())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort MultipartStoragePort configured bucket '%s' does not match claimed target bucket '%s' for session %s",
+                            adapterBucket, context.storageBucketName(), context.sessionId())
+            );
+        }
+
+        // 6. Verify completion evidence remains absent
+        if (session.getDeclaredContentHash() != null) {
+            throw new IllegalStateException("TX-B abort detected declaredContentHash on session " + context.sessionId());
+        }
+        if (session.getManifestHash() != null) {
+            throw new IllegalStateException("TX-B abort detected manifestHash on session " + context.sessionId());
+        }
+        if (session.getRegisteredAssetId() != null) {
+            throw new IllegalStateException("TX-B abort detected registeredAssetId on session " + context.sessionId());
+        }
+        if (session.getCompletedAt() != null) {
+            throw new IllegalStateException("TX-B abort detected completedAt on session " + context.sessionId());
+        }
+
+        // 7. Verify provider upload ID remains unchanged
+        if (!Objects.equals(session.getProviderUploadId(), context.providerUploadId())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort provider upload ID changed for session %s: expected '%s', found '%s'",
+                            context.sessionId(), context.providerUploadId(), session.getProviderUploadId())
+            );
+        }
+
+        // 8. Verify storage key remains unchanged
+        if (!Objects.equals(session.getStorageKey(), context.storageKey())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort storage key changed for session %s: expected %s, found %s",
+                            context.sessionId(), context.storageKey(), session.getStorageKey())
+            );
+        }
+
+        // 9. Verify storage allocation binding remains unchanged
+        if (!Objects.equals(session.getStorageAllocationId(), context.storageAllocationId())) {
+            throw new IllegalStateException(
+                    String.format("TX-B abort storage allocation ID changed for session %s: expected %s, found %s",
+                            context.sessionId(), context.storageAllocationId(), session.getStorageAllocationId())
+            );
+        }
+        StorageKeyAllocation allocation = storageKeyAllocationService.findById(session.getStorageAllocationId())
+                .orElseThrow(() -> new IllegalStateException("Storage key allocation not found in TX-B for session: " + context.sessionId()));
+        validateAllocationBindingForCleanup(allocation, session, context.storageBucketName());
+
+        // 10. Record QUARANTINED outcome and persist atomically
+        session.markCleanupQuarantined(context.claimToken(), quarantineReason, now);
+        return sessionRepositoryPort.save(session);
+    }
+
+    private void validateAllocationBindingForCleanup(StorageKeyAllocation allocation, MediaUploadSession session, String expectedConfiguredBucket) {
+        if (allocation.getStatus() != StorageKeyAllocationStatus.RESERVED
+                && allocation.getStatus() != StorageKeyAllocationStatus.TOMBSTONE) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s status must be RESERVED or TOMBSTONE (found: %s)",
+                            session.getStorageAllocationId(), allocation.getStatus())
+            );
+        }
+        if (!allocation.getProviderId().equals(session.getStorageProviderId())) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s provider '%s' does not match session provider '%s'",
+                            allocation.getId(), allocation.getProviderId().value(), session.getStorageProviderId().value())
+            );
+        }
+        if (!allocation.getBucketName().equals(expectedConfiguredBucket)) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s bucket '%s' does not match authoritative configured bucket '%s'",
+                            allocation.getId(), allocation.getBucketName(), expectedConfiguredBucket)
+            );
+        }
+        if (!allocation.getBucketName().equals(session.getStorageBucketName())) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s bucket '%s' does not match session bucket '%s'",
+                            allocation.getId(), allocation.getBucketName(), session.getStorageBucketName())
+            );
+        }
+        if (!allocation.getStorageKey().equals(session.getStorageKey())
+                || allocation.getAllocatedByType() != StorageKeyAllocationType.UPLOAD_SESSION
+                || !allocation.getAllocatedById().equals(session.getId())) {
+            throw new IllegalStateException(
+                    String.format("Storage key allocation %s does not match upload session %s binding.",
+                            session.getStorageAllocationId(), session.getId())
+            );
+        }
+    }
+
+    static String classifyProviderExceptionDiagnostic(Exception ex) {
+        if (ex == null) {
+            return "Provider multipart abort failed with unspecified error; physical cleanup outcome unresolved, pending reconciliation (S2D-3)";
+        }
+
+        String exceptionType = ex.getClass().getSimpleName();
+        String category = categorizeProviderException(ex);
+
+        return String.format(
+                "Provider multipart abort failed with %s (%s); physical cleanup outcome unresolved, pending reconciliation (S2D-3)",
+                exceptionType, category
+        );
+    }
+
+    private static String categorizeProviderException(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            String className = current.getClass().getSimpleName().toLowerCase();
+            String msg = (current.getMessage() != null) ? current.getMessage().toLowerCase() : "";
+
+            if (className.contains("timeout") || msg.contains("timed out") || msg.contains("timeout")) {
+                return "TIMEOUT_UNCERTAINTY";
+            }
+            if (className.contains("connect") || msg.contains("connection refused") || msg.contains("connection reset")) {
+                return "CONNECTION_FAILURE";
+            }
+            if (msg.contains("403") || msg.contains("forbidden") || msg.contains("accessdenied")) {
+                return "PROVIDER_AUTHENTICATION_OR_ACCESS_DENIED";
+            }
+            if (msg.contains("400") || msg.contains("bad request")) {
+                return "PROVIDER_BAD_REQUEST";
+            }
+            if (msg.contains("503") || msg.contains("service unavailable")) {
+                return "PROVIDER_SERVICE_UNAVAILABLE";
+            }
+            if (msg.contains("500") || msg.contains("internal error")) {
+                return "PROVIDER_INTERNAL_SERVER_ERROR";
+            }
+            current = current.getCause();
+        }
+        return "GENERAL_PROVIDER_ERROR";
+    }
+
+    private record CleanupTargetContext(
+            UUID sessionId,
+            StorageProviderId storageProviderId,
+            String storageBucketName,
+            StorageKey storageKey,
+            String providerUploadId,
+            String claimToken,
+            Instant leaseExpiresAt,
+            UUID storageAllocationId
+    ) {}
 }

@@ -112,4 +112,12 @@ public interface MultipartStoragePort extends BinaryStoragePort {
      * @throws NullPointerException if key is null
      */
     MultipartObjectMetadata inspectObjectMetadata(StorageKey key);
+
+    /**
+     * Returns the authoritative, immutable bucket name configured for this multipart storage provider.
+     * Must not be null or blank.
+     *
+     * @return the configured bucket name
+     */
+    String configuredBucketName();
 }
