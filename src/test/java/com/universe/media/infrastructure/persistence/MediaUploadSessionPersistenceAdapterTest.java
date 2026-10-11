@@ -18,12 +18,16 @@ import org.springframework.dao.OptimisticLockingFailureException;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -708,5 +712,305 @@ class MediaUploadSessionPersistenceAdapterTest {
 
         assertThat(found).isPresent();
         assertThat(found.get().getManifestHash()).isEqualTo(manifestHash);
+    }
+
+    @Test
+    @DisplayName("findSessionsEligibleForCleanup delegates to repository with bounded PageRequest and maps to domain")
+    void shouldFindSessionsEligibleForCleanup() {
+        UUID id = UUID.randomUUID();
+        MediaUploadSessionJpaEntity entity = new MediaUploadSessionJpaEntity();
+        entity.setId(id.toString());
+        entity.setInitiatorPrincipalId("user-100");
+        entity.setConsumerContext("screen");
+        entity.setTargetEntityType("ScreenItem");
+        entity.setTargetEntityId(UUID.randomUUID().toString());
+        entity.setIdempotencyKey("idem-100");
+        entity.setMediaType("VIDEO");
+        entity.setDeclaredMimeType("video/mp4");
+        entity.setDeclaredSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        entity.setStorageProviderId("b2");
+        entity.setStorageBucketName("kiemlai-video");
+        entity.setStorageKey(STORAGE_KEY.value());
+        entity.setStorageAllocationId(UUID.randomUUID().toString());
+        entity.setPartSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        entity.setExpectedPartCount(1);
+        entity.setStatus(MediaUploadSessionStatus.ABORTED);
+        entity.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+        entity.setCleanupStatus(UploadSessionCleanupStatus.PENDING);
+        entity.setCleanupRetryCount(0);
+        entity.setCreatedAt(Instant.now());
+        entity.setUpdatedAt(Instant.now());
+        entity.setOriginalFilename("video.mp4");
+
+        Instant cutoff = Instant.now();
+        Set<MediaUploadSessionStatus> sessionStatuses = Set.of(MediaUploadSessionStatus.ABORTED, MediaUploadSessionStatus.EXPIRED);
+        Set<UploadSessionCleanupStatus> cleanupStatuses = Set.of(UploadSessionCleanupStatus.PENDING, UploadSessionCleanupStatus.FAILED);
+        when(repository.findEligibleForCleanup(sessionStatuses, cleanupStatuses, 5, cutoff, PageRequest.of(0, 10)))
+                .thenReturn(List.of(entity));
+
+        List<MediaUploadSession> results = adapter.findSessionsEligibleForCleanup(sessionStatuses, cleanupStatuses, 5, cutoff, 10);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getId()).isEqualTo(id);
+        assertThat(results.get(0).getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.PENDING);
+        verify(repository).findEligibleForCleanup(sessionStatuses, cleanupStatuses, 5, cutoff, PageRequest.of(0, 10));
+    }
+
+    @Test
+    @DisplayName("findSessionsEligibleForCleanup validates limit, retry, null parameters and rejects unsafe lifecycle statuses")
+    void shouldValidateParametersForCleanupQuery() {
+        Instant cutoff = Instant.now();
+        Set<MediaUploadSessionStatus> safeStatuses = Set.of(MediaUploadSessionStatus.ABORTED);
+        Set<UploadSessionCleanupStatus> cleanupStatuses = Set.of(UploadSessionCleanupStatus.PENDING);
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(null, cleanupStatuses, 5, cutoff, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("sessionStatuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(safeStatuses, null, 5, cutoff, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("cleanupStatuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(safeStatuses, cleanupStatuses, 5, cutoff, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(safeStatuses, cleanupStatuses, 5, cutoff, -1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(safeStatuses, cleanupStatuses, 5, cutoff, 101))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(safeStatuses, cleanupStatuses, 5, cutoff, Integer.MAX_VALUE))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(safeStatuses, cleanupStatuses, -1, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maxRetryCount cannot be negative");
+
+        // Fail-closed checks on unapproved lifecycle statuses
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                Set.of(MediaUploadSessionStatus.COMPLETING), cleanupStatuses, 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved lifecycle statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                Set.of(MediaUploadSessionStatus.COMPLETED), cleanupStatuses, 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved lifecycle statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                Set.of(MediaUploadSessionStatus.CLEANED_UP), cleanupStatuses, 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved lifecycle statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                Set.of(MediaUploadSessionStatus.FAILED), cleanupStatuses, 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved lifecycle statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                Set.of(MediaUploadSessionStatus.INITIATED), cleanupStatuses, 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved lifecycle statuses");
+    }
+
+    @Test
+    @DisplayName("findSessionsEligibleForCleanup enforces approved cleanup-status sets and rejects unapproved cleanup statuses fail-closed")
+    void shouldValidateApprovedAndRejectedCleanupStatuses() {
+        Instant cutoff = Instant.now();
+        Set<MediaUploadSessionStatus> safeLifecycle = Set.of(MediaUploadSessionStatus.ABORTED);
+
+        // Rejected unapproved cleanup statuses: NONE, COMPLETED, IN_PROGRESS
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.NONE), 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved cleanup statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.COMPLETED), 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved cleanup statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.IN_PROGRESS), 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved cleanup statuses");
+
+        // Mixed set containing an unapproved status also fails fail-closed
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.PENDING, UploadSessionCleanupStatus.COMPLETED), 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved cleanup statuses");
+
+        // Approved cleanup statuses: PENDING alone, FAILED alone, or both PENDING and FAILED
+        when(repository.findEligibleForCleanup(any(), any(), anyInt(), any(), any()))
+                .thenReturn(List.of());
+
+        assertThat(adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.PENDING), 5, cutoff, 10))
+                .isNotNull();
+
+        assertThat(adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.FAILED), 5, cutoff, 10))
+                .isNotNull();
+
+        assertThat(adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.PENDING, UploadSessionCleanupStatus.FAILED), 5, cutoff, 10))
+                .isNotNull();
+
+        // Default overload uses approved statuses
+        assertThat(adapter.findSessionsEligibleForCleanup(5, cutoff, 10))
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("findExpiredSessions delegates to repository with bounded PageRequest and maps to domain")
+    void shouldFindExpiredSessions() {
+        UUID id = UUID.randomUUID();
+        MediaUploadSessionJpaEntity entity = new MediaUploadSessionJpaEntity();
+        entity.setId(id.toString());
+        entity.setInitiatorPrincipalId("user-100");
+        entity.setConsumerContext("screen");
+        entity.setTargetEntityType("ScreenItem");
+        entity.setTargetEntityId(UUID.randomUUID().toString());
+        entity.setIdempotencyKey("idem-100");
+        entity.setMediaType("VIDEO");
+        entity.setDeclaredMimeType("video/mp4");
+        entity.setDeclaredSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        entity.setStorageProviderId("b2");
+        entity.setStorageBucketName("kiemlai-video");
+        entity.setStorageKey(STORAGE_KEY.value());
+        entity.setStorageAllocationId(UUID.randomUUID().toString());
+        entity.setPartSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        entity.setExpectedPartCount(1);
+        entity.setStatus(MediaUploadSessionStatus.INITIATED);
+        entity.setProviderUploadId("upload-expired-123");
+        entity.setExpiresAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        entity.setCleanupStatus(UploadSessionCleanupStatus.NONE);
+        entity.setCreatedAt(Instant.now().minus(25, ChronoUnit.HOURS));
+        entity.setUpdatedAt(Instant.now().minus(25, ChronoUnit.HOURS));
+        entity.setOriginalFilename("video.mp4");
+
+        Instant now = Instant.now();
+        Set<MediaUploadSessionStatus> statuses = Set.of(MediaUploadSessionStatus.ALLOCATED, MediaUploadSessionStatus.INITIATED);
+        when(repository.findExpired(statuses, now, PageRequest.of(0, 20)))
+                .thenReturn(List.of(entity));
+
+        List<MediaUploadSession> results = adapter.findExpiredSessions(statuses, now, 20);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getId()).isEqualTo(id);
+        assertThat(results.get(0).getStatus()).isEqualTo(MediaUploadSessionStatus.INITIATED);
+        verify(repository).findExpired(statuses, now, PageRequest.of(0, 20));
+    }
+
+    @Test
+    @DisplayName("findExpiredSessions validates limit bounds and null parameters")
+    void shouldValidateParametersForExpiredQuery() {
+        Instant now = Instant.now();
+        Set<MediaUploadSessionStatus> statuses = Set.of(MediaUploadSessionStatus.ALLOCATED);
+
+        assertThatThrownBy(() -> adapter.findExpiredSessions(null, now, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("statuses");
+
+        assertThatThrownBy(() -> adapter.findExpiredSessions(statuses, null, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("now");
+
+        assertThatThrownBy(() -> adapter.findExpiredSessions(statuses, now, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findExpiredSessions(statuses, now, -1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findExpiredSessions(statuses, now, 101))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findExpiredSessions(statuses, now, Integer.MAX_VALUE))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+    }
+
+    @Test
+    @DisplayName("findSessionsWithExpiredLeases delegates to repository with bounded PageRequest and maps to domain")
+    void shouldFindSessionsWithExpiredLeases() {
+        UUID id = UUID.randomUUID();
+        MediaUploadSessionJpaEntity entity = new MediaUploadSessionJpaEntity();
+        entity.setId(id.toString());
+        entity.setInitiatorPrincipalId("user-100");
+        entity.setConsumerContext("screen");
+        entity.setTargetEntityType("ScreenItem");
+        entity.setTargetEntityId(UUID.randomUUID().toString());
+        entity.setIdempotencyKey("idem-100");
+        entity.setMediaType("VIDEO");
+        entity.setDeclaredMimeType("video/mp4");
+        entity.setDeclaredSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        entity.setStorageProviderId("b2");
+        entity.setStorageBucketName("kiemlai-video");
+        entity.setStorageKey(STORAGE_KEY.value());
+        entity.setStorageAllocationId(UUID.randomUUID().toString());
+        entity.setPartSizeBytes(MediaUploadSession.FIXED_PART_SIZE_BYTES);
+        entity.setExpectedPartCount(1);
+        entity.setStatus(MediaUploadSessionStatus.COMPLETING);
+        entity.setProviderUploadId("upload-lease-123");
+        entity.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+        entity.setLeaseOwner("COMPLETION_CLAIM:stale-token");
+        entity.setLeaseExpiresAt(Instant.now().minus(10, ChronoUnit.MINUTES));
+        entity.setDeclaredContentHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        entity.setCleanupStatus(UploadSessionCleanupStatus.NONE);
+        entity.setCreatedAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        entity.setUpdatedAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        entity.setOriginalFilename("video.mp4");
+
+        Instant now = Instant.now();
+        Set<MediaUploadSessionStatus> statuses = Set.of(MediaUploadSessionStatus.ALLOCATED, MediaUploadSessionStatus.COMPLETING);
+        when(repository.findWithExpiredLeases(statuses, now, PageRequest.of(0, 15)))
+                .thenReturn(List.of(entity));
+
+        List<MediaUploadSession> results = adapter.findSessionsWithExpiredLeases(statuses, now, 15);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getId()).isEqualTo(id);
+        assertThat(results.get(0).getLeaseOwner()).isEqualTo("COMPLETION_CLAIM:stale-token");
+        verify(repository).findWithExpiredLeases(statuses, now, PageRequest.of(0, 15));
+    }
+
+    @Test
+    @DisplayName("findSessionsWithExpiredLeases validates limit bounds and null parameters")
+    void shouldValidateParametersForExpiredLeasesQuery() {
+        Instant now = Instant.now();
+        Set<MediaUploadSessionStatus> statuses = Set.of(MediaUploadSessionStatus.COMPLETING);
+
+        assertThatThrownBy(() -> adapter.findSessionsWithExpiredLeases(null, now, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsWithExpiredLeases(statuses, null, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("now");
+
+        assertThatThrownBy(() -> adapter.findSessionsWithExpiredLeases(statuses, now, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findSessionsWithExpiredLeases(statuses, now, -1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findSessionsWithExpiredLeases(statuses, now, 101))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
+
+        assertThatThrownBy(() -> adapter.findSessionsWithExpiredLeases(statuses, now, Integer.MAX_VALUE))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit must be between 1 and 100");
     }
 }

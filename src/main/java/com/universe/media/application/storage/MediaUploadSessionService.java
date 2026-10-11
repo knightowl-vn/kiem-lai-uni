@@ -59,6 +59,9 @@ public class MediaUploadSessionService {
     public static final Duration DEFAULT_SESSION_TTL = Duration.ofDays(1); // 24 hours
     public static final Duration DEFAULT_INITIATION_LEASE_DURATION = Duration.ofMinutes(5);
     public static final Duration DEFAULT_COMPLETION_LEASE_DURATION = Duration.ofMinutes(5);
+    public static final Duration DEFAULT_PART_URL_EXPIRY = Duration.ofMinutes(15);
+    public static final Duration MIN_PART_URL_EXPIRY = Duration.ofSeconds(10);
+    public static final Duration MAX_PART_URL_EXPIRY = Duration.ofHours(1);
     public static final String METADATA_SESSION_ID = "session-id";
     public static final String METADATA_ALLOCATION_ID = "allocation-id";
 
@@ -743,6 +746,131 @@ public class MediaUploadSessionService {
         throw new UnsupportedOperationException(
                 "Direct initiation without a verified initiation claim token is prohibited. Knowledge of session ID and principal ID alone cannot bypass initiation."
         );
+    }
+
+    /**
+     * Issues a B2-compatible presigned upload URL for an individual part of an active upload session.
+     *
+     * <p>Enforces:
+     * <ul>
+     *     <li>Session existence, principal authorization, and eligible status ({@link MediaUploadSessionStatus#INITIATED});</li>
+     *     <li>Session non-expiration and imminence guard (&ge; {@link #MIN_PART_URL_EXPIRY});</li>
+     *     <li>Part number validation (1 .. expectedPartCount);</li>
+     *     <li>Presigned URL expiration bounds (capped to session remaining TTL);</li>
+     *     <li>Storage provider and reserved storage allocation binding verification;</li>
+     *     <li>Idempotent refresh without mutating session state;</li>
+     * </ul>
+     */
+    @Transactional(readOnly = true)
+    public String generatePresignedPartUploadUrl(
+            UUID sessionId,
+            int partNumber,
+            String requestingPrincipalId,
+            Duration requestedExpiry
+    ) {
+        Objects.requireNonNull(sessionId, "Session ID cannot be null.");
+        requireNonBlank(requestingPrincipalId, "requestingPrincipalId");
+
+        MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Upload session not found for ID: " + sessionId));
+
+        // 1. Authorize requesting principal
+        if (!session.getInitiatorPrincipalId().equals(requestingPrincipalId)) {
+            throw new IllegalStateException(
+                    String.format("Principal '%s' is not authorized to generate presigned upload URLs for session '%s' owned by '%s'",
+                            requestingPrincipalId, sessionId, session.getInitiatorPrincipalId())
+            );
+        }
+
+        // 2. Validate eligible session status: only INITIATED allows uploading parts
+        if (session.getStatus() != MediaUploadSessionStatus.INITIATED) {
+            throw new IllegalStateException(
+                    String.format("Cannot generate presigned part upload URL for session %s in status %s. Session must be in INITIATED status.",
+                            sessionId, session.getStatus())
+            );
+        }
+
+        Instant now = clockPort.now();
+        Objects.requireNonNull(now, "Clock timestamp cannot be null.");
+
+        // 3. Validate session expiry
+        if (session.getExpiresAt().isBefore(now) || session.getExpiresAt().equals(now)) {
+            throw new IllegalStateException("Upload session has expired: " + sessionId);
+        }
+
+        // 4. Validate part number bounds (1 .. expectedPartCount)
+        if (partNumber < 1 || partNumber > session.getExpectedPartCount()) {
+            throw new IllegalArgumentException(
+                    String.format("Part number %d is out of bounds for session %s. Expected between 1 and %d.",
+                            partNumber, sessionId, session.getExpectedPartCount())
+            );
+        }
+
+        // 5. Validate provider upload ID is present
+        if (session.getProviderUploadId() == null || session.getProviderUploadId().isBlank()) {
+            throw new IllegalStateException("Upload session has missing or blank providerUploadId: " + sessionId);
+        }
+
+        // 6. Validate expiry bounds and cap to session remaining TTL
+        Duration effectiveExpiry = (requestedExpiry != null) ? requestedExpiry : DEFAULT_PART_URL_EXPIRY;
+        if (effectiveExpiry.compareTo(MIN_PART_URL_EXPIRY) < 0 || effectiveExpiry.compareTo(MAX_PART_URL_EXPIRY) > 0) {
+            throw new IllegalArgumentException(
+                    String.format("Presigned part upload URL expiry must be between %s and %s, got: %s",
+                            MIN_PART_URL_EXPIRY, MAX_PART_URL_EXPIRY, effectiveExpiry)
+            );
+        }
+
+        Duration remainingTtl = Duration.between(now, session.getExpiresAt());
+        if (remainingTtl.compareTo(MIN_PART_URL_EXPIRY) < 0) {
+            throw new IllegalStateException("Upload session is expiring imminently (< " + MIN_PART_URL_EXPIRY + "): " + sessionId);
+        }
+        if (remainingTtl.compareTo(effectiveExpiry) < 0) {
+            effectiveExpiry = remainingTtl;
+        }
+
+        // 7. Validate reserved storage allocation binding
+        StorageKeyAllocation allocation = storageKeyAllocationService.findById(session.getStorageAllocationId())
+                .orElseThrow(() -> new IllegalStateException("Storage key allocation not found for session: " + sessionId));
+        validateAllocationBinding(allocation, session);
+
+        // 8. Validate storage provider
+        if (!StorageProviderId.of("b2").equals(session.getStorageProviderId())) {
+            throw new IllegalStateException("Storage provider mismatch for upload session " + sessionId + ": expected 'b2', got " + session.getStorageProviderId().value());
+        }
+
+        // 9. Delegate to multipartStoragePort
+        if (multipartStoragePort == null) {
+            throw new IllegalStateException("MultipartStoragePort is not configured or available.");
+        }
+
+        try {
+            String presignedUrl = multipartStoragePort.generatePresignedPartUploadUrl(
+                    session.getStorageKey(),
+                    session.getProviderUploadId(),
+                    partNumber,
+                    effectiveExpiry
+            );
+            if (presignedUrl == null || presignedUrl.isBlank()) {
+                throw new IllegalStateException("Storage provider returned empty or blank presigned part upload URL for session " + sessionId + ", part " + partNumber);
+            }
+            return presignedUrl;
+        } catch (RuntimeException e) {
+            log.warn("Failed to generate presigned part upload URL for session {}, part {}: provider presigning failed [{}]",
+                    sessionId, partNumber, e.getClass().getSimpleName());
+            throw e;
+        }
+    }
+
+    /**
+     * Issues a B2-compatible presigned upload URL for an individual part using the default expiration duration.
+     */
+    @Transactional(readOnly = true)
+    public String generatePresignedPartUploadUrl(
+            UUID sessionId,
+            int partNumber,
+            String requestingPrincipalId
+    ) {
+        return generatePresignedPartUploadUrl(sessionId, partNumber, requestingPrincipalId, null);
     }
 
     /**

@@ -302,6 +302,35 @@ class MediaUploadSessionConcurrencyIntegrationTest {
             public Optional<MediaUploadSession> findByStorageLocation(StorageProviderId providerId, StorageKey storageKey) {
                 return sessionAdapter.findByStorageLocation(providerId, storageKey);
             }
+
+            @Override
+            public List<MediaUploadSession> findSessionsEligibleForCleanup(
+                    Set<MediaUploadSessionStatus> sessionStatuses,
+                    Set<UploadSessionCleanupStatus> cleanupStatuses,
+                    int maxRetryCount,
+                    Instant maxLastAttemptAt,
+                    int limit
+            ) {
+                return sessionAdapter.findSessionsEligibleForCleanup(sessionStatuses, cleanupStatuses, maxRetryCount, maxLastAttemptAt, limit);
+            }
+
+            @Override
+            public List<MediaUploadSession> findExpiredSessions(
+                    Set<MediaUploadSessionStatus> statuses,
+                    Instant now,
+                    int limit
+            ) {
+                return sessionAdapter.findExpiredSessions(statuses, now, limit);
+            }
+
+            @Override
+            public List<MediaUploadSession> findSessionsWithExpiredLeases(
+                    Set<MediaUploadSessionStatus> statuses,
+                    Instant now,
+                    int limit
+            ) {
+                return sessionAdapter.findSessionsWithExpiredLeases(statuses, now, limit);
+            }
         };
 
         MediaUploadSessionService forcedRaceService = new MediaUploadSessionService(

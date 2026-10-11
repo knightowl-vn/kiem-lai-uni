@@ -9,11 +9,17 @@ import com.universe.media.domain.StorageProviderId;
 import com.universe.media.domain.UploadSessionCleanupStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionRepositoryPort {
@@ -167,6 +173,109 @@ public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionR
             throw e;
         }
     }
+
+    public static final int MAX_BATCH_SIZE = MediaUploadSessionRepositoryPort.MAX_BATCH_SIZE;
+
+    public static final Set<MediaUploadSessionStatus> APPROVED_CLEANUP_CANDIDATE_STATUSES =
+            MediaUploadSessionRepositoryPort.APPROVED_CLEANUP_CANDIDATE_STATUSES;
+
+    public static final Set<UploadSessionCleanupStatus> APPROVED_CLEANUP_DISCOVERY_STATUSES =
+            MediaUploadSessionRepositoryPort.APPROVED_CLEANUP_DISCOVERY_STATUSES;
+
+    public static final Set<UploadSessionCleanupStatus> APPROVED_CLEANUP_STATUSES =
+            APPROVED_CLEANUP_DISCOVERY_STATUSES;
+
+    @Override
+    public List<MediaUploadSession> findSessionsEligibleForCleanup(
+            Set<MediaUploadSessionStatus> sessionStatuses,
+            Set<UploadSessionCleanupStatus> cleanupStatuses,
+            int maxRetryCount,
+            Instant maxLastAttemptAt,
+            int limit
+    ) {
+        Objects.requireNonNull(sessionStatuses, "sessionStatuses must not be null");
+        Objects.requireNonNull(cleanupStatuses, "cleanupStatuses must not be null");
+        if (limit <= 0 || limit > MAX_BATCH_SIZE) {
+            throw new IllegalArgumentException("limit must be between 1 and " + MAX_BATCH_SIZE + ", got: " + limit);
+        }
+        if (maxRetryCount < 0) {
+            throw new IllegalArgumentException("maxRetryCount cannot be negative");
+        }
+        Set<MediaUploadSessionStatus> unapprovedLifecycle = sessionStatuses.stream()
+                .filter(s -> !APPROVED_CLEANUP_CANDIDATE_STATUSES.contains(s))
+                .collect(Collectors.toSet());
+        if (!unapprovedLifecycle.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "sessionStatuses contains unapproved lifecycle statuses for cleanup candidate discovery: " + unapprovedLifecycle
+                    + ". Only " + APPROVED_CLEANUP_CANDIDATE_STATUSES + " are permitted."
+            );
+        }
+        Set<UploadSessionCleanupStatus> unapprovedCleanup = cleanupStatuses.stream()
+                .filter(s -> !APPROVED_CLEANUP_DISCOVERY_STATUSES.contains(s))
+                .collect(Collectors.toSet());
+        if (!unapprovedCleanup.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "cleanupStatuses contains unapproved cleanup statuses for cleanup candidate discovery: " + unapprovedCleanup
+                    + ". Only " + APPROVED_CLEANUP_DISCOVERY_STATUSES + " are permitted."
+            );
+        }
+        if (sessionStatuses.isEmpty() || cleanupStatuses.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return repository.findEligibleForCleanup(
+                sessionStatuses,
+                cleanupStatuses,
+                maxRetryCount,
+                maxLastAttemptAt,
+                PageRequest.of(0, limit)
+        ).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<MediaUploadSession> findExpiredSessions(
+            Set<MediaUploadSessionStatus> statuses,
+            Instant now,
+            int limit
+    ) {
+        Objects.requireNonNull(statuses, "statuses must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        if (limit <= 0 || limit > MAX_BATCH_SIZE) {
+            throw new IllegalArgumentException("limit must be between 1 and " + MAX_BATCH_SIZE + ", got: " + limit);
+        }
+        if (statuses.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return repository.findExpired(
+                statuses,
+                now,
+                PageRequest.of(0, limit)
+        ).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<MediaUploadSession> findSessionsWithExpiredLeases(
+            Set<MediaUploadSessionStatus> statuses,
+            Instant now,
+            int limit
+    ) {
+        Objects.requireNonNull(statuses, "statuses must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        if (limit <= 0 || limit > MAX_BATCH_SIZE) {
+            throw new IllegalArgumentException("limit must be between 1 and " + MAX_BATCH_SIZE + ", got: " + limit);
+        }
+        if (statuses.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return repository.findWithExpiredLeases(
+                statuses,
+                now,
+                PageRequest.of(0, limit)
+        ).stream().map(this::toDomain).toList();
+    }
+
 
     private void validatePersistedStatusTransition(MediaUploadSessionStatus current, MediaUploadSessionStatus target) {
         if (current == target) {
