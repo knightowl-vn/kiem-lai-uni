@@ -1032,4 +1032,305 @@ class MediaUploadSessionCleanupDomainTest {
                     .hasMessageContaining("while lease is held by");
         }
     }
+
+    // =============================================================================================
+    // Matrix F – Durable Quarantine Transitions & Invariants (S2D-2B1)
+    // =============================================================================================
+
+    @Nested
+    @DisplayName("Matrix F – Durable Quarantine Transitions & Invariants")
+    class MatrixFDurableQuarantineTransitionsAndInvariants {
+
+        private MediaUploadSession createInProgressSession(MediaUploadSessionStatus status) {
+            return createSession(
+                    status,
+                    UploadSessionCleanupStatus.IN_PROGRESS,
+                    "b2-upload-123",
+                    VALID_TOKEN,
+                    LEASE_EXPIRY,
+                    null,
+                    null,
+                    null,
+                    1
+            );
+        }
+
+        @Test
+        @DisplayName("1. Valid cleanup claim transitions to QUARANTINED, updates timestamps and bounds reason")
+        void validClaimTransitionsToQuarantined() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+
+            session.markCleanupQuarantined(VALID_TOKEN, "Ambiguous complete outcome: diagnostic probe timed out", T1);
+
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+            assertThat(session.isQuarantined()).isTrue();
+            assertThat(session.getCleanupErrorDetail()).isEqualTo("Ambiguous complete outcome: diagnostic probe timed out");
+            assertThat(session.getCleanupLastAttemptAt()).isEqualTo(T1);
+            assertThat(session.getUpdatedAt()).isEqualTo(T1);
+        }
+
+        @Test
+        @DisplayName("2. Quarantine preserves ABORTED lifecycle status")
+        void quarantinePreservesAbortedLifecycleStatus() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+
+            session.markCleanupQuarantined(VALID_TOKEN, "Object detected on storage", T1);
+
+            assertThat(session.getStatus()).isEqualTo(MediaUploadSessionStatus.ABORTED);
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+        }
+
+        @Test
+        @DisplayName("3. Quarantine preserves EXPIRED lifecycle status")
+        void quarantinePreservesExpiredLifecycleStatus() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.EXPIRED);
+
+            session.markCleanupQuarantined(VALID_TOKEN, "Object detected on storage", T1);
+
+            assertThat(session.getStatus()).isEqualTo(MediaUploadSessionStatus.EXPIRED);
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+        }
+
+        @Test
+        @DisplayName("4. Claim lease is released only on valid transition")
+        void claimLeaseReleasedOnlyOnValidTransition() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+            assertThat(session.getLeaseOwner()).isEqualTo(VALID_TOKEN);
+            assertThat(session.getLeaseExpiresAt()).isEqualTo(LEASE_EXPIRY);
+            assertThat(session.isCleanupLeaseHeld()).isTrue();
+
+            session.markCleanupQuarantined(VALID_TOKEN, "Valid reason", T1);
+
+            assertThat(session.getLeaseOwner()).isNull();
+            assertThat(session.getLeaseExpiresAt()).isNull();
+            assertThat(session.isCleanupLeaseHeld()).isFalse();
+        }
+
+        @Test
+        @DisplayName("5. Wrong token is rejected and leaves state unchanged")
+        void wrongTokenRejected() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(OTHER_TOKEN, "Reason", T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("without holding active claim token");
+
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.IN_PROGRESS);
+            assertThat(session.getLeaseOwner()).isEqualTo(VALID_TOKEN);
+            assertThat(session.getLeaseExpiresAt()).isEqualTo(LEASE_EXPIRY);
+        }
+
+        @Test
+        @DisplayName("6. Expired token is rejected and leaves state unchanged")
+        void expiredTokenRejected() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+            Instant afterExpiry = LEASE_EXPIRY.plusSeconds(1);
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(VALID_TOKEN, "Reason", afterExpiry))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("cleanup lease has expired");
+
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.IN_PROGRESS);
+            assertThat(session.getLeaseOwner()).isEqualTo(VALID_TOKEN);
+        }
+
+        @Test
+        @DisplayName("7. Missing or malformed token is rejected")
+        void missingOrMalformedTokenRejected() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(null, "Reason", T1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("claimToken must not be blank");
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined("   ", "Reason", T1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("claimToken must not be blank");
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined("GENERIC_TOKEN", "Reason", T1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("claimToken must belong to cleanup namespace");
+        }
+
+        @Test
+        @DisplayName("8. Blank quarantine reason is rejected and leaves state unchanged")
+        void blankQuarantineReasonRejected() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(VALID_TOKEN, null, T1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Quarantine reason must not be blank");
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(VALID_TOKEN, "", T1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Quarantine reason must not be blank");
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(VALID_TOKEN, "   \t\n  ", T1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Quarantine reason must not be blank");
+
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.IN_PROGRESS);
+            assertThat(session.getLeaseOwner()).isEqualTo(VALID_TOKEN);
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = MediaUploadSessionStatus.class, names = {"ALLOCATED", "INITIATED", "COMPLETING", "COMPLETED", "FAILED", "CLEANED_UP"})
+        @DisplayName("9. Invalid lifecycle status is rejected")
+        void invalidLifecycleRejected(MediaUploadSessionStatus invalidStatus) {
+            String hash = (invalidStatus == MediaUploadSessionStatus.COMPLETED) ? VALID_HASH : null;
+            UUID assetId = (invalidStatus == MediaUploadSessionStatus.COMPLETED) ? UUID.randomUUID() : null;
+            MediaUploadSession session = createSession(
+                    invalidStatus,
+                    UploadSessionCleanupStatus.IN_PROGRESS,
+                    "b2-upload-123",
+                    VALID_TOKEN,
+                    LEASE_EXPIRY,
+                    hash,
+                    null,
+                    assetId,
+                    1
+            );
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(VALID_TOKEN, "Reason", T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("for session in lifecycle status: " + invalidStatus);
+        }
+
+
+        @ParameterizedTest
+        @EnumSource(value = UploadSessionCleanupStatus.class, names = {"NONE", "PENDING", "COMPLETED", "FAILED", "QUARANTINED"})
+        @DisplayName("10. Invalid cleanup status is rejected when not IN_PROGRESS")
+        void invalidCleanupStatusRejected(UploadSessionCleanupStatus invalidCleanupStatus) {
+            MediaUploadSession session = createSession(
+                    MediaUploadSessionStatus.ABORTED,
+                    invalidCleanupStatus,
+                    "b2-upload-123",
+                    VALID_TOKEN,
+                    LEASE_EXPIRY,
+                    null,
+                    null,
+                    null,
+                    1
+            );
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(VALID_TOKEN, "Reason", T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("when cleanupStatus is not IN_PROGRESS: " + invalidCleanupStatus);
+        }
+
+        @Test
+        @DisplayName("11. Repeated quarantine attempt is rejected")
+        void repeatedQuarantineAttemptRejected() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+            session.markCleanupQuarantined(VALID_TOKEN, "First quarantine", T1);
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(VALID_TOKEN, "Second quarantine", T1.plusSeconds(10)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("without holding active claim token");
+        }
+
+        @Test
+        @DisplayName("12. QUARANTINED session cannot be claimed again")
+        void quarantinedSessionCannotBeClaimedAgain() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+            session.markCleanupQuarantined(VALID_TOKEN, "Quarantined reason", T1);
+
+            assertThat(session.isLocallyEligibleForCleanup(T1)).isFalse();
+
+            String newClaimToken = validCleanupToken();
+            assertThatThrownBy(() -> session.claimCleanup(newClaimToken, T1.plus(Duration.ofMinutes(5)), T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("not locally eligible for cleanup due to cleanup status: QUARANTINED");
+        }
+
+        @Test
+        @DisplayName("13. QUARANTINED cannot become retryable via legacy or direct methods")
+        void quarantinedCannotBecomeRetryableViaLegacyMethods() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+            session.markCleanupQuarantined(VALID_TOKEN, "Quarantined reason", T1);
+
+            assertThatThrownBy(() -> session.markCleanupPending(T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Cannot mark cleanup pending from cleanup status: QUARANTINED");
+
+            assertThatThrownBy(() -> session.markCleanupInProgress(T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Direct un-tokened cleanup progress transition is prohibited");
+
+            assertThatThrownBy(() -> session.markCleanupCompleted(T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Direct un-tokened cleanup completion is prohibited");
+
+            assertThatThrownBy(() -> session.markCleanupFailed("detail", T1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Direct un-tokened cleanup failure recording is prohibited");
+        }
+
+        @Test
+        @DisplayName("14. Completion markers and registeredAssetId are preserved across quarantine")
+        void completionMarkersArePreserved() {
+            UUID assetId = UUID.randomUUID();
+            MediaUploadSession session = createSession(
+                    MediaUploadSessionStatus.ABORTED,
+                    UploadSessionCleanupStatus.IN_PROGRESS,
+                    "b2-upload-123",
+                    VALID_TOKEN,
+                    LEASE_EXPIRY,
+                    VALID_HASH,
+                    MANIFEST_HASH,
+                    assetId,
+                    1
+            );
+
+            session.markCleanupQuarantined(VALID_TOKEN, "Quarantine with preserved markers", T1);
+
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+            assertThat(session.getDeclaredContentHash()).isEqualTo(VALID_HASH);
+            assertThat(session.getManifestHash()).isEqualTo(MANIFEST_HASH);
+            assertThat(session.getRegisteredAssetId()).isEqualTo(assetId);
+        }
+
+        @Test
+        @DisplayName("15. Storage allocation identity and provider binding are unchanged")
+        void storageAllocationIdentityIsUnchanged() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+            UUID allocId = session.getStorageAllocationId();
+            StorageKey key = session.getStorageKey();
+            String bucket = session.getStorageBucketName();
+            StorageProviderId provider = session.getStorageProviderId();
+
+            session.markCleanupQuarantined(VALID_TOKEN, "Reason", T1);
+
+            assertThat(session.getStorageAllocationId()).isEqualTo(allocId);
+            assertThat(session.getStorageKey()).isEqualTo(key);
+            assertThat(session.getStorageBucketName()).isEqualTo(bucket);
+            assertThat(session.getStorageProviderId()).isEqualTo(provider);
+        }
+
+        @Test
+        @DisplayName("16. Failed guards do not mutate state")
+        void failedGuardsDoNotMutateState() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+
+            assertThatThrownBy(() -> session.markCleanupQuarantined(OTHER_TOKEN, "Reason", T1))
+                    .isInstanceOf(IllegalStateException.class);
+
+            assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.IN_PROGRESS);
+            assertThat(session.getLeaseOwner()).isEqualTo(VALID_TOKEN);
+            assertThat(session.getLeaseExpiresAt()).isEqualTo(LEASE_EXPIRY);
+            assertThat(session.getCleanupErrorDetail()).isNull();
+        }
+
+        @Test
+        @DisplayName("17. Quarantine reason exceeding 1000 characters is bounded to 1000 characters")
+        void quarantineReasonIsBoundedTo1000Chars() {
+            MediaUploadSession session = createInProgressSession(MediaUploadSessionStatus.ABORTED);
+            String longReason = "A".repeat(1500);
+
+            session.markCleanupQuarantined(VALID_TOKEN, longReason, T1);
+
+            assertThat(session.getCleanupErrorDetail()).hasSize(1000);
+            assertThat(session.getCleanupErrorDetail()).isEqualTo("A".repeat(1000));
+        }
+    }
 }

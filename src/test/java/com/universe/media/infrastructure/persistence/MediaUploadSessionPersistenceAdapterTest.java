@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -824,7 +825,7 @@ class MediaUploadSessionPersistenceAdapterTest {
         Instant cutoff = Instant.now();
         Set<MediaUploadSessionStatus> safeLifecycle = Set.of(MediaUploadSessionStatus.ABORTED);
 
-        // Rejected unapproved cleanup statuses: NONE, COMPLETED, IN_PROGRESS
+        // Rejected unapproved cleanup statuses: NONE, COMPLETED, IN_PROGRESS, QUARANTINED
         assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
                 safeLifecycle, Set.of(UploadSessionCleanupStatus.NONE), 5, cutoff, 10))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -840,11 +841,22 @@ class MediaUploadSessionPersistenceAdapterTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unapproved cleanup statuses");
 
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.QUARANTINED), 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved cleanup statuses");
+
         // Mixed set containing an unapproved status also fails fail-closed
         assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
                 safeLifecycle, Set.of(UploadSessionCleanupStatus.PENDING, UploadSessionCleanupStatus.COMPLETED), 5, cutoff, 10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unapproved cleanup statuses");
+
+        assertThatThrownBy(() -> adapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.PENDING, UploadSessionCleanupStatus.QUARANTINED), 5, cutoff, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unapproved cleanup statuses");
+
 
         // Approved cleanup statuses: PENDING alone, FAILED alone, or both PENDING and FAILED
         when(repository.findEligibleForCleanup(any(), any(), anyInt(), any(), any()))
@@ -1012,5 +1024,74 @@ class MediaUploadSessionPersistenceAdapterTest {
         assertThatThrownBy(() -> adapter.findSessionsWithExpiredLeases(statuses, now, Integer.MAX_VALUE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("limit must be between 1 and 100");
+    }
+
+    @Test
+    @DisplayName("Should persist and reload QUARANTINED session with quarantine reason")
+    void shouldPersistAndReloadQuarantinedSession() {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.now();
+        String claimToken = MediaUploadSession.CLEANUP_CLAIM_PREFIX + UUID.randomUUID();
+        Instant leaseExpiresAt = now.plus(Duration.ofMinutes(5));
+
+        // Create rehydrated session in IN_PROGRESS state and transition to QUARANTINED
+        MediaUploadSession session = MediaUploadSession.rehydrate(
+                id,
+                "user-100",
+                "screen",
+                "ScreenItem",
+                UUID.randomUUID(),
+                "idem-key-quarantine",
+                MediaType.VIDEO,
+                "video/mp4",
+                MediaUploadSession.FIXED_PART_SIZE_BYTES * 2,
+                B2_PROVIDER,
+                B2_BUCKET,
+                STORAGE_KEY,
+                UUID.randomUUID(),
+                "provider-up-123",
+                MediaUploadSession.FIXED_PART_SIZE_BYTES,
+                2,
+                null,
+                "video.mp4",
+                "screen",
+                MediaUploadSessionStatus.ABORTED,
+                now.plus(24, ChronoUnit.HOURS),
+                claimToken,
+                leaseExpiresAt,
+                null,
+                UploadSessionCleanupStatus.IN_PROGRESS,
+                1,
+                now.minus(1, ChronoUnit.HOURS),
+                null,
+                now.minus(2, ChronoUnit.HOURS),
+                now.minus(1, ChronoUnit.HOURS),
+                null,
+                0L,
+                null
+        );
+
+        session.markCleanupQuarantined(claimToken, "Safety halt: Object detected at storage key", now);
+        assertThat(session.isQuarantined()).isTrue();
+        assertThat(session.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+        assertThat(session.getCleanupErrorDetail()).isEqualTo("Safety halt: Object detected at storage key");
+        assertThat(session.getLeaseOwner()).isNull();
+
+        when(repository.findById(id.toString())).thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(MediaUploadSessionJpaEntity.class))).thenAnswer(inv -> {
+            MediaUploadSessionJpaEntity entity = inv.getArgument(0);
+            entity.setPersistenceVersion(1L);
+            return entity;
+        });
+
+        MediaUploadSession saved = adapter.save(session);
+        assertThat(saved.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+        assertThat(saved.getCleanupErrorDetail()).isEqualTo("Safety halt: Object detected at storage key");
+
+        ArgumentCaptor<MediaUploadSessionJpaEntity> captor = ArgumentCaptor.forClass(MediaUploadSessionJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+        MediaUploadSessionJpaEntity savedEntity = captor.getValue();
+        assertThat(savedEntity.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+        assertThat(savedEntity.getCleanupErrorDetail()).isEqualTo("Safety halt: Object detected at storage key");
     }
 }

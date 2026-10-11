@@ -17,7 +17,9 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import jakarta.persistence.EntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -26,15 +28,23 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Real-MySQL integration tests verifying the three S2D-1 JPQL queries on real database schemas:
@@ -82,8 +92,22 @@ class MediaUploadSessionQueryIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private EntityManager entityManager;
+
     private static final StorageProviderId B2_PROVIDER = StorageProviderId.of("b2");
     private static final String B2_BUCKET = "kiemlai-video";
+
+    private static SQLException extractSqlException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SQLException sqlEx) {
+                return sqlEx;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
 
     private final List<UUID> createdSessionIds = Collections.synchronizedList(new ArrayList<>());
     private final List<UUID> createdAllocationIds = Collections.synchronizedList(new ArrayList<>());
@@ -164,6 +188,34 @@ class MediaUploadSessionQueryIntegrationTest {
             Instant createdAt,
             String declaredContentHash
     ) {
+        return createSessionEntity(
+                id,
+                status,
+                cleanupStatus,
+                cleanupRetryCount,
+                cleanupLastAttemptAt,
+                expiresAt,
+                leaseOwner,
+                leaseExpiresAt,
+                createdAt,
+                declaredContentHash,
+                null
+        );
+    }
+
+    private MediaUploadSessionJpaEntity createSessionEntity(
+            UUID id,
+            MediaUploadSessionStatus status,
+            UploadSessionCleanupStatus cleanupStatus,
+            int cleanupRetryCount,
+            Instant cleanupLastAttemptAt,
+            Instant expiresAt,
+            String leaseOwner,
+            Instant leaseExpiresAt,
+            Instant createdAt,
+            String declaredContentHash,
+            String cleanupErrorDetail
+    ) {
         StorageKey storageKey = StorageKey.of("media/video/qtest_" + id + ".mp4");
         StorageKeyAllocation alloc = createAndSaveAllocation(storageKey);
 
@@ -191,6 +243,7 @@ class MediaUploadSessionQueryIntegrationTest {
         entity.setCleanupStatus(cleanupStatus);
         entity.setCleanupRetryCount(cleanupRetryCount);
         entity.setCleanupLastAttemptAt(cleanupLastAttemptAt);
+        entity.setCleanupErrorDetail(cleanupErrorDetail);
         entity.setCreatedAt(createdAt != null ? createdAt : Instant.now());
         entity.setUpdatedAt(entity.getCreatedAt());
         entity.setOriginalFilename("test.mp4");
@@ -381,7 +434,16 @@ class MediaUploadSessionQueryIntegrationTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> sessionAdapter.findSessionsEligibleForCleanup(
                 safeLifecycle, Set.of(UploadSessionCleanupStatus.IN_PROGRESS), 3, now, 10
         )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unapproved cleanup statuses");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> sessionAdapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.QUARANTINED), 3, now, 10
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unapproved cleanup statuses");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> sessionAdapter.findSessionsEligibleForCleanup(
+                safeLifecycle, Set.of(UploadSessionCleanupStatus.PENDING, UploadSessionCleanupStatus.QUARANTINED), 3, now, 10
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unapproved cleanup statuses");
     }
+
 
     @Test
     @DisplayName("Retry and last-attempt cutoff boundaries, including null timestamps")
@@ -533,5 +595,213 @@ class MediaUploadSessionQueryIntegrationTest {
         );
 
         assertThat(emptyResults).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Exclusion of QUARANTINED sessions from candidate discovery even with high maxRetryCount")
+    void shouldExcludeQuarantinedSessionsFromCleanupQueryEvenWithHighMaxRetryCount() {
+        UUID quarantinedId = UUID.randomUUID();
+        UUID pendingId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        // 1. Quarantined session (ABORTED, QUARANTINED, retry count 0)
+        createSessionEntity(
+                quarantinedId,
+                MediaUploadSessionStatus.ABORTED,
+                UploadSessionCleanupStatus.QUARANTINED,
+                0,
+                now.minus(1, ChronoUnit.HOURS),
+                null,
+                null,
+                null,
+                now.minus(2, ChronoUnit.HOURS)
+        );
+
+        // 2. Normal pending session
+        createSessionEntity(
+                pendingId,
+                MediaUploadSessionStatus.ABORTED,
+                UploadSessionCleanupStatus.PENDING,
+                0,
+                null,
+                null,
+                null,
+                null,
+                now.minus(2, ChronoUnit.HOURS)
+        );
+
+        // Query with very high maxRetryCount (100) and maxLastAttemptAt = now
+        List<MediaUploadSession> results = sessionAdapter.findSessionsEligibleForCleanup(100, now, 50);
+
+        List<UUID> resultIds = results.stream().map(MediaUploadSession::getId).toList();
+        assertThat(resultIds).contains(pendingId);
+        assertThat(resultIds).doesNotContain(quarantinedId);
+    }
+
+    @Test
+    @DisplayName("JPA persistence round-trip and domain rehydration of QUARANTINED upload session")
+    void shouldPerformJpaPersistenceRoundTripForQuarantinedSession() {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant createdAt = now.minus(2, ChronoUnit.HOURS);
+        Instant expiresAt = now.plus(22, ChronoUnit.HOURS);
+        Instant lastAttemptAt = now.minus(15, ChronoUnit.MINUTES);
+        String errorDetail = "Ambiguous provider outcome: connection reset during multipart abort";
+        int retryCount = 2;
+
+        // 1. Create valid upload session fixture with ABORTED lifecycle and QUARANTINED cleanup status
+        MediaUploadSessionJpaEntity originalEntity = createSessionEntity(
+                id,
+                MediaUploadSessionStatus.ABORTED,
+                UploadSessionCleanupStatus.QUARANTINED,
+                retryCount,
+                lastAttemptAt,
+                expiresAt,
+                null,
+                null,
+                createdAt,
+                null,
+                errorDetail
+        );
+
+        // 2. Flush and clear persistence context to force physical database reload
+        sessionRepository.flush();
+        entityManager.clear();
+
+        // 3. Reload directly via JPA entity repository
+        MediaUploadSessionJpaEntity reloadedEntity = sessionRepository.findById(id.toString())
+                .orElseThrow(() -> new AssertionError("Session not found in database: " + id));
+
+        // 4. Verify persisted entity fields and invariants
+        assertThat(reloadedEntity.getId()).isEqualTo(id.toString());
+        assertThat(reloadedEntity.getStatus()).isEqualTo(MediaUploadSessionStatus.ABORTED);
+        assertThat(reloadedEntity.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+        assertThat(reloadedEntity.getProviderUploadId()).isEqualTo("upload-" + id);
+        assertThat(reloadedEntity.getStorageAllocationId()).isEqualTo(originalEntity.getStorageAllocationId());
+        assertThat(reloadedEntity.getLeaseOwner()).isNull();
+        assertThat(reloadedEntity.getLeaseExpiresAt()).isNull();
+        assertThat(reloadedEntity.getCleanupRetryCount()).isEqualTo(retryCount);
+        assertThat(reloadedEntity.getCleanupErrorDetail()).isEqualTo(errorDetail);
+        assertThat(reloadedEntity.getCleanupLastAttemptAt()).isNotNull();
+
+        // 5. Reload through domain persistence adapter to verify domain rehydration
+        Optional<MediaUploadSession> domainOpt = sessionAdapter.findById(id);
+        assertThat(domainOpt).isPresent();
+
+        MediaUploadSession domainSession = domainOpt.get();
+        assertThat(domainSession.getId()).isEqualTo(id);
+        assertThat(domainSession.getStatus()).isEqualTo(MediaUploadSessionStatus.ABORTED);
+        assertThat(domainSession.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
+        assertThat(domainSession.isQuarantined()).isTrue();
+        assertThat(domainSession.getProviderUploadId()).isEqualTo("upload-" + id);
+        assertThat(domainSession.getStorageAllocationId()).isEqualTo(UUID.fromString(originalEntity.getStorageAllocationId()));
+        assertThat(domainSession.getLeaseOwner()).isNull();
+        assertThat(domainSession.getLeaseExpiresAt()).isNull();
+        assertThat(domainSession.getCleanupRetryCount()).isEqualTo(retryCount);
+        assertThat(domainSession.getCleanupErrorDetail()).isEqualTo(errorDetail);
+
+        // 6. Verify reloaded domain object strictly rejects cleanup claim eligibility
+        assertThat(domainSession.isLocallyEligibleForCleanup(now)).isFalse();
+        assertThatThrownBy(() -> domainSession.validateLocalCleanupEligibility(now))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not locally eligible for cleanup due to cleanup status: QUARANTINED");
+        assertThatThrownBy(() -> domainSession.claimCleanup("CLEANUP_CLAIM:" + UUID.randomUUID(), now.plus(2, ChronoUnit.MINUTES), now))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not locally eligible for cleanup due to cleanup status: QUARANTINED");
+    }
+
+    @Test
+    @DisplayName("MySQL enforces chk_media_upload_sessions_cleanup_status CHECK constraint rejecting invalid status")
+    void shouldEnforceMySqlCheckConstraintAgainstInvalidCleanupStatus() {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        // 1. Create and persist valid upload session fixture with QUARANTINED status
+        createSessionEntity(
+                id,
+                MediaUploadSessionStatus.ABORTED,
+                UploadSessionCleanupStatus.QUARANTINED,
+                1,
+                now.minus(10, ChronoUnit.MINUTES),
+                null,
+                null,
+                null,
+                now.minus(1, ChronoUnit.HOURS)
+        );
+
+        // 2. Verify persisted row exists and has QUARANTINED status
+        String persistedStatus = jdbcTemplate.queryForObject(
+                "SELECT cleanup_status FROM media_upload_sessions WHERE id = ?",
+                String.class,
+                id.toString()
+        );
+        assertThat(persistedStatus).isEqualTo("QUARANTINED");
+
+        // 3. Attempt to update cleanup_status to an invalid non-null value that fits column length
+        String invalidStatus = "INVALID_STATUS";
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "UPDATE media_upload_sessions SET cleanup_status = ? WHERE id = ?",
+                invalidStatus,
+                id.toString()
+        ))
+                .isInstanceOf(DataAccessException.class)
+                .satisfies(ex -> {
+                    SQLException sqlEx = extractSqlException(ex);
+                    assertThat((Throwable) sqlEx).as("Underlying SQLException must be present").isNotNull();
+                    assertThat(sqlEx.getErrorCode())
+                            .as("MySQL vendor error code for CHECK constraint violation must be 3819")
+                            .isEqualTo(3819);
+                    assertThat(sqlEx.getMessage().toLowerCase())
+                            .as("Error message must identify check constraint chk_media_upload_sessions_cleanup_status")
+                            .contains("chk_media_upload_sessions_cleanup_status");
+                });
+
+        // 4. Verify existing persisted cleanup status remains QUARANTINED after rejected statement
+        String statusAfterRejectedUpdate = jdbcTemplate.queryForObject(
+                "SELECT cleanup_status FROM media_upload_sessions WHERE id = ?",
+                String.class,
+                id.toString()
+        );
+        assertThat(statusAfterRejectedUpdate).isEqualTo("QUARANTINED");
+    }
+
+    @Test
+    @DisplayName("Verify V91 migration is recorded in Flyway history and CHECK constraint includes QUARANTINED")
+    void shouldVerifyV91FlywayMigrationAndCheckConstraintInDatabase() {
+        // 1. Verify V91 is recorded as successfully applied in Flyway history
+        Integer v91Success = jdbcTemplate.queryForObject(
+                "SELECT success FROM flyway_schema_history WHERE version = '91'",
+                Integer.class
+        );
+        assertThat(v91Success).isEqualTo(1);
+
+        // 2. Verify live CHECK constraint exists and applies to cleanup_status
+        String checkClause = jdbcTemplate.queryForObject(
+                "SELECT CHECK_CLAUSE FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS " +
+                        "WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'chk_media_upload_sessions_cleanup_status'",
+                String.class
+        );
+        assertThat(checkClause).isNotBlank();
+
+        // 3. Normalize MySQL metadata representation by unescaping backslash-escaped quotes
+        String normalizedClause = checkClause.replace("\\'", "'");
+        assertThat(normalizedClause.toLowerCase()).contains("cleanup_status");
+
+        // 4. Extract actual literal values constrained by the CHECK clause
+        Matcher matcher = Pattern.compile("'([A-Z0-9_]+)'").matcher(normalizedClause);
+        Set<String> actualStatuses = new HashSet<>();
+        while (matcher.find()) {
+            actualStatuses.add(matcher.group(1));
+        }
+
+        // 5. Verify the extracted status set matches all six approved statuses exactly
+        Set<String> expectedStatuses = Arrays.stream(UploadSessionCleanupStatus.values())
+                .map(Enum::name)
+                .collect(Collectors.toSet());
+
+        assertThat(actualStatuses)
+                .as("Live MySQL CHECK constraint must enforce exactly the approved cleanup statuses")
+                .isEqualTo(expectedStatuses);
     }
 }

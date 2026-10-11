@@ -35,6 +35,7 @@ public final class MediaUploadSession {
             "^CLEANUP_CLAIM:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
     );
     public static final Duration MAX_CLEANUP_LEASE_DURATION = Duration.ofMinutes(5);
+    public static final int MAX_CLEANUP_ERROR_DETAIL_LENGTH = 1000;
 
     private final UUID id;
     private final String initiatorPrincipalId;
@@ -813,12 +814,53 @@ public final class MediaUploadSession {
         this.cleanupStatus = UploadSessionCleanupStatus.FAILED;
         this.cleanupRetryCount++;
         this.cleanupLastAttemptAt = now;
-        this.cleanupErrorDetail = errorDetail;
+        this.cleanupErrorDetail = (errorDetail != null && errorDetail.length() > MAX_CLEANUP_ERROR_DETAIL_LENGTH)
+                ? errorDetail.substring(0, MAX_CLEANUP_ERROR_DETAIL_LENGTH)
+                : errorDetail;
         this.leaseOwner = null;
         this.leaseExpiresAt = null;
         this.updatedAt = now;
         validateInvariants();
     }
+
+    /**
+     * Marks this session as quarantined due to an ambiguous outcome, safety check failure,
+     * or non-retryable error under a verified active cleanup claim.
+     * <p>
+     * Quarantine is a durable safety halt. It preserves the session lifecycle state (ABORTED/EXPIRED),
+     * releases the claim lease, records the quarantine reason in cleanup error detail, and sets
+     * cleanup status to QUARANTINED so that automatic cleanup candidate discovery will never re-poll it.
+     *
+     * @param claimToken active claim token held by the caller
+     * @param reason non-blank reason describing the quarantine cause (bounded to 1000 characters)
+     * @param now quarantine timestamp
+     * @throws IllegalStateException if claim token is invalid, expired, or session state violates cleanup prerequisites
+     * @throws IllegalArgumentException if reason is null or blank
+     * @throws NullPointerException if claimToken or now is null
+     */
+    public void markCleanupQuarantined(String claimToken, String reason, Instant now) {
+        validateCleanupClaimForOutcome(claimToken, now, false);
+        if (reason == null || reason.trim().isBlank()) {
+            throw new IllegalArgumentException("Quarantine reason must not be blank.");
+        }
+        String boundedReason = reason.trim();
+        if (boundedReason.length() > MAX_CLEANUP_ERROR_DETAIL_LENGTH) {
+            boundedReason = boundedReason.substring(0, MAX_CLEANUP_ERROR_DETAIL_LENGTH);
+        }
+
+        this.cleanupStatus = UploadSessionCleanupStatus.QUARANTINED;
+        this.cleanupLastAttemptAt = now;
+        this.cleanupErrorDetail = boundedReason;
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
+        this.updatedAt = now;
+        validateInvariants();
+    }
+
+    public boolean isQuarantined() {
+        return this.cleanupStatus == UploadSessionCleanupStatus.QUARANTINED;
+    }
+
 
     public void markCleanupPending(Instant now) {
         Objects.requireNonNull(now, "Timestamp cannot be null.");
