@@ -76,9 +76,13 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.LongSupplier;
 
 /**
  * Backblaze B2 implementation of {@link BinaryStoragePort} and {@link MultipartStoragePort}
@@ -111,6 +115,9 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
 
     public static final Duration OBSERVATION_API_CALL_TIMEOUT = Duration.ofSeconds(15);
     public static final Duration OBSERVATION_API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(12);
+    public static final Duration OBSERVATION_DEFAULT_OPERATION_TIMEOUT = Duration.ofSeconds(30);
+    public static final Duration OBSERVATION_MIN_DISPATCH_THRESHOLD = Duration.ofMillis(200);
+    public static final Duration OBSERVATION_ATTEMPT_TIMEOUT_MARGIN = Duration.ofMillis(50);
     public static final int OBSERVATION_MAX_PAGES = 10;
     public static final int OBSERVATION_MAX_UPLOADS_PER_PAGE = 100;
     public static final int OBSERVATION_MAX_PARTS_PER_PAGE = 1000;
@@ -123,6 +130,7 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
     private final boolean ownsAbortS3Client;
     private final boolean ownsS3Presigner;
     private final Path tempDirectory;
+    private final LongSupplier nanoTimeSupplier;
 
     @Autowired
     public B2StorageAdapter(B2StorageProperties properties) {
@@ -143,6 +151,7 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
             this.ownsAbortS3Client = true;
             this.ownsS3Presigner = true;
             this.tempDirectory = null;
+            this.nanoTimeSupplier = System::nanoTime;
         } catch (RuntimeException e) {
             if (generalClient != null) {
                 try { generalClient.close(); } catch (Exception ignored) {}
@@ -158,23 +167,31 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
     }
 
     public B2StorageAdapter(String bucket, S3Client s3Client) {
-        this(bucket, s3Client, s3Client, null, false, false, false, null);
+        this(bucket, s3Client, s3Client, null, false, false, false, null, System::nanoTime);
     }
 
     B2StorageAdapter(String bucket, S3Client s3Client, Path tempDirectory) {
-        this(bucket, s3Client, s3Client, null, false, false, false, tempDirectory);
+        this(bucket, s3Client, s3Client, null, false, false, false, tempDirectory, System::nanoTime);
     }
 
     public B2StorageAdapter(String bucket, S3Client s3Client, S3Presigner s3Presigner) {
-        this(bucket, s3Client, s3Client, s3Presigner, false, false, false, null);
+        this(bucket, s3Client, s3Client, s3Presigner, false, false, false, null, System::nanoTime);
     }
 
     B2StorageAdapter(String bucket, S3Client s3Client, S3Presigner s3Presigner, Path tempDirectory) {
-        this(bucket, s3Client, s3Client, s3Presigner, false, false, false, tempDirectory);
+        this(bucket, s3Client, s3Client, s3Presigner, false, false, false, tempDirectory, System::nanoTime);
     }
 
     B2StorageAdapter(String bucket, S3Client s3Client, S3Client abortS3Client, S3Presigner s3Presigner, Path tempDirectory) {
-        this(bucket, s3Client, abortS3Client, s3Presigner, false, false, false, tempDirectory);
+        this(bucket, s3Client, abortS3Client, s3Presigner, false, false, false, tempDirectory, System::nanoTime);
+    }
+
+    B2StorageAdapter(String bucket, S3Client s3Client, S3Presigner s3Presigner, Path tempDirectory, LongSupplier nanoTimeSupplier) {
+        this(bucket, s3Client, s3Client, s3Presigner, false, false, false, tempDirectory, nanoTimeSupplier);
+    }
+
+    B2StorageAdapter(String bucket, S3Client s3Client, S3Client abortS3Client, S3Presigner s3Presigner, Path tempDirectory, LongSupplier nanoTimeSupplier) {
+        this(bucket, s3Client, abortS3Client, s3Presigner, false, false, false, tempDirectory, nanoTimeSupplier);
     }
 
     private B2StorageAdapter(
@@ -185,7 +202,8 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
             boolean ownsS3Client,
             boolean ownsAbortS3Client,
             boolean ownsS3Presigner,
-            Path tempDirectory
+            Path tempDirectory,
+            LongSupplier nanoTimeSupplier
     ) {
         this.bucket = Objects.requireNonNull(bucket, "Bucket cannot be null.");
         this.s3Client = Objects.requireNonNull(s3Client, "S3Client cannot be null.");
@@ -195,6 +213,88 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         this.ownsAbortS3Client = ownsAbortS3Client;
         this.ownsS3Presigner = ownsS3Presigner;
         this.tempDirectory = tempDirectory;
+        this.nanoTimeSupplier = (nanoTimeSupplier != null) ? nanoTimeSupplier : System::nanoTime;
+    }
+
+    static final class ObservationBudget {
+        private final LongSupplier nanoTimeSupplier;
+        private final long startNanos;
+        private final long totalBudgetNanos;
+
+        private ObservationBudget(LongSupplier nanoTimeSupplier, Duration totalBudget) {
+            this.nanoTimeSupplier = Objects.requireNonNull(nanoTimeSupplier, "nanoTimeSupplier cannot be null");
+            Objects.requireNonNull(totalBudget, "totalBudget cannot be null");
+            if (totalBudget.isNegative() || totalBudget.isZero()) {
+                throw new IllegalArgumentException("totalBudget must be positive, got: " + totalBudget);
+            }
+            this.totalBudgetNanos = totalBudget.toNanos();
+            this.startNanos = nanoTimeSupplier.getAsLong();
+        }
+
+        public static ObservationBudget start(LongSupplier nanoTimeSupplier, Duration totalBudget) {
+            return new ObservationBudget(nanoTimeSupplier, totalBudget);
+        }
+
+        public Duration remaining() {
+            long elapsed = nanoTimeSupplier.getAsLong() - startNanos;
+            long rem = totalBudgetNanos - elapsed;
+            return rem <= 0 ? Duration.ZERO : Duration.ofNanos(rem);
+        }
+
+        public boolean isExhausted() {
+            long elapsed = nanoTimeSupplier.getAsLong() - startNanos;
+            return (totalBudgetNanos - elapsed) <= 0;
+        }
+
+        public boolean hasSufficientTime(Duration minThreshold) {
+            long elapsed = nanoTimeSupplier.getAsLong() - startNanos;
+            long rem = totalBudgetNanos - elapsed;
+            return rem >= minThreshold.toNanos();
+        }
+
+        public Optional<ObservationRequestPlan> planRequest() {
+            Duration rem = remaining();
+            if (rem.compareTo(OBSERVATION_MIN_DISPATCH_THRESHOLD) < 0) {
+                return Optional.empty();
+            }
+            Duration callTimeout = rem.compareTo(OBSERVATION_API_CALL_TIMEOUT) < 0
+                    ? rem
+                    : OBSERVATION_API_CALL_TIMEOUT;
+            Duration boundedAttempt = callTimeout.minus(OBSERVATION_ATTEMPT_TIMEOUT_MARGIN);
+            Duration attemptTimeout = boundedAttempt.compareTo(OBSERVATION_API_CALL_ATTEMPT_TIMEOUT) < 0
+                    ? boundedAttempt
+                    : OBSERVATION_API_CALL_ATTEMPT_TIMEOUT;
+
+            AwsRequestOverrideConfiguration overrideConfig = AwsRequestOverrideConfiguration.builder()
+                    .apiCallTimeout(callTimeout)
+                    .apiCallAttemptTimeout(attemptTimeout)
+                    .build();
+
+            return Optional.of(new ObservationRequestPlan(overrideConfig, rem, callTimeout, attemptTimeout));
+        }
+    }
+
+    record ObservationRequestPlan(
+            AwsRequestOverrideConfiguration overrideConfiguration,
+            Duration remaining,
+            Duration apiCallTimeout,
+            Duration apiCallAttemptTimeout
+    ) {
+        ObservationRequestPlan {
+            Objects.requireNonNull(overrideConfiguration, "overrideConfiguration cannot be null");
+            Objects.requireNonNull(remaining, "remaining cannot be null");
+            Objects.requireNonNull(apiCallTimeout, "apiCallTimeout cannot be null");
+            Objects.requireNonNull(apiCallAttemptTimeout, "apiCallAttemptTimeout cannot be null");
+            if (apiCallTimeout.isNegative() || apiCallTimeout.isZero()) {
+                throw new IllegalArgumentException("apiCallTimeout must be strictly positive: " + apiCallTimeout);
+            }
+            if (apiCallAttemptTimeout.isNegative() || apiCallAttemptTimeout.isZero()) {
+                throw new IllegalArgumentException("apiCallAttemptTimeout must be strictly positive: " + apiCallAttemptTimeout);
+            }
+            if (apiCallAttemptTimeout.compareTo(apiCallTimeout) >= 0) {
+                throw new IllegalArgumentException("apiCallAttemptTimeout must be strictly less than apiCallTimeout");
+            }
+        }
     }
 
     static ClientOverrideConfiguration createAbortClientOverrideConfiguration() {
@@ -807,6 +907,15 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
 
     @Override
     public MultipartUploadPresenceObservation observeMultipartUploadPresence(StorageKey key, String uploadId) {
+        ObservationBudget budget = ObservationBudget.start(this.nanoTimeSupplier, OBSERVATION_DEFAULT_OPERATION_TIMEOUT);
+        return observeMultipartUploadPresenceInternal(key, uploadId, budget);
+    }
+
+    private MultipartUploadPresenceObservation observeMultipartUploadPresenceInternal(
+            StorageKey key,
+            String uploadId,
+            ObservationBudget budget
+    ) {
         Objects.requireNonNull(key, "StorageKey cannot be null.");
         Objects.requireNonNull(uploadId, "uploadId cannot be null.");
         if (uploadId.isBlank()) {
@@ -816,13 +925,36 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         try {
             String currentKeyMarker = null;
             String currentUploadIdMarker = null;
+            Set<String> seenMarkerPairs = new HashSet<>();
 
             for (int page = 1; page <= OBSERVATION_MAX_PAGES; page++) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "OBSERVATION_INTERRUPTED"
+                    );
+                }
+
+                Optional<ObservationRequestPlan> planOpt = budget.planRequest();
+                if (planOpt.isEmpty()) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "OBSERVATION_TIMEOUT_EXCEEDED"
+                    );
+                }
+                ObservationRequestPlan plan = planOpt.get();
+
                 ListMultipartUploadsRequest.Builder requestBuilder = ListMultipartUploadsRequest.builder()
                         .bucket(this.bucket)
                         .prefix(key.value())
                         .maxUploads(OBSERVATION_MAX_UPLOADS_PER_PAGE)
-                        .overrideConfiguration(createObservationRequestOverrideConfiguration());
+                        .overrideConfiguration(plan.overrideConfiguration());
 
                 if (currentKeyMarker != null) {
                     requestBuilder.keyMarker(currentKeyMarker);
@@ -832,6 +964,16 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                 }
 
                 ListMultipartUploadsResponse response = s3Client.listMultipartUploads(requestBuilder.build());
+
+                if (budget.isExhausted()) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "OBSERVATION_TIMEOUT_EXCEEDED"
+                    );
+                }
 
                 if (response.uploads() != null) {
                     for (MultipartUpload upload : response.uploads()) {
@@ -925,6 +1067,17 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     );
                 }
 
+                String markerPair = nextKeyMarker + "\0" + nextUploadIdMarker;
+                if (!seenMarkerPairs.add(markerPair)) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "NON_PROGRESSING_PAGINATION: repeated marker pair"
+                    );
+                }
+
                 if (currentKeyMarker != null) {
                     int keyCmp = nextKeyMarker.compareTo(currentKeyMarker);
                     if (keyCmp < 0) {
@@ -971,6 +1124,25 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     "PAGINATION_BUDGET_EXCEEDED: listings truncated beyond " + OBSERVATION_MAX_PAGES + " pages"
             );
         } catch (S3Exception e) {
+            if (isInterrupted(e)) {
+                Thread.currentThread().interrupt();
+                return new MultipartUploadPresenceObservation(
+                        key,
+                        uploadId,
+                        MultipartUploadPresence.UNKNOWN,
+                        Instant.now(),
+                        "OBSERVATION_INTERRUPTED"
+                );
+            }
+            if (budget.isExhausted()) {
+                return new MultipartUploadPresenceObservation(
+                        key,
+                        uploadId,
+                        MultipartUploadPresence.UNKNOWN,
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             return new MultipartUploadPresenceObservation(
                     key,
                     uploadId,
@@ -979,6 +1151,25 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     classifySafeObservationError(e)
             );
         } catch (AwsServiceException | SdkClientException e) {
+            if (isInterrupted(e)) {
+                Thread.currentThread().interrupt();
+                return new MultipartUploadPresenceObservation(
+                        key,
+                        uploadId,
+                        MultipartUploadPresence.UNKNOWN,
+                        Instant.now(),
+                        "OBSERVATION_INTERRUPTED"
+                );
+            }
+            if (budget.isExhausted()) {
+                return new MultipartUploadPresenceObservation(
+                        key,
+                        uploadId,
+                        MultipartUploadPresence.UNKNOWN,
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             return new MultipartUploadPresenceObservation(
                     key,
                     uploadId,
@@ -991,16 +1182,52 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
 
     @Override
     public StorageObjectPresenceObservation observeObjectPresence(StorageKey key) {
+        ObservationBudget budget = ObservationBudget.start(this.nanoTimeSupplier, OBSERVATION_DEFAULT_OPERATION_TIMEOUT);
+        return observeObjectPresenceInternal(key, budget);
+    }
+
+    private StorageObjectPresenceObservation observeObjectPresenceInternal(StorageKey key, ObservationBudget budget) {
         Objects.requireNonNull(key, "StorageKey cannot be null.");
+
+        if (Thread.currentThread().isInterrupted()) {
+            return new StorageObjectPresenceObservation(
+                    key,
+                    StorageObjectPresence.UNKNOWN,
+                    null,
+                    Instant.now(),
+                    "OBSERVATION_INTERRUPTED"
+            );
+        }
+
+        Optional<ObservationRequestPlan> planOpt = budget.planRequest();
+        if (planOpt.isEmpty()) {
+            return new StorageObjectPresenceObservation(
+                    key,
+                    StorageObjectPresence.UNKNOWN,
+                    null,
+                    Instant.now(),
+                    "OBSERVATION_TIMEOUT_EXCEEDED"
+            );
+        }
+        ObservationRequestPlan plan = planOpt.get();
 
         HeadObjectRequest headRequest = HeadObjectRequest.builder()
                 .bucket(this.bucket)
                 .key(key.value())
-                .overrideConfiguration(createObservationRequestOverrideConfiguration())
+                .overrideConfiguration(plan.overrideConfiguration())
                 .build();
 
         try {
             HeadObjectResponse response = s3Client.headObject(headRequest);
+            if (budget.isExhausted()) {
+                return new StorageObjectPresenceObservation(
+                        key,
+                        StorageObjectPresence.UNKNOWN,
+                        null,
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             Map<String, String> userMetadata = (response.hasMetadata() && response.metadata() != null)
                     ? response.metadata()
                     : Map.of();
@@ -1022,6 +1249,15 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     null
             );
         } catch (NoSuchKeyException e) {
+            if (budget.isExhausted()) {
+                return new StorageObjectPresenceObservation(
+                        key,
+                        StorageObjectPresence.UNKNOWN,
+                        null,
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             return new StorageObjectPresenceObservation(
                     key,
                     StorageObjectPresence.NOT_FOUND,
@@ -1030,6 +1266,25 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     null
             );
         } catch (S3Exception e) {
+            if (isInterrupted(e)) {
+                Thread.currentThread().interrupt();
+                return new StorageObjectPresenceObservation(
+                        key,
+                        StorageObjectPresence.UNKNOWN,
+                        null,
+                        Instant.now(),
+                        "OBSERVATION_INTERRUPTED"
+                );
+            }
+            if (budget.isExhausted()) {
+                return new StorageObjectPresenceObservation(
+                        key,
+                        StorageObjectPresence.UNKNOWN,
+                        null,
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             if (isExplicitNoSuchKey(e)) {
                 return new StorageObjectPresenceObservation(
                         key,
@@ -1047,6 +1302,25 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     classifySafeObservationError(e)
             );
         } catch (AwsServiceException | SdkClientException e) {
+            if (isInterrupted(e)) {
+                Thread.currentThread().interrupt();
+                return new StorageObjectPresenceObservation(
+                        key,
+                        StorageObjectPresence.UNKNOWN,
+                        null,
+                        Instant.now(),
+                        "OBSERVATION_INTERRUPTED"
+                );
+            }
+            if (budget.isExhausted()) {
+                return new StorageObjectPresenceObservation(
+                        key,
+                        StorageObjectPresence.UNKNOWN,
+                        null,
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             return new StorageObjectPresenceObservation(
                     key,
                     StorageObjectPresence.UNKNOWN,
@@ -1059,8 +1333,17 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
 
     @Override
     public MultipartPartsObservation observeUploadedParts(StorageKey key, String uploadId) {
+        ObservationBudget budget = ObservationBudget.start(this.nanoTimeSupplier, OBSERVATION_DEFAULT_OPERATION_TIMEOUT);
+        return observeUploadedPartsInternal(key, uploadId, budget);
+    }
+
+    private MultipartPartsObservation observeUploadedPartsInternal(
+            StorageKey key,
+            String uploadId,
+            ObservationBudget budget
+    ) {
         Objects.requireNonNull(key, "StorageKey cannot be null.");
-        Objects.requireNonNull(uploadId, "uploadId cannot be null.");
+        Objects.requireNonNull(uploadId, "uploadId cannot be blank.");
         if (uploadId.isBlank()) {
             throw new IllegalArgumentException("uploadId cannot be blank.");
         }
@@ -1068,20 +1351,56 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         try {
             List<MultipartUploadedPart> result = new ArrayList<>();
             Integer currentMarker = null;
+            Set<Integer> seenPartMarkers = new HashSet<>();
 
             for (int page = 1; page <= OBSERVATION_MAX_PAGES; page++) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "OBSERVATION_INTERRUPTED"
+                    );
+                }
+
+                Optional<ObservationRequestPlan> planOpt = budget.planRequest();
+                if (planOpt.isEmpty()) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "OBSERVATION_TIMEOUT_EXCEEDED"
+                    );
+                }
+                ObservationRequestPlan plan = planOpt.get();
+
                 ListPartsRequest.Builder requestBuilder = ListPartsRequest.builder()
                         .bucket(this.bucket)
                         .key(key.value())
                         .uploadId(uploadId)
                         .maxParts(OBSERVATION_MAX_PARTS_PER_PAGE)
-                        .overrideConfiguration(createObservationRequestOverrideConfiguration());
+                        .overrideConfiguration(plan.overrideConfiguration());
 
                 if (currentMarker != null) {
                     requestBuilder.partNumberMarker(currentMarker);
                 }
 
                 ListPartsResponse response = s3Client.listParts(requestBuilder.build());
+
+                if (budget.isExhausted()) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "OBSERVATION_TIMEOUT_EXCEEDED"
+                    );
+                }
 
                 int partsOnThisPage = 0;
                 Integer lastPartOnPage = null;
@@ -1210,6 +1529,17 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     );
                 }
 
+                if (!seenPartMarkers.add(nextMarker)) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "NON_PROGRESSING_PAGINATION: repeated part marker"
+                    );
+                }
+
                 if (currentMarker != null) {
                     if (nextMarker.equals(currentMarker)) {
                         return new MultipartPartsObservation(
@@ -1255,8 +1585,18 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     List.of(),
                     Instant.now(),
                     "PAGINATION_BUDGET_EXCEEDED: parts truncated beyond " + OBSERVATION_MAX_PAGES + " pages"
-            );
+                    );
         } catch (NoSuchUploadException e) {
+            if (budget.isExhausted()) {
+                return new MultipartPartsObservation(
+                        key,
+                        uploadId,
+                        MultipartPartsSummary.UNKNOWN,
+                        List.of(),
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             return new MultipartPartsObservation(
                     key,
                     uploadId,
@@ -1266,6 +1606,27 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     null
             );
         } catch (S3Exception e) {
+            if (isInterrupted(e)) {
+                Thread.currentThread().interrupt();
+                return new MultipartPartsObservation(
+                        key,
+                        uploadId,
+                        MultipartPartsSummary.UNKNOWN,
+                        List.of(),
+                        Instant.now(),
+                        "OBSERVATION_INTERRUPTED"
+                );
+            }
+            if (budget.isExhausted()) {
+                return new MultipartPartsObservation(
+                        key,
+                        uploadId,
+                        MultipartPartsSummary.UNKNOWN,
+                        List.of(),
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             if (isNoSuchUpload(e)) {
                 return new MultipartPartsObservation(
                         key,
@@ -1285,6 +1646,27 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
                     classifySafeObservationError(e)
             );
         } catch (AwsServiceException | SdkClientException e) {
+            if (isInterrupted(e)) {
+                Thread.currentThread().interrupt();
+                return new MultipartPartsObservation(
+                        key,
+                        uploadId,
+                        MultipartPartsSummary.UNKNOWN,
+                        List.of(),
+                        Instant.now(),
+                        "OBSERVATION_INTERRUPTED"
+                );
+            }
+            if (budget.isExhausted()) {
+                return new MultipartPartsObservation(
+                        key,
+                        uploadId,
+                        MultipartPartsSummary.UNKNOWN,
+                        List.of(),
+                        Instant.now(),
+                        "OBSERVATION_TIMEOUT_EXCEEDED"
+                );
+            }
             return new MultipartPartsObservation(
                     key,
                     uploadId,
@@ -1304,9 +1686,11 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
             throw new IllegalArgumentException("uploadId cannot be blank.");
         }
 
-        MultipartUploadPresenceObservation presenceObs = observeMultipartUploadPresence(key, uploadId);
-        StorageObjectPresenceObservation objectObs = observeObjectPresence(key);
-        MultipartPartsObservation partsObs = observeUploadedParts(key, uploadId);
+        ObservationBudget budget = ObservationBudget.start(this.nanoTimeSupplier, OBSERVATION_DEFAULT_OPERATION_TIMEOUT);
+
+        MultipartUploadPresenceObservation presenceObs = observeMultipartUploadPresenceInternal(key, uploadId, budget);
+        StorageObjectPresenceObservation objectObs = observeObjectPresenceInternal(key, budget);
+        MultipartPartsObservation partsObs = observeUploadedPartsInternal(key, uploadId, budget);
 
         String consolidatedDiagnostic = buildConsolidatedDiagnostic(presenceObs, objectObs, partsObs);
 
@@ -1323,11 +1707,15 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         );
     }
 
-    private AwsRequestOverrideConfiguration createObservationRequestOverrideConfiguration() {
-        return AwsRequestOverrideConfiguration.builder()
-                .apiCallTimeout(OBSERVATION_API_CALL_TIMEOUT)
-                .apiCallAttemptTimeout(OBSERVATION_API_CALL_ATTEMPT_TIMEOUT)
-                .build();
+    private static boolean isInterrupted(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @Override

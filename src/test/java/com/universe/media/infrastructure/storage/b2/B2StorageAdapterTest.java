@@ -27,6 +27,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
@@ -69,7 +70,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
@@ -79,6 +83,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -2907,6 +2912,554 @@ class B2StorageAdapterTest {
                 assertThat(dualSnapshot).isNotNull();
                 verify(separateAbortClient, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
                 verify(separateAbortClient, never()).deleteObject(any(DeleteObjectRequest.class));
+            }
+
+            @Nested
+            @DisplayName("Bounded Observation Budget and Timeout Execution Tests")
+            class BoundedObservationExecutionTests {
+
+                private final StorageKey key = StorageKey.of("media/sessions/bounded-test.mp4");
+                private final String uploadId = "bounded-upload-999";
+
+                private AtomicLong virtualNanoTime;
+                private B2StorageAdapter adapterWithClock;
+
+                @BeforeEach
+                void setUpClock() {
+                    virtualNanoTime = new AtomicLong(1_000_000_000L);
+                    adapterWithClock = new B2StorageAdapter(
+                            BUCKET,
+                            s3Client,
+                            s3Presigner,
+                            testTempDir,
+                            () -> virtualNanoTime.get()
+                    );
+                }
+
+                @Test
+                @DisplayName("1. One successful observation within the 30s budget")
+                void shouldSucceedWithinOperationBudget() {
+                    MultipartUpload upload = MultipartUpload.builder().key(key.value()).uploadId(uploadId).build();
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenAnswer(inv -> {
+                        virtualNanoTime.addAndGet(Duration.ofSeconds(1).toNanos());
+                        return ListMultipartUploadsResponse.builder().uploads(List.of(upload)).isTruncated(false).build();
+                    });
+
+                    MultipartUploadPresenceObservation obs = adapterWithClock.observeMultipartUploadPresence(key, uploadId);
+
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.ACTIVE);
+                    assertThat(obs.safeDiagnostic()).isNull();
+                }
+
+                @Test
+                @DisplayName("2. Valid two-page listing within a shared budget")
+                void shouldCompleteTwoPageListingWithinBudget() {
+                    MultipartUpload otherUpload = MultipartUpload.builder().key(key.value()).uploadId("other-1").build();
+                    MultipartUpload targetUpload = MultipartUpload.builder().key(key.value()).uploadId(uploadId).build();
+
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenAnswer(inv -> {
+                        ListMultipartUploadsRequest req = inv.getArgument(0);
+                        virtualNanoTime.addAndGet(Duration.ofSeconds(2).toNanos());
+                        if (req.uploadIdMarker() == null) {
+                            return ListMultipartUploadsResponse.builder()
+                                    .uploads(List.of(otherUpload))
+                                    .isTruncated(true)
+                                    .nextKeyMarker(key.value())
+                                    .nextUploadIdMarker("other-1")
+                                    .build();
+                        } else {
+                            return ListMultipartUploadsResponse.builder()
+                                    .uploads(List.of(targetUpload))
+                                    .isTruncated(false)
+                                    .build();
+                        }
+                    });
+
+                    MultipartUploadPresenceObservation obs = adapterWithClock.observeMultipartUploadPresence(key, uploadId);
+
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.ACTIVE);
+                    assertThat(obs.safeDiagnostic()).isNull();
+                    verify(s3Client, times(2)).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+                }
+
+                @Test
+                @DisplayName("3. Deadline exhausted before page two => UNKNOWN")
+                void shouldReturnUnknownWhenDeadlineExhaustedBeforePageTwo() {
+                    MultipartUpload otherUpload = MultipartUpload.builder().key(key.value()).uploadId("other-1").build();
+
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenAnswer(inv -> {
+                        virtualNanoTime.addAndGet(Duration.ofSeconds(31).toNanos());
+                        return ListMultipartUploadsResponse.builder()
+                                .uploads(List.of(otherUpload))
+                                .isTruncated(true)
+                                .nextKeyMarker(key.value())
+                                .nextUploadIdMarker("other-1")
+                                .build();
+                    });
+
+                    MultipartUploadPresenceObservation obs = adapterWithClock.observeMultipartUploadPresence(key, uploadId);
+
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, times(1)).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+                }
+
+                @Test
+                @DisplayName("4. No SDK call after deadline exhaustion")
+                void shouldNotDispatchSdkCallIfAlreadyExhaustedAtStart() {
+                    AtomicInteger clockCalls = new AtomicInteger();
+                    B2StorageAdapter fastExpiringAdapter = new B2StorageAdapter(
+                            BUCKET,
+                            s3Client,
+                            s3Presigner,
+                            testTempDir,
+                            () -> {
+                                int c = clockCalls.incrementAndGet();
+                                return c == 1 ? 1_000_000_000L : 32_000_000_000L;
+                            }
+                    );
+
+                    MultipartUploadPresenceObservation obs = fastExpiringAdapter.observeMultipartUploadPresence(key, uploadId);
+
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, never()).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+                }
+
+                @Test
+                @DisplayName("5, 6, 7. Composite presence succeeds, deadline expires before HEAD, dimensions skipped, ACTIVE preserved")
+                void shouldPreserveActivePresenceWhenDeadlineExpiresBeforeHeadInComposite() {
+                    MultipartUpload upload = MultipartUpload.builder().key(key.value()).uploadId(uploadId).build();
+                    AtomicInteger clockReads = new AtomicInteger();
+                    B2StorageAdapter compositeExpiryAdapter = new B2StorageAdapter(
+                            BUCKET,
+                            s3Client,
+                            s3Presigner,
+                            testTempDir,
+                            () -> {
+                                int r = clockReads.incrementAndGet();
+                                return (r <= 3) ? 1_000_000_000L : 35_000_000_000L;
+                            }
+                    );
+
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                            .thenReturn(ListMultipartUploadsResponse.builder().uploads(List.of(upload)).isTruncated(false).build());
+
+                    MultipartUploadObservationSnapshot snapshot = compositeExpiryAdapter.observeMultipartUpload(key, uploadId);
+
+                    assertThat(snapshot.uploadPresence()).isEqualTo(MultipartUploadPresence.ACTIVE);
+                    assertThat(snapshot.objectPresence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                    assertThat(snapshot.partsSummary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                    assertThat(snapshot.parts()).isEmpty();
+                    assertThat(snapshot.objectMetadata()).isNull();
+                    assertThat(snapshot.safeDiagnostic())
+                            .contains("objectPresence: OBSERVATION_TIMEOUT_EXCEEDED")
+                            .contains("partsSummary: OBSERVATION_TIMEOUT_EXCEEDED");
+
+                    verify(s3Client, never()).headObject(any(HeadObjectRequest.class));
+                    verify(s3Client, never()).listParts(any(ListPartsRequest.class));
+                }
+
+                @Test
+                @DisplayName("8, 9. SDK call timeout clamped to remaining time and attempt timeout safely bounded")
+                void shouldClampCallAndAttemptTimeoutToRemainingBudget() {
+                    AtomicInteger clockCalls = new AtomicInteger();
+                    B2StorageAdapter clampingAdapter = new B2StorageAdapter(
+                            BUCKET,
+                            s3Client,
+                            s3Presigner,
+                            testTempDir,
+                            () -> {
+                                int c = clockCalls.incrementAndGet();
+                                return (c == 1) ? 1_000_000_000L : 21_000_000_000L;
+                            }
+                    );
+
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                            .thenReturn(ListMultipartUploadsResponse.builder().uploads(List.of()).isTruncated(false).build());
+
+                    clampingAdapter.observeMultipartUploadPresence(key, uploadId);
+
+                    ArgumentCaptor<ListMultipartUploadsRequest> captor = ArgumentCaptor.forClass(ListMultipartUploadsRequest.class);
+                    verify(s3Client).listMultipartUploads(captor.capture());
+
+                    AwsRequestOverrideConfiguration override = captor.getValue().overrideConfiguration().orElseThrow();
+                    assertThat(override.apiCallTimeout()).contains(Duration.ofSeconds(10));
+                    assertThat(override.apiCallAttemptTimeout()).contains(Duration.ofMillis(9950));
+                    assertThat(override.apiCallAttemptTimeout().orElseThrow())
+                            .isLessThan(override.apiCallTimeout().orElseThrow());
+                }
+
+                @Test
+                @DisplayName("10, 11. Deadline expires while provider request executes; cannot yield false NOT_LISTED")
+                void shouldReturnUnknownWhenDeadlineExpiresDuringListingExecution() {
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenAnswer(inv -> {
+                        virtualNanoTime.addAndGet(Duration.ofSeconds(32).toNanos());
+                        return ListMultipartUploadsResponse.builder().uploads(List.of()).isTruncated(false).build();
+                    });
+
+                    MultipartUploadPresenceObservation obs = adapterWithClock.observeMultipartUploadPresence(key, uploadId);
+
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(obs.presence()).isNotEqualTo(MultipartUploadPresence.NOT_LISTED);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                }
+
+                @Test
+                @DisplayName("12. Late completion cannot yield false complete parts observation")
+                void shouldReturnUnknownWhenDeadlineExpiresDuringListPartsExecution() {
+                    when(s3Client.listParts(any(ListPartsRequest.class))).thenAnswer(inv -> {
+                        virtualNanoTime.addAndGet(Duration.ofSeconds(32).toNanos());
+                        return ListPartsResponse.builder().parts(List.of()).isTruncated(false).build();
+                    });
+
+                    MultipartPartsObservation obs = adapterWithClock.observeUploadedParts(key, uploadId);
+
+                    assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                    assertThat(obs.summary()).isNotEqualTo(MultipartPartsSummary.ZERO_PARTS_OBSERVED);
+                    assertThat(obs.summary()).isNotEqualTo(MultipartPartsSummary.PARTS_RETURNED);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                }
+
+                @Test
+                @DisplayName("13. Standalone observations have independent budgets")
+                void shouldGrantIndependentBudgetsToStandaloneCalls() {
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenAnswer(inv -> {
+                        virtualNanoTime.addAndGet(Duration.ofSeconds(25).toNanos());
+                        return ListMultipartUploadsResponse.builder().uploads(List.of()).isTruncated(false).build();
+                    });
+
+                    MultipartUploadPresenceObservation obs1 = adapterWithClock.observeMultipartUploadPresence(key, uploadId);
+                    assertThat(obs1.presence()).isEqualTo(MultipartUploadPresence.NOT_LISTED);
+
+                    when(s3Client.headObject(any(HeadObjectRequest.class))).thenAnswer(inv -> {
+                        virtualNanoTime.addAndGet(Duration.ofSeconds(10).toNanos());
+                        return HeadObjectResponse.builder().contentLength(1024L).contentType("video/mp4").eTag("\"tag\"").build();
+                    });
+
+                    StorageObjectPresenceObservation obs2 = adapterWithClock.observeObjectPresence(key);
+                    assertThat(obs2.presence()).isEqualTo(StorageObjectPresence.PRESENT);
+                }
+
+                @Test
+                @DisplayName("14. Interrupted thread produces UNKNOWN without dispatch")
+                void shouldReturnUnknownOnInterruptedThreadWithoutDispatchingSdkCalls() {
+                    Thread.currentThread().interrupt();
+                    try {
+                        MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+                        assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                        assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_INTERRUPTED");
+                        assertThat(Thread.currentThread().isInterrupted()).isTrue();
+                        verify(s3Client, never()).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+                    } finally {
+                        Thread.interrupted();
+                    }
+
+                    Thread.currentThread().interrupt();
+                    try {
+                        StorageObjectPresenceObservation obs = adapter.observeObjectPresence(key);
+                        assertThat(obs.presence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                        assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_INTERRUPTED");
+                        assertThat(Thread.currentThread().isInterrupted()).isTrue();
+                        verify(s3Client, never()).headObject(any(HeadObjectRequest.class));
+                    } finally {
+                        Thread.interrupted();
+                    }
+
+                    Thread.currentThread().interrupt();
+                    try {
+                        MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+                        assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                        assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_INTERRUPTED");
+                        assertThat(Thread.currentThread().isInterrupted()).isTrue();
+                        verify(s3Client, never()).listParts(any(ListPartsRequest.class));
+                    } finally {
+                        Thread.interrupted();
+                    }
+                }
+
+                @Test
+                @DisplayName("15. Repeated marker pair/cycle produces UNKNOWN")
+                void shouldDetectMarkerCyclesAndReturnUnknown() {
+                    MultipartUpload up1 = MultipartUpload.builder().key(key.value()).uploadId("other-1").build();
+                    MultipartUpload up2 = MultipartUpload.builder().key(key.value()).uploadId("other-2").build();
+                    AtomicInteger pageCount = new AtomicInteger();
+
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenAnswer(inv -> {
+                        int p = pageCount.incrementAndGet();
+                        if (p == 1) {
+                            return ListMultipartUploadsResponse.builder()
+                                    .uploads(List.of(up1))
+                                    .isTruncated(true)
+                                    .nextKeyMarker(key.value())
+                                    .nextUploadIdMarker("other-1")
+                                    .build();
+                        } else if (p == 2) {
+                            return ListMultipartUploadsResponse.builder()
+                                    .uploads(List.of(up2))
+                                    .isTruncated(true)
+                                    .nextKeyMarker(key.value())
+                                    .nextUploadIdMarker("other-2")
+                                    .build();
+                        } else {
+                            return ListMultipartUploadsResponse.builder()
+                                    .uploads(List.of(up1))
+                                    .isTruncated(true)
+                                    .nextKeyMarker(key.value())
+                                    .nextUploadIdMarker("other-1")
+                                    .build();
+                        }
+                    });
+
+                    MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("NON_PROGRESSING_PAGINATION: repeated marker pair");
+                }
+
+                @Test
+                @DisplayName("16. Valid multi-page pagination remains supported within budget")
+                void shouldSupportValidThreePagePagination() {
+                    Part p1 = Part.builder().partNumber(1).size(500L).eTag("\"e1\"").build();
+                    Part p2 = Part.builder().partNumber(2).size(500L).eTag("\"e2\"").build();
+                    Part p3 = Part.builder().partNumber(3).size(500L).eTag("\"e3\"").build();
+                    AtomicInteger partsPage = new AtomicInteger();
+
+                    when(s3Client.listParts(any(ListPartsRequest.class))).thenAnswer(inv -> {
+                        int p = partsPage.incrementAndGet();
+                        if (p == 1) {
+                            return ListPartsResponse.builder().parts(List.of(p1)).isTruncated(true).nextPartNumberMarker(1).build();
+                        } else if (p == 2) {
+                            return ListPartsResponse.builder().parts(List.of(p2)).isTruncated(true).nextPartNumberMarker(2).build();
+                        } else {
+                            return ListPartsResponse.builder().parts(List.of(p3)).isTruncated(false).build();
+                        }
+                    });
+
+                    MultipartPartsObservation partsObs = adapter.observeUploadedParts(key, uploadId);
+
+                    assertThat(partsObs.summary()).isEqualTo(MultipartPartsSummary.PARTS_RETURNED);
+                    assertThat(partsObs.parts()).hasSize(3);
+                    assertThat(partsObs.safeDiagnostic()).isNull();
+                }
+
+                @Test
+                @DisplayName("18, 19. Observation methods never invoke AbortMultipartUpload or DeleteObject")
+                void shouldNeverInvokeAbortOrDeleteDuringObservationLifecycle() {
+                    when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                            .thenReturn(ListMultipartUploadsResponse.builder().uploads(List.of()).isTruncated(false).build());
+                    when(s3Client.headObject(any(HeadObjectRequest.class)))
+                            .thenThrow(NoSuchKeyException.builder().statusCode(404).message("Not Found").build());
+                    when(s3Client.listParts(any(ListPartsRequest.class)))
+                            .thenReturn(ListPartsResponse.builder().parts(List.of()).isTruncated(false).build());
+
+                    MultipartUploadObservationSnapshot snapshot = adapter.observeMultipartUpload(key, uploadId);
+
+                    assertThat(snapshot).isNotNull();
+                    verify(s3Client, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+                    verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+                }
+
+                @Test
+                @DisplayName("20. ObservationBudget monotonic calculation, clamping, and zero-leak guarantees")
+                void shouldVerifyObservationBudgetCalculations() {
+                    AtomicLong clock = new AtomicLong(100_000_000L);
+                    B2StorageAdapter.ObservationBudget budget = B2StorageAdapter.ObservationBudget.start(
+                            clock::get,
+                            Duration.ofSeconds(30)
+                    );
+
+                    assertThat(budget.remaining()).isEqualTo(Duration.ofSeconds(30));
+                    assertThat(budget.isExhausted()).isFalse();
+                    assertThat(budget.hasSufficientTime(Duration.ofMillis(200))).isTrue();
+
+                    clock.addAndGet(Duration.ofSeconds(15).toNanos());
+                    assertThat(budget.remaining()).isEqualTo(Duration.ofSeconds(15));
+                    assertThat(budget.isExhausted()).isFalse();
+
+                    clock.addAndGet(Duration.ofSeconds(15).toNanos());
+                    assertThat(budget.remaining()).isEqualTo(Duration.ZERO);
+                    assertThat(budget.isExhausted()).isTrue();
+                    assertThat(budget.hasSufficientTime(Duration.ofMillis(200))).isFalse();
+
+                    clock.addAndGet(Duration.ofSeconds(1).toNanos());
+                    assertThat(budget.remaining()).isEqualTo(Duration.ZERO);
+                    assertThat(budget.isExhausted()).isTrue();
+                    assertThat(budget.hasSufficientTime(Duration.ofMillis(200))).isFalse();
+                }
+
+                @Test
+                @DisplayName("A. With 250ms remaining, derive valid positive call and attempt timeouts strictly positive and bounded")
+                void shouldDeriveValidPositiveTimeoutsWhen250MsRemaining() {
+                    AtomicLong clock = new AtomicLong(1_000_000_000L);
+                    B2StorageAdapter.ObservationBudget budget = B2StorageAdapter.ObservationBudget.start(
+                            clock::get,
+                            Duration.ofSeconds(30)
+                    );
+                    clock.set(1_000_000_000L + Duration.ofSeconds(30).minusMillis(250).toNanos());
+
+                    Optional<B2StorageAdapter.ObservationRequestPlan> planOpt = budget.planRequest();
+                    assertThat(planOpt).isPresent();
+
+                    B2StorageAdapter.ObservationRequestPlan plan = planOpt.get();
+                    assertThat(plan.remaining()).isEqualTo(Duration.ofMillis(250));
+                    assertThat(plan.apiCallTimeout()).isEqualTo(Duration.ofMillis(250));
+                    assertThat(plan.apiCallAttemptTimeout()).isEqualTo(Duration.ofMillis(200));
+                    assertThat(plan.apiCallTimeout()).isGreaterThan(Duration.ZERO);
+                    assertThat(plan.apiCallAttemptTimeout()).isGreaterThan(Duration.ZERO);
+                    assertThat(plan.apiCallAttemptTimeout()).isLessThan(plan.apiCallTimeout());
+                    assertThat(plan.overrideConfiguration().apiCallTimeout()).contains(Duration.ofMillis(250));
+                    assertThat(plan.overrideConfiguration().apiCallAttemptTimeout()).contains(Duration.ofMillis(200));
+                }
+
+                @Test
+                @DisplayName("B. With 199ms remaining, return UNKNOWN without dispatch")
+                void shouldReturnUnknownWithoutDispatchWhen199MsRemaining() {
+                    AtomicInteger clockReads = new AtomicInteger();
+                    B2StorageAdapter adapter199 = new B2StorageAdapter(
+                            BUCKET,
+                            s3Client,
+                            s3Presigner,
+                            testTempDir,
+                            () -> {
+                                int r = clockReads.incrementAndGet();
+                                return (r == 1) ? 1_000_000_000L : 1_000_000_000L + Duration.ofSeconds(30).minusMillis(199).toNanos();
+                            }
+                    );
+
+                    MultipartUploadPresenceObservation obs = adapter199.observeMultipartUploadPresence(key, uploadId);
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, never()).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+                }
+
+                @Test
+                @DisplayName("C. With zero remaining, return UNKNOWN without constructing an invalid SDK override")
+                void shouldReturnUnknownWithoutInvalidOverrideWhenZeroRemaining() {
+                    AtomicInteger clockReads = new AtomicInteger();
+                    B2StorageAdapter adapterZero = new B2StorageAdapter(
+                            BUCKET,
+                            s3Client,
+                            s3Presigner,
+                            testTempDir,
+                            () -> {
+                                int r = clockReads.incrementAndGet();
+                                return (r == 1) ? 1_000_000_000L : 1_000_000_000L + Duration.ofSeconds(30).toNanos();
+                            }
+                    );
+
+                    MultipartUploadPresenceObservation obs = adapterZero.observeMultipartUploadPresence(key, uploadId);
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, never()).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+                }
+
+                @Test
+                @DisplayName("D. Clock jump from available time to exhausted time at planning boundary; no SDK call occurs")
+                void shouldNotDispatchSdkCallWhenClockJumpsToExhaustedAtPlanningBoundary() {
+                    AtomicInteger clockReads = new AtomicInteger();
+                    B2StorageAdapter jumpingAdapter = new B2StorageAdapter(
+                            BUCKET,
+                            s3Client,
+                            s3Presigner,
+                            testTempDir,
+                            () -> {
+                                int r = clockReads.incrementAndGet();
+                                return (r == 1) ? 1_000_000_000L : 36_000_000_000L;
+                            }
+                    );
+
+                    MultipartUploadPresenceObservation obs = jumpingAdapter.observeMultipartUploadPresence(key, uploadId);
+                    assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(obs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, never()).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+                }
+
+                @Test
+                @DisplayName("E. Verify exactly one clock reading is used for dispatch decision and timeout computation")
+                void shouldVerifyExactlyOneClockReadingPerPlannedRequest() {
+                    AtomicInteger tickerCalls = new AtomicInteger();
+                    B2StorageAdapter.ObservationBudget budget = B2StorageAdapter.ObservationBudget.start(
+                            () -> {
+                                tickerCalls.incrementAndGet();
+                                return 10_000_000_000L;
+                            },
+                            Duration.ofSeconds(30)
+                    );
+                    assertThat(tickerCalls.get()).isEqualTo(1);
+
+                    tickerCalls.set(0);
+                    Optional<B2StorageAdapter.ObservationRequestPlan> plan = budget.planRequest();
+                    assertThat(plan).isPresent();
+                    assertThat(tickerCalls.get()).isEqualTo(1);
+                }
+
+                @Test
+                @DisplayName("F. Both listing methods and HEAD use the same safe planning path")
+                void shouldVerifyAllThreeObservationMethodsUseSamePlanningPathUnderBudgetExhaustion() {
+                    // 1. observeMultipartUploadPresence
+                    AtomicInteger clock1 = new AtomicInteger();
+                    B2StorageAdapter adapter1 = new B2StorageAdapter(
+                            BUCKET, s3Client, s3Presigner, testTempDir,
+                            () -> (clock1.incrementAndGet() == 1) ? 1_000_000_000L : 1_000_000_000L + Duration.ofSeconds(30).minusMillis(100).toNanos()
+                    );
+                    MultipartUploadPresenceObservation presenceObs = adapter1.observeMultipartUploadPresence(key, uploadId);
+                    assertThat(presenceObs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                    assertThat(presenceObs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, never()).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+
+                    // 2. observeObjectPresence
+                    AtomicInteger clock2 = new AtomicInteger();
+                    B2StorageAdapter adapter2 = new B2StorageAdapter(
+                            BUCKET, s3Client, s3Presigner, testTempDir,
+                            () -> (clock2.incrementAndGet() == 1) ? 1_000_000_000L : 1_000_000_000L + Duration.ofSeconds(30).minusMillis(100).toNanos()
+                    );
+                    StorageObjectPresenceObservation objObs = adapter2.observeObjectPresence(key);
+                    assertThat(objObs.presence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                    assertThat(objObs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, never()).headObject(any(HeadObjectRequest.class));
+
+                    // 3. observeUploadedParts
+                    AtomicInteger clock3 = new AtomicInteger();
+                    B2StorageAdapter adapter3 = new B2StorageAdapter(
+                            BUCKET, s3Client, s3Presigner, testTempDir,
+                            () -> (clock3.incrementAndGet() == 1) ? 1_000_000_000L : 1_000_000_000L + Duration.ofSeconds(30).minusMillis(100).toNanos()
+                    );
+                    MultipartPartsObservation partsObs = adapter3.observeUploadedParts(key, uploadId);
+                    assertThat(partsObs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                    assertThat(partsObs.safeDiagnostic()).isEqualTo("OBSERVATION_TIMEOUT_EXCEEDED");
+                    verify(s3Client, never()).listParts(any(ListPartsRequest.class));
+                }
+
+                @Test
+                @DisplayName("G. Valid two-page pagination recomputes plan and succeeds")
+                void shouldRecomputePlanPerPaginationPageAndSucceed() {
+                    Part p1 = Part.builder().partNumber(1).size(500L).eTag("\"e1\"").build();
+                    Part p2 = Part.builder().partNumber(2).size(500L).eTag("\"e2\"").build();
+                    AtomicInteger pageNum = new AtomicInteger();
+
+                    when(s3Client.listParts(any(ListPartsRequest.class))).thenAnswer(inv -> {
+                        int p = pageNum.incrementAndGet();
+                        if (p == 1) {
+                            return ListPartsResponse.builder().parts(List.of(p1)).isTruncated(true).nextPartNumberMarker(1).build();
+                        } else {
+                            return ListPartsResponse.builder().parts(List.of(p2)).isTruncated(false).build();
+                        }
+                    });
+
+                    MultipartPartsObservation partsObs = adapter.observeUploadedParts(key, uploadId);
+                    assertThat(partsObs.summary()).isEqualTo(MultipartPartsSummary.PARTS_RETURNED);
+                    assertThat(partsObs.parts()).hasSize(2);
+                    assertThat(partsObs.safeDiagnostic()).isNull();
+
+                    ArgumentCaptor<ListPartsRequest> captor = ArgumentCaptor.forClass(ListPartsRequest.class);
+                    verify(s3Client, times(2)).listParts(captor.capture());
+                    List<ListPartsRequest> capturedRequests = captor.getAllValues();
+                    assertThat(capturedRequests.get(0).partNumberMarker()).isNull();
+                    assertThat(capturedRequests.get(1).partNumberMarker()).isEqualTo(1);
+                    assertThat(capturedRequests.get(0).overrideConfiguration()).isPresent();
+                    assertThat(capturedRequests.get(1).overrideConfiguration()).isPresent();
+                }
             }
         }
     }
