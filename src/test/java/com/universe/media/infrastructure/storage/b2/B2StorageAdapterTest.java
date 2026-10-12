@@ -7,7 +7,14 @@ import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
 import com.universe.media.application.ports.storage.MultipartObjectMetadata;
 import com.universe.media.application.ports.storage.MultipartPartETag;
+import com.universe.media.application.ports.storage.MultipartPartsObservation;
+import com.universe.media.application.ports.storage.MultipartPartsSummary;
+import com.universe.media.application.ports.storage.MultipartUploadObservationSnapshot;
+import com.universe.media.application.ports.storage.MultipartUploadPresence;
+import com.universe.media.application.ports.storage.MultipartUploadPresenceObservation;
 import com.universe.media.application.ports.storage.MultipartUploadedPart;
+import com.universe.media.application.ports.storage.StorageObjectPresence;
+import com.universe.media.application.ports.storage.StorageObjectPresenceObservation;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
@@ -37,8 +44,11 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.ListPartsResponse;
+import software.amazon.awssdk.services.s3.model.MultipartUpload;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import software.amazon.awssdk.services.s3.model.Part;
@@ -1670,6 +1680,1233 @@ class B2StorageAdapterTest {
             void shouldValidateInspectKey() {
                 assertThatThrownBy(() -> adapter.inspectObjectMetadata(null))
                         .isInstanceOf(NullPointerException.class);
+            }
+        }
+
+        @Nested
+        @DisplayName("Multipart Observation Tests")
+        class MultipartObservationTests {
+
+            private final StorageKey key = StorageKey.of("media/sessions/test-obs.mp4");
+            private final String uploadId = "obs-upload-123";
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns ACTIVE on exact bucket/key/uploadId match")
+            void shouldReturnActiveWhenExactMatchInListing() {
+                MultipartUpload upload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId(uploadId)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder()
+                                .uploads(List.of(upload))
+                                .isTruncated(false)
+                                .build());
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.storageKey()).isEqualTo(key);
+                assertThat(obs.uploadId()).isEqualTo(uploadId);
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.ACTIVE);
+                assertThat(obs.observedAt()).isNotNull();
+                assertThat(obs.safeDiagnostic()).isNull();
+
+                ArgumentCaptor<ListMultipartUploadsRequest> captor = ArgumentCaptor.forClass(ListMultipartUploadsRequest.class);
+                verify(s3Client).listMultipartUploads(captor.capture());
+                assertThat(captor.getValue().bucket()).isEqualTo(BUCKET);
+                assertThat(captor.getValue().prefix()).isEqualTo(key.value());
+                assertThat(captor.getValue().overrideConfiguration().flatMap(c -> c.apiCallTimeout()))
+                        .contains(B2StorageAdapter.OBSERVATION_API_CALL_TIMEOUT);
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns NOT_LISTED when uploadId differs under same prefix")
+            void shouldReturnNotListedWhenUploadIdDiffers() {
+                MultipartUpload otherUpload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("different-upload-id")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder()
+                                .uploads(List.of(otherUpload))
+                                .isTruncated(false)
+                                .build());
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obs.safeDiagnostic()).isNull();
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns NOT_LISTED when key differs")
+            void shouldReturnNotListedWhenKeyDiffers() {
+                MultipartUpload otherUpload = MultipartUpload.builder()
+                        .key("media/sessions/other-key.mp4")
+                        .uploadId(uploadId)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder()
+                                .uploads(List.of(otherUpload))
+                                .isTruncated(false)
+                                .build());
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.NOT_LISTED);
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns NOT_LISTED on empty listing")
+            void shouldReturnNotListedOnEmptyListing() {
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder()
+                                .uploads(List.of())
+                                .isTruncated(false)
+                                .build());
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obs.safeDiagnostic()).isNull();
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN on truncated listing missing NextKeyMarker")
+            void shouldReturnUnknownWhenTruncatedListingMissingNextKeyMarker() {
+                MultipartUpload otherUpload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("other-id")
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload))
+                        .isTruncated(true)
+                        .nextKeyMarker(null)
+                        .nextUploadIdMarker("upload-marker-1")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: truncated listing missing NextKeyMarker");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN on truncated listing missing NextUploadIdMarker")
+            void shouldReturnUnknownWhenTruncatedListingMissingNextUploadIdMarker() {
+                MultipartUpload otherUpload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("other-id")
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload))
+                        .isTruncated(true)
+                        .nextKeyMarker("key-marker-1")
+                        .nextUploadIdMarker(null)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: truncated listing missing NextUploadIdMarker");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN on truncated listing with empty uploads")
+            void shouldReturnUnknownWhenTruncatedListingHasEmptyUploads() {
+                ListMultipartUploadsResponse truncatedEmpty = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of())
+                        .isTruncated(true)
+                        .nextKeyMarker("key-marker-1")
+                        .nextUploadIdMarker("upload-marker-1")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(truncatedEmpty);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: truncated listing with empty uploads");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN when marker pair is repeated")
+            void shouldReturnUnknownWhenMarkerPairIsRepeated() {
+                MultipartUpload otherUpload1 = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("id-1")
+                        .build();
+                MultipartUpload otherUpload2 = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("id-2")
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload1))
+                        .isTruncated(true)
+                        .nextKeyMarker("same-key")
+                        .nextUploadIdMarker("same-upload-id")
+                        .build();
+
+                ListMultipartUploadsResponse page2 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload2))
+                        .isTruncated(true)
+                        .nextKeyMarker("same-key")
+                        .nextUploadIdMarker("same-upload-id")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("NON_PROGRESSING_PAGINATION: repeated marker pair");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN when key marker regresses")
+            void shouldReturnUnknownWhenKeyMarkerRegresses() {
+                MultipartUpload otherUpload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("id-1")
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload))
+                        .isTruncated(true)
+                        .nextKeyMarker("key-b")
+                        .nextUploadIdMarker("upload-1")
+                        .build();
+
+                ListMultipartUploadsResponse page2 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload))
+                        .isTruncated(true)
+                        .nextKeyMarker("key-a")
+                        .nextUploadIdMarker("upload-1")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("NON_PROGRESSING_PAGINATION: regressing key marker");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN when uploadId marker regresses for same key")
+            void shouldReturnUnknownWhenUploadIdMarkerRegressesForSameKey() {
+                MultipartUpload otherUpload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("id-1")
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload))
+                        .isTruncated(true)
+                        .nextKeyMarker("key-a")
+                        .nextUploadIdMarker("upload-z")
+                        .build();
+
+                ListMultipartUploadsResponse page2 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(otherUpload))
+                        .isTruncated(true)
+                        .nextKeyMarker("key-a")
+                        .nextUploadIdMarker("upload-a")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("NON_PROGRESSING_PAGINATION: regressing upload ID marker");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence propagates pagination markers across pages and returns ACTIVE")
+            void shouldTraversePaginationAndPropagateMarkers() {
+                MultipartUpload upload1 = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("earlier-id")
+                        .build();
+                MultipartUpload upload2 = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId(uploadId)
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(upload1))
+                        .isTruncated(true)
+                        .nextKeyMarker("marker-key-1")
+                        .nextUploadIdMarker("marker-upload-1")
+                        .build();
+
+                ListMultipartUploadsResponse page2 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(upload2))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.ACTIVE);
+
+                ArgumentCaptor<ListMultipartUploadsRequest> captor = ArgumentCaptor.forClass(ListMultipartUploadsRequest.class);
+                verify(s3Client, org.mockito.Mockito.times(2)).listMultipartUploads(captor.capture());
+
+                List<ListMultipartUploadsRequest> capturedRequests = captor.getAllValues();
+                assertThat(capturedRequests.get(0).keyMarker()).isNull();
+                assertThat(capturedRequests.get(0).uploadIdMarker()).isNull();
+                assertThat(capturedRequests.get(1).keyMarker()).isEqualTo("marker-key-1");
+                assertThat(capturedRequests.get(1).uploadIdMarker()).isEqualTo("marker-upload-1");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns NOT_LISTED when multi-page traversal is exhausted")
+            void shouldReturnNotListedWhenMultiPageTraversalIsExhausted() {
+                MultipartUpload upload1 = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("other-id-1")
+                        .build();
+                MultipartUpload upload2 = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("other-id-2")
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(upload1))
+                        .isTruncated(true)
+                        .nextKeyMarker("key-1")
+                        .nextUploadIdMarker("upload-1")
+                        .build();
+
+                ListMultipartUploadsResponse page2 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(upload2))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obs.safeDiagnostic()).isNull();
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence never infers NOT_LISTED when traversal fails midway")
+            void shouldNeverInferNotListedWhenTraversalIsIncompleteDueToError() {
+                MultipartUpload upload1 = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("other-id-1")
+                        .build();
+
+                ListMultipartUploadsResponse page1 = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(upload1))
+                        .isTruncated(true)
+                        .nextKeyMarker("key-1")
+                        .nextUploadIdMarker("upload-1")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(page1)
+                        .thenThrow((S3Exception) S3Exception.builder().statusCode(500).message("Server error").build());
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.presence()).isNotEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obs.safeDiagnostic()).isEqualTo("PROVIDER_ERROR");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN when pagination budget is exhausted")
+            void shouldReturnUnknownWhenPaginationBudgetExhausted() {
+                MultipartUpload otherUpload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("unrelated-id")
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenAnswer(invocation -> {
+                            ListMultipartUploadsRequest req = invocation.getArgument(0);
+                            String currentKey = req.keyMarker() != null ? req.keyMarker() : "key-0";
+                            int nextIdx = Integer.parseInt(currentKey.substring("key-".length())) + 1;
+                            return ListMultipartUploadsResponse.builder()
+                                    .uploads(List.of(otherUpload))
+                                    .isTruncated(true)
+                                    .nextKeyMarker("key-" + nextIdx)
+                                    .nextUploadIdMarker("upload-" + nextIdx)
+                                    .build();
+                        });
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("PAGINATION_BUDGET_EXCEEDED");
+                verify(s3Client, org.mockito.Mockito.times(B2StorageAdapter.OBSERVATION_MAX_PAGES)).listMultipartUploads(any(ListMultipartUploadsRequest.class));
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN with TIMEOUT_UNCERTAINTY on SdkClientException timeout")
+            void shouldReturnUnknownOnTimeout() {
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenThrow(SdkClientException.create("Read timed out"));
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).isEqualTo("TIMEOUT_UNCERTAINTY");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN with PROVIDER_ACCESS_DENIED on HTTP 403")
+            void shouldReturnUnknownOnAccessDenied() {
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(403)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDenied").build())
+                                .message("Access Denied")
+                                .build());
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).isEqualTo("PROVIDER_ACCESS_DENIED");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN on 500 and 503")
+            void shouldReturnUnknownOnServerErrorOrUnavailable() {
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(500)
+                                .message("Internal Server Error")
+                                .build());
+
+                MultipartUploadPresenceObservation obs500 = adapter.observeMultipartUploadPresence(key, uploadId);
+                assertThat(obs500.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs500.safeDiagnostic()).isEqualTo("PROVIDER_ERROR");
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(503)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode("SlowDown").build())
+                                .message("Slow Down")
+                                .build());
+
+                MultipartUploadPresenceObservation obs503 = adapter.observeMultipartUploadPresence(key, uploadId);
+                assertThat(obs503.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs503.safeDiagnostic()).isEqualTo("PROVIDER_SERVICE_UNAVAILABLE");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence validates parameters")
+            void shouldValidateParametersForUploadPresence() {
+                assertThatThrownBy(() -> adapter.observeMultipartUploadPresence(null, uploadId))
+                        .isInstanceOf(NullPointerException.class);
+                assertThatThrownBy(() -> adapter.observeMultipartUploadPresence(key, null))
+                        .isInstanceOf(NullPointerException.class);
+                assertThatThrownBy(() -> adapter.observeMultipartUploadPresence(key, "   "))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            @DisplayName("observeObjectPresence returns PRESENT when HEAD 200 succeeds")
+            void shouldReturnPresentWhenHeadObjectSucceeds() {
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenReturn(HeadObjectResponse.builder()
+                                .contentLength(10485760L)
+                                .contentType("video/mp4")
+                                .eTag("\"etag-head-present\"")
+                                .versionId("v1")
+                                .build());
+
+                StorageObjectPresenceObservation obs = adapter.observeObjectPresence(key);
+
+                assertThat(obs.storageKey()).isEqualTo(key);
+                assertThat(obs.presence()).isEqualTo(StorageObjectPresence.PRESENT);
+                assertThat(obs.metadata()).isNotNull();
+                assertThat(obs.metadata().contentLength()).isEqualTo(10485760L);
+                assertThat(obs.metadata().contentType()).isEqualTo("video/mp4");
+                assertThat(obs.metadata().eTag()).isEqualTo("\"etag-head-present\"");
+                assertThat(obs.safeDiagnostic()).isNull();
+
+                ArgumentCaptor<HeadObjectRequest> captor = ArgumentCaptor.forClass(HeadObjectRequest.class);
+                verify(s3Client).headObject(captor.capture());
+                assertThat(captor.getValue().bucket()).isEqualTo(BUCKET);
+                assertThat(captor.getValue().key()).isEqualTo(key.value());
+                assertThat(captor.getValue().overrideConfiguration().flatMap(c -> c.apiCallTimeout()))
+                        .contains(B2StorageAdapter.OBSERVATION_API_CALL_TIMEOUT);
+            }
+
+            @Test
+            @DisplayName("observeObjectPresence returns NOT_FOUND when HEAD throws NoSuchKeyException or explicit NoSuchKey S3Exception")
+            void shouldReturnNotFoundWhenExplicitNoSuchKey() {
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow(NoSuchKeyException.builder().statusCode(404).message("Key not found").build());
+
+                StorageObjectPresenceObservation obs1 = adapter.observeObjectPresence(key);
+                assertThat(obs1.presence()).isEqualTo(StorageObjectPresence.NOT_FOUND);
+                assertThat(obs1.metadata()).isNull();
+                assertThat(obs1.safeDiagnostic()).isNull();
+
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(404)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchKey").build())
+                                .message("NoSuchKey")
+                                .build());
+
+                StorageObjectPresenceObservation obs2 = adapter.observeObjectPresence(key);
+                assertThat(obs2.presence()).isEqualTo(StorageObjectPresence.NOT_FOUND);
+                assertThat(obs2.metadata()).isNull();
+                assertThat(obs2.safeDiagnostic()).isNull();
+            }
+
+            @Test
+            @DisplayName("observeObjectPresence returns UNKNOWN when HEAD throws NoSuchBucket with HTTP 404")
+            void shouldReturnUnknownWhenHeadObjectThrowsNoSuchBucketWithHttp404() {
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(404)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchBucket").build())
+                                .message("The specified bucket does not exist")
+                                .build());
+
+                StorageObjectPresenceObservation obs = adapter.observeObjectPresence(key);
+
+                assertThat(obs.presence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                assertThat(obs.presence()).isNotEqualTo(StorageObjectPresence.NOT_FOUND);
+                assertThat(obs.metadata()).isNull();
+                assertThat(obs.safeDiagnostic()).isEqualTo("PROVIDER_BUCKET_NOT_FOUND");
+            }
+
+            @Test
+            @DisplayName("observeObjectPresence returns UNKNOWN when HEAD throws generic unexplained HTTP 404")
+            void shouldReturnUnknownWhenHeadObjectThrowsGenericHttp404WithoutExplicitNoSuchKey() {
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(404)
+                                .message("Not Found")
+                                .build());
+
+                StorageObjectPresenceObservation obs = adapter.observeObjectPresence(key);
+
+                assertThat(obs.presence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                assertThat(obs.presence()).isNotEqualTo(StorageObjectPresence.NOT_FOUND);
+                assertThat(obs.metadata()).isNull();
+                assertThat(obs.safeDiagnostic()).isEqualTo("PROVIDER_RESOURCE_NOT_FOUND");
+            }
+
+            @Test
+            @DisplayName("observeObjectPresence returns UNKNOWN on 403, 500, or timeout")
+            void shouldReturnUnknownOnHeadObjectError() {
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder().statusCode(403).message("Forbidden").build());
+
+                StorageObjectPresenceObservation obs403 = adapter.observeObjectPresence(key);
+                assertThat(obs403.presence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                assertThat(obs403.safeDiagnostic()).isEqualTo("PROVIDER_ACCESS_DENIED");
+
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow(SdkClientException.create("connect timed out"));
+
+                StorageObjectPresenceObservation obsTimeout = adapter.observeObjectPresence(key);
+                assertThat(obsTimeout.presence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                assertThat(obsTimeout.safeDiagnostic()).isEqualTo("TIMEOUT_UNCERTAINTY");
+            }
+
+            @Test
+            @DisplayName("observeObjectPresence validates non-null key")
+            void shouldValidateParametersForObjectPresence() {
+                assertThatThrownBy(() -> adapter.observeObjectPresence(null))
+                        .isInstanceOf(NullPointerException.class);
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns PARTS_RETURNED when parts exist")
+            void shouldReturnPartsReturnedWhenPartsExist() {
+                Part p1 = Part.builder().partNumber(1).size(5242880L).eTag("\"p1-etag\"").build();
+                Part p2 = Part.builder().partNumber(2).size(5242880L).eTag("\"p2-etag\"").build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(ListPartsResponse.builder()
+                                .parts(List.of(p1, p2))
+                                .isTruncated(false)
+                                .build());
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.storageKey()).isEqualTo(key);
+                assertThat(obs.uploadId()).isEqualTo(uploadId);
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.PARTS_RETURNED);
+                assertThat(obs.parts()).hasSize(2);
+                assertThat(obs.parts().get(0).partNumber()).isEqualTo(1);
+                assertThat(obs.parts().get(0).sizeBytes()).isEqualTo(5242880L);
+                assertThat(obs.parts().get(0).eTag()).isEqualTo("\"p1-etag\"");
+                assertThat(obs.safeDiagnostic()).isNull();
+
+                ArgumentCaptor<ListPartsRequest> captor = ArgumentCaptor.forClass(ListPartsRequest.class);
+                verify(s3Client).listParts(captor.capture());
+                assertThat(captor.getValue().bucket()).isEqualTo(BUCKET);
+                assertThat(captor.getValue().key()).isEqualTo(key.value());
+                assertThat(captor.getValue().uploadId()).isEqualTo(uploadId);
+                assertThat(captor.getValue().overrideConfiguration().flatMap(c -> c.apiCallTimeout()))
+                        .contains(B2StorageAdapter.OBSERVATION_API_CALL_TIMEOUT);
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns ZERO_PARTS_OBSERVED when listing is empty")
+            void shouldReturnZeroPartsObservedWhenListingEmpty() {
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(ListPartsResponse.builder()
+                                .parts(List.of())
+                                .isTruncated(false)
+                                .build());
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.ZERO_PARTS_OBSERVED);
+                assertThat(obs.parts()).isEmpty();
+                assertThat(obs.safeDiagnostic()).isNull();
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns NO_SUCH_UPLOAD distinctly on NoSuchUploadException or S3Exception")
+            void shouldReturnNoSuchUploadDistinctly() {
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenThrow(NoSuchUploadException.builder().statusCode(404).message("The specified upload does not exist").build());
+
+                MultipartPartsObservation obs1 = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs1.summary()).isEqualTo(MultipartPartsSummary.NO_SUCH_UPLOAD);
+                assertThat(obs1.parts()).isEmpty();
+                assertThat(obs1.safeDiagnostic()).isNull();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(404)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchUpload").build())
+                                .message("NoSuchUpload")
+                                .build());
+
+                MultipartPartsObservation obs2 = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs2.summary()).isEqualTo(MultipartPartsSummary.NO_SUCH_UPLOAD);
+                assertThat(obs2.parts()).isEmpty();
+                assertThat(obs2.safeDiagnostic()).isNull();
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN when truncated parts listing has missing NextPartNumberMarker")
+            void shouldReturnUnknownWhenTruncatedPartsListingMissingNextPartMarker() {
+                Part p1 = Part.builder().partNumber(1).size(5242880L).eTag("\"p1\"").build();
+
+                ListPartsResponse truncatedMissingMarker = ListPartsResponse.builder()
+                        .parts(List.of(p1))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(null)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(truncatedMissingMarker);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: truncated parts listing missing NextPartNumberMarker");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN when part marker is repeated")
+            void shouldReturnUnknownWhenPartMarkerIsRepeated() {
+                Part p1 = Part.builder().partNumber(1).size(5242880L).eTag("\"p1\"").build();
+                Part p2 = Part.builder().partNumber(2).size(5242880L).eTag("\"p2\"").build();
+
+                ListPartsResponse page1 = ListPartsResponse.builder()
+                        .parts(List.of(p1))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(1)
+                        .build();
+
+                ListPartsResponse page2 = ListPartsResponse.builder()
+                        .parts(List.of(p2))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(1)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("NON_PROGRESSING_PAGINATION: repeated part marker");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN when part marker regresses")
+            void shouldReturnUnknownWhenPartMarkerRegresses() {
+                Part p1 = Part.builder().partNumber(5).size(5242880L).eTag("\"p5\"").build();
+                Part p2 = Part.builder().partNumber(6).size(5242880L).eTag("\"p6\"").build();
+
+                ListPartsResponse page1 = ListPartsResponse.builder()
+                        .parts(List.of(p1))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(5)
+                        .build();
+
+                ListPartsResponse page2 = ListPartsResponse.builder()
+                        .parts(List.of(p2))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(3)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("NON_PROGRESSING_PAGINATION: regressing part marker");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts propagates partNumberMarker across pages and returns PARTS_RETURNED")
+            void shouldTraversePaginationForUploadedParts() {
+                Part p1 = Part.builder().partNumber(1).size(5242880L).eTag("\"p1\"").build();
+                Part p2 = Part.builder().partNumber(2).size(5242880L).eTag("\"p2\"").build();
+
+                ListPartsResponse page1 = ListPartsResponse.builder()
+                        .parts(List.of(p1))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(1)
+                        .build();
+
+                ListPartsResponse page2 = ListPartsResponse.builder()
+                        .parts(List.of(p2))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.PARTS_RETURNED);
+                assertThat(obs.parts()).hasSize(2);
+
+                ArgumentCaptor<ListPartsRequest> captor = ArgumentCaptor.forClass(ListPartsRequest.class);
+                verify(s3Client, org.mockito.Mockito.times(2)).listParts(captor.capture());
+                List<ListPartsRequest> requests = captor.getAllValues();
+                assertThat(requests.get(0).partNumberMarker()).isNull();
+                assertThat(requests.get(1).partNumberMarker()).isEqualTo(1);
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts never returns ZERO_PARTS_OBSERVED when pagination is truncated and empty or fails")
+            void shouldNeverReturnZeroPartsObservedWhenPaginationIsIncomplete() {
+                ListPartsResponse truncatedEmpty = ListPartsResponse.builder()
+                        .parts(List.of())
+                        .isTruncated(true)
+                        .nextPartNumberMarker(1)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(truncatedEmpty);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.summary()).isNotEqualTo(MultipartPartsSummary.ZERO_PARTS_OBSERVED);
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: truncated parts listing with empty parts");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN when pagination budget is exceeded")
+            void shouldReturnUnknownWhenPartsPaginationBudgetExceeded() {
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenAnswer(invocation -> {
+                            ListPartsRequest req = invocation.getArgument(0);
+                            int marker = req.partNumberMarker() != null ? req.partNumberMarker() : 0;
+                            int nextPart = marker + 1;
+                            Part part = Part.builder().partNumber(nextPart).size(5242880L).eTag("\"p" + nextPart + "\"").build();
+                            return ListPartsResponse.builder()
+                                    .parts(List.of(part))
+                                    .isTruncated(true)
+                                    .nextPartNumberMarker(nextPart)
+                                    .build();
+                        });
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).contains("PAGINATION_BUDGET_EXCEEDED");
+                verify(s3Client, org.mockito.Mockito.times(B2StorageAdapter.OBSERVATION_MAX_PAGES)).listParts(any(ListPartsRequest.class));
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN on S3Exception or timeout")
+            void shouldReturnUnknownOnPartsError() {
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder().statusCode(500).message("Server error").build());
+
+                MultipartPartsObservation obs500 = adapter.observeUploadedParts(key, uploadId);
+                assertThat(obs500.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs500.safeDiagnostic()).isEqualTo("PROVIDER_ERROR");
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenThrow(SdkClientException.create("Request timeout"));
+
+                MultipartPartsObservation obsTimeout = adapter.observeUploadedParts(key, uploadId);
+                assertThat(obsTimeout.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obsTimeout.safeDiagnostic()).isEqualTo("TIMEOUT_UNCERTAINTY");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts validates parameters")
+            void shouldValidateParametersForUploadedParts() {
+                assertThatThrownBy(() -> adapter.observeUploadedParts(null, uploadId))
+                        .isInstanceOf(NullPointerException.class);
+                assertThatThrownBy(() -> adapter.observeUploadedParts(key, null))
+                        .isInstanceOf(NullPointerException.class);
+                assertThatThrownBy(() -> adapter.observeUploadedParts(key, "   "))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            @DisplayName("safe diagnostic never echoes unknown provider error codes or sensitive values")
+            void shouldNeverEchoUnknownProviderErrorCodeOrSensitiveValuesInDiagnostic() {
+                String sensitiveCode = "InternalError: Token=SECRET_API_TOKEN_999&sig=ABC123XYZ&signedUrl=https://b2.backblaze.com/v1/auth?sig=topsecret";
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(500)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode(sensitiveCode).build())
+                                .message("Sensitive raw message: " + sensitiveCode)
+                                .build());
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.safeDiagnostic()).isEqualTo("PROVIDER_ERROR");
+                assertThat(obs.safeDiagnostic()).doesNotContain("SECRET_API_TOKEN");
+                assertThat(obs.safeDiagnostic()).doesNotContain("ABC123XYZ");
+                assertThat(obs.safeDiagnostic()).doesNotContain("signedUrl");
+                assertThat(obs.safeDiagnostic()).doesNotContain("backblaze");
+                assertThat(obs.safeDiagnostic()).doesNotContain("topsecret");
+                assertThat(obs.safeDiagnostic()).doesNotContain("InternalError");
+            }
+
+            @Test
+            @DisplayName("safe diagnostic categories are deterministic and bounded")
+            void shouldProduceDeterministicSafeDiagnosticCategories() {
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(403)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDenied").build())
+                                .build());
+
+                StorageObjectPresenceObservation obsDenied = adapter.observeObjectPresence(key);
+                assertThat(obsDenied.safeDiagnostic()).isEqualTo("PROVIDER_ACCESS_DENIED");
+
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder()
+                                .statusCode(503)
+                                .awsErrorDetails(AwsErrorDetails.builder().errorCode("ServiceUnavailable").build())
+                                .build());
+
+                StorageObjectPresenceObservation obs503 = adapter.observeObjectPresence(key);
+                assertThat(obs503.safeDiagnostic()).isEqualTo("PROVIDER_SERVICE_UNAVAILABLE");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUpload allows PRESENT object and ACTIVE upload to coexist independently")
+            void shouldAllowPresentObjectAndActiveUploadToCoexist() {
+                MultipartUpload upload = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId(uploadId)
+                        .build();
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder()
+                                .uploads(List.of(upload))
+                                .isTruncated(false)
+                                .build());
+
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenReturn(HeadObjectResponse.builder()
+                                .contentLength(20971520L)
+                                .contentType("video/mp4")
+                                .eTag("\"coexist-head-etag\"")
+                                .build());
+
+                Part part = Part.builder().partNumber(1).size(5242880L).eTag("\"p1-etag\"").build();
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(ListPartsResponse.builder()
+                                .parts(List.of(part))
+                                .isTruncated(false)
+                                .build());
+
+                MultipartUploadObservationSnapshot snapshot = adapter.observeMultipartUpload(key, uploadId);
+
+                assertThat(snapshot.storageKey()).isEqualTo(key);
+                assertThat(snapshot.uploadId()).isEqualTo(uploadId);
+                assertThat(snapshot.uploadPresence()).isEqualTo(MultipartUploadPresence.ACTIVE);
+                assertThat(snapshot.objectPresence()).isEqualTo(StorageObjectPresence.PRESENT);
+                assertThat(snapshot.partsSummary()).isEqualTo(MultipartPartsSummary.PARTS_RETURNED);
+                assertThat(snapshot.parts()).hasSize(1);
+                assertThat(snapshot.objectMetadata()).isNotNull();
+                assertThat(snapshot.objectMetadata().eTag()).isEqualTo("\"coexist-head-etag\"");
+                assertThat(snapshot.safeDiagnostic()).isNull();
+
+                verify(s3Client, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+                verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+            }
+
+            @Test
+            @DisplayName("observeMultipartUpload preserves NOT_FOUND and NO_SUCH_UPLOAD independently without aggregate cleanup")
+            void shouldPreserveNotFoundAndNoSuchUploadIndependently() {
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder()
+                                .uploads(List.of())
+                                .isTruncated(false)
+                                .build());
+
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow(NoSuchKeyException.builder().statusCode(404).message("NoSuchKey").build());
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenThrow(NoSuchUploadException.builder().statusCode(404).message("NoSuchUpload").build());
+
+                MultipartUploadObservationSnapshot snapshot = adapter.observeMultipartUpload(key, uploadId);
+
+                assertThat(snapshot.uploadPresence()).isEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(snapshot.objectPresence()).isEqualTo(StorageObjectPresence.NOT_FOUND);
+                assertThat(snapshot.partsSummary()).isEqualTo(MultipartPartsSummary.NO_SUCH_UPLOAD);
+                assertThat(snapshot.parts()).isEmpty();
+                assertThat(snapshot.objectMetadata()).isNull();
+
+                verify(s3Client, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+                verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+            }
+
+            @Test
+            @DisplayName("observeMultipartUpload captures partial diagnostics when one operation fails and never invokes abort or delete")
+            void shouldCapturePartialDiagnosticsAndNeverMutateState() {
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder()
+                                .uploads(List.of())
+                                .isTruncated(false)
+                                .build());
+
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow((S3Exception) S3Exception.builder().statusCode(403).message("Access denied").build());
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenThrow(SdkClientException.create("connect timed out"));
+
+                MultipartUploadObservationSnapshot snapshot = adapter.observeMultipartUpload(key, uploadId);
+
+                assertThat(snapshot.uploadPresence()).isEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(snapshot.objectPresence()).isEqualTo(StorageObjectPresence.UNKNOWN);
+                assertThat(snapshot.partsSummary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(snapshot.safeDiagnostic()).contains("objectPresence: PROVIDER_ACCESS_DENIED");
+                assertThat(snapshot.safeDiagnostic()).contains("partsSummary: TIMEOUT_UNCERTAINTY");
+
+                verify(s3Client, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+                verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+                verify(s3Client, never()).putObject(any(PutObjectRequest.class), any(RequestBody.class));
+            }
+
+            @Test
+            @DisplayName("observeMultipartUpload validates parameters")
+            void shouldValidateParametersForCompositeObservation() {
+                assertThatThrownBy(() -> adapter.observeMultipartUpload(null, uploadId))
+                        .isInstanceOf(NullPointerException.class);
+                assertThatThrownBy(() -> adapter.observeMultipartUpload(key, null))
+                        .isInstanceOf(NullPointerException.class);
+                assertThatThrownBy(() -> adapter.observeMultipartUpload(key, "   "))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN when NextPartNumberMarker skips beyond last part on page")
+            void shouldReturnUnknownWhenNextPartNumberMarkerSkipsBeyondLastPart() {
+                Part p1 = Part.builder().partNumber(1).size(5242880L).eTag("\"p1\"").build();
+
+                ListPartsResponse page1 = ListPartsResponse.builder()
+                        .parts(List.of(p1))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(100)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class))).thenReturn(page1);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.parts()).isEmpty();
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: NextPartNumberMarker (100) inconsistent with last part on page (1)");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts accepts valid multi-page listing with gaps between part numbers")
+            void shouldAcceptValidMultiPagePartsListingWithGaps() {
+                Part p1 = Part.builder().partNumber(1).size(5242880L).eTag("\"p1\"").build();
+                Part p100 = Part.builder().partNumber(100).size(5242880L).eTag("\"p100\"").build();
+
+                ListPartsResponse page1 = ListPartsResponse.builder()
+                        .parts(List.of(p1))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(1)
+                        .build();
+
+                ListPartsResponse page2 = ListPartsResponse.builder()
+                        .parts(List.of(p100))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.PARTS_RETURNED);
+                assertThat(obs.parts()).hasSize(2);
+                assertThat(obs.parts().get(0).partNumber()).isEqualTo(1);
+                assertThat(obs.parts().get(1).partNumber()).isEqualTo(100);
+                assertThat(obs.safeDiagnostic()).isNull();
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN when second page returns part number <= requested marker")
+            void shouldReturnUnknownWhenSecondPageReturnsPartNumberLessThanOrEqualToMarker() {
+                Part p5 = Part.builder().partNumber(5).size(5242880L).eTag("\"p5\"").build();
+                Part p5Equal = Part.builder().partNumber(5).size(5242880L).eTag("\"p5-equal\"").build();
+
+                ListPartsResponse page1 = ListPartsResponse.builder()
+                        .parts(List.of(p5))
+                        .isTruncated(true)
+                        .nextPartNumberMarker(5)
+                        .build();
+
+                ListPartsResponse page2 = ListPartsResponse.builder()
+                        .parts(List.of(p5Equal))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.parts()).isEmpty();
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: part number (5) not greater than marker (5)");
+
+                Part p2Regressed = Part.builder().partNumber(2).size(5242880L).eTag("\"p2\"").build();
+                ListPartsResponse page2Regressed = ListPartsResponse.builder()
+                        .parts(List.of(p2Regressed))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(page1)
+                        .thenReturn(page2Regressed);
+
+                MultipartPartsObservation obsRegressed = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obsRegressed.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obsRegressed.parts()).isEmpty();
+                assertThat(obsRegressed.safeDiagnostic()).contains("MALFORMED_PAGINATION: part number (2) not greater than marker (5)");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN and never ZERO_PARTS_OBSERVED when response contains Part with missing part number")
+            void shouldReturnUnknownAndNeverZeroPartsWhenPartHasMissingPartNumber() {
+                Part nullPartNumber = Part.builder().partNumber(null).size(5242880L).eTag("\"p-null\"").build();
+
+                ListPartsResponse response = ListPartsResponse.builder()
+                        .parts(List.of(nullPartNumber))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class))).thenReturn(response);
+
+                MultipartPartsObservation obs = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs.summary()).isNotEqualTo(MultipartPartsSummary.ZERO_PARTS_OBSERVED);
+                assertThat(obs.parts()).isEmpty();
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: malformed or null part record");
+            }
+
+            @Test
+            @DisplayName("observeUploadedParts returns UNKNOWN when response contains Part with invalid part number")
+            void shouldReturnUnknownWhenPartNumberOutOfRange() {
+                Part p0 = Part.builder().partNumber(0).size(5242880L).eTag("\"p0\"").build();
+
+                ListPartsResponse response0 = ListPartsResponse.builder()
+                        .parts(List.of(p0))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class))).thenReturn(response0);
+
+                MultipartPartsObservation obs0 = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs0.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs0.parts()).isEmpty();
+                assertThat(obs0.safeDiagnostic()).contains("MALFORMED_PAGINATION: part number out of range (0)");
+
+                Part p10001 = Part.builder().partNumber(10_001).size(5242880L).eTag("\"p10001\"").build();
+
+                ListPartsResponse response10001 = ListPartsResponse.builder()
+                        .parts(List.of(p10001))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listParts(any(ListPartsRequest.class))).thenReturn(response10001);
+
+                MultipartPartsObservation obs10001 = adapter.observeUploadedParts(key, uploadId);
+
+                assertThat(obs10001.summary()).isEqualTo(MultipartPartsSummary.UNKNOWN);
+                assertThat(obs10001.parts()).isEmpty();
+                assertThat(obs10001.safeDiagnostic()).contains("MALFORMED_PAGINATION: part number out of range (10001)");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN not NOT_LISTED when upload record lacks usable uploadId")
+            void shouldReturnUnknownWhenUploadRecordLacksUsableUploadId() {
+                MultipartUpload uploadNullId = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId(null)
+                        .build();
+
+                ListMultipartUploadsResponse response = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(uploadNullId))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenReturn(response);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.presence()).isNotEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: malformed upload record with missing key or uploadId");
+
+                MultipartUpload uploadBlankId = MultipartUpload.builder()
+                        .key(key.value())
+                        .uploadId("   ")
+                        .build();
+
+                ListMultipartUploadsResponse responseBlank = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(uploadBlankId))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenReturn(responseBlank);
+
+                MultipartUploadPresenceObservation obsBlank = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obsBlank.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obsBlank.presence()).isNotEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obsBlank.safeDiagnostic()).contains("MALFORMED_PAGINATION: malformed upload record with missing key or uploadId");
+            }
+
+            @Test
+            @DisplayName("observeMultipartUploadPresence returns UNKNOWN when upload record lacks usable key")
+            void shouldReturnUnknownWhenUploadRecordLacksUsableKey() {
+                MultipartUpload uploadNullKey = MultipartUpload.builder()
+                        .key(null)
+                        .uploadId("some-upload-id")
+                        .build();
+
+                ListMultipartUploadsResponse responseNullKey = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(uploadNullKey))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenReturn(responseNullKey);
+
+                MultipartUploadPresenceObservation obs = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obs.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obs.presence()).isNotEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obs.safeDiagnostic()).contains("MALFORMED_PAGINATION: malformed upload record with missing key or uploadId");
+
+                MultipartUpload uploadBlankKey = MultipartUpload.builder()
+                        .key("  ")
+                        .uploadId("some-upload-id")
+                        .build();
+
+                ListMultipartUploadsResponse responseBlankKey = ListMultipartUploadsResponse.builder()
+                        .uploads(List.of(uploadBlankKey))
+                        .isTruncated(false)
+                        .build();
+
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class))).thenReturn(responseBlankKey);
+
+                MultipartUploadPresenceObservation obsBlank = adapter.observeMultipartUploadPresence(key, uploadId);
+
+                assertThat(obsBlank.presence()).isEqualTo(MultipartUploadPresence.UNKNOWN);
+                assertThat(obsBlank.presence()).isNotEqualTo(MultipartUploadPresence.NOT_LISTED);
+                assertThat(obsBlank.safeDiagnostic()).contains("MALFORMED_PAGINATION: malformed upload record with missing key or uploadId");
+            }
+
+            @Test
+            @DisplayName("observation operations never invoke AbortMultipartUpload or DeleteObject")
+            void shouldNeverInvokeAbortMultipartUploadOrDeleteObjectDuringObservation() {
+                when(s3Client.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
+                        .thenReturn(ListMultipartUploadsResponse.builder().uploads(List.of()).isTruncated(false).build());
+                when(s3Client.headObject(any(HeadObjectRequest.class)))
+                        .thenThrow(NoSuchKeyException.builder().statusCode(404).message("Not Found").build());
+                when(s3Client.listParts(any(ListPartsRequest.class)))
+                        .thenReturn(ListPartsResponse.builder().parts(List.of()).isTruncated(false).build());
+
+                MultipartUploadObservationSnapshot snapshot = adapter.observeMultipartUpload(key, uploadId);
+
+                assertThat(snapshot).isNotNull();
+                verify(s3Client, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+                verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+
+                S3Client separateAbortClient = mock(S3Client.class);
+                B2StorageAdapter dualAdapter = new B2StorageAdapter(BUCKET, s3Client, separateAbortClient, s3Presigner, testTempDir);
+                MultipartUploadObservationSnapshot dualSnapshot = dualAdapter.observeMultipartUpload(key, uploadId);
+                assertThat(dualSnapshot).isNotNull();
+                verify(separateAbortClient, never()).abortMultipartUpload(any(AbortMultipartUploadRequest.class));
+                verify(separateAbortClient, never()).deleteObject(any(DeleteObjectRequest.class));
             }
         }
     }

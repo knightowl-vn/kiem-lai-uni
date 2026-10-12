@@ -120,4 +120,40 @@ public interface MultipartStoragePort extends BinaryStoragePort {
      * @return the configured bucket name
      */
     String configuredBucketName();
+
+    /**
+     * Non-destructively observes the presence of a specific multipart upload in provider listings.
+     *
+     * @param key the target storage key
+     * @param uploadId provider-assigned upload ID
+     * @return typed observation outcome (ACTIVE, NOT_LISTED, or UNKNOWN)
+     */
+    MultipartUploadPresenceObservation observeMultipartUploadPresence(StorageKey key, String uploadId);
+
+    /**
+     * Non-destructively observes the presence and metadata of a storage object via HEAD request.
+     *
+     * @param key the target storage key
+     * @return typed observation outcome (PRESENT, NOT_FOUND, or UNKNOWN)
+     */
+    StorageObjectPresenceObservation observeObjectPresence(StorageKey key);
+
+    /**
+     * Non-destructively observes uploaded parts for a specific multipart upload.
+     *
+     * @param key the target storage key
+     * @param uploadId provider-assigned upload ID
+     * @return typed observation outcome (PARTS_RETURNED, ZERO_PARTS_OBSERVED, NO_SUCH_UPLOAD, or UNKNOWN)
+     */
+    MultipartPartsObservation observeUploadedParts(StorageKey key, String uploadId);
+
+    /**
+     * Non-destructively observes a multipart upload across all three independent dimensions:
+     * active upload presence, completed object presence, and parts summary.
+     *
+     * @param key the target storage key
+     * @param uploadId provider-assigned upload ID
+     * @return combined observation snapshot preserving independent observations
+     */
+    MultipartUploadObservationSnapshot observeMultipartUpload(StorageKey key, String uploadId);
 }

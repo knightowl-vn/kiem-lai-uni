@@ -8,8 +8,15 @@ import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
 import com.universe.media.application.ports.storage.MultipartObjectMetadata;
 import com.universe.media.application.ports.storage.MultipartPartETag;
+import com.universe.media.application.ports.storage.MultipartPartsObservation;
+import com.universe.media.application.ports.storage.MultipartPartsSummary;
 import com.universe.media.application.ports.storage.MultipartStoragePort;
+import com.universe.media.application.ports.storage.MultipartUploadObservationSnapshot;
+import com.universe.media.application.ports.storage.MultipartUploadPresence;
+import com.universe.media.application.ports.storage.MultipartUploadPresenceObservation;
 import com.universe.media.application.ports.storage.MultipartUploadedPart;
+import com.universe.media.application.ports.storage.StorageObjectPresence;
+import com.universe.media.application.ports.storage.StorageObjectPresenceObservation;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
@@ -21,6 +28,7 @@ import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.exception.SdkClientException;
@@ -43,8 +51,11 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.ListPartsResponse;
+import software.amazon.awssdk.services.s3.model.MultipartUpload;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
 import software.amazon.awssdk.services.s3.model.Part;
@@ -63,6 +74,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -96,6 +108,12 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
     public static final Duration ABORT_API_CALL_TIMEOUT = Duration.ofSeconds(30);
     public static final Duration ABORT_API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(25);
     public static final int ABORT_MAX_ATTEMPTS = 1;
+
+    public static final Duration OBSERVATION_API_CALL_TIMEOUT = Duration.ofSeconds(15);
+    public static final Duration OBSERVATION_API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(12);
+    public static final int OBSERVATION_MAX_PAGES = 10;
+    public static final int OBSERVATION_MAX_UPLOADS_PER_PAGE = 100;
+    public static final int OBSERVATION_MAX_PARTS_PER_PAGE = 1000;
 
     private final String bucket;
     private final S3Client s3Client;
@@ -788,6 +806,531 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
     }
 
     @Override
+    public MultipartUploadPresenceObservation observeMultipartUploadPresence(StorageKey key, String uploadId) {
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+        Objects.requireNonNull(uploadId, "uploadId cannot be null.");
+        if (uploadId.isBlank()) {
+            throw new IllegalArgumentException("uploadId cannot be blank.");
+        }
+
+        try {
+            String currentKeyMarker = null;
+            String currentUploadIdMarker = null;
+
+            for (int page = 1; page <= OBSERVATION_MAX_PAGES; page++) {
+                ListMultipartUploadsRequest.Builder requestBuilder = ListMultipartUploadsRequest.builder()
+                        .bucket(this.bucket)
+                        .prefix(key.value())
+                        .maxUploads(OBSERVATION_MAX_UPLOADS_PER_PAGE)
+                        .overrideConfiguration(createObservationRequestOverrideConfiguration());
+
+                if (currentKeyMarker != null) {
+                    requestBuilder.keyMarker(currentKeyMarker);
+                }
+                if (currentUploadIdMarker != null) {
+                    requestBuilder.uploadIdMarker(currentUploadIdMarker);
+                }
+
+                ListMultipartUploadsResponse response = s3Client.listMultipartUploads(requestBuilder.build());
+
+                if (response.uploads() != null) {
+                    for (MultipartUpload upload : response.uploads()) {
+                        if (upload == null
+                                || upload.key() == null
+                                || upload.key().isBlank()
+                                || upload.uploadId() == null
+                                || upload.uploadId().isBlank()) {
+                            return new MultipartUploadPresenceObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartUploadPresence.UNKNOWN,
+                                    Instant.now(),
+                                    "MALFORMED_PAGINATION: malformed upload record with missing key or uploadId"
+                            );
+                        }
+                    }
+                    for (MultipartUpload upload : response.uploads()) {
+                        if (key.value().equals(upload.key()) && uploadId.equals(upload.uploadId())) {
+                            return new MultipartUploadPresenceObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartUploadPresence.ACTIVE,
+                                    Instant.now(),
+                                    null
+                            );
+                        }
+                    }
+                }
+
+                Boolean isTruncated = response.isTruncated();
+                if (isTruncated == null) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "AMBIGUOUS_PAGINATION: missing IsTruncated in response"
+                    );
+                }
+
+                if (!isTruncated) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.NOT_LISTED,
+                            Instant.now(),
+                            null
+                    );
+                }
+
+                if (page == OBSERVATION_MAX_PAGES) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "PAGINATION_BUDGET_EXCEEDED: listings truncated beyond " + OBSERVATION_MAX_PAGES + " pages"
+                    );
+                }
+
+                if (!response.hasUploads() || response.uploads() == null || response.uploads().isEmpty()) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "MALFORMED_PAGINATION: truncated listing with empty uploads"
+                    );
+                }
+
+                String nextKeyMarker = response.nextKeyMarker();
+                String nextUploadIdMarker = response.nextUploadIdMarker();
+
+                if (nextKeyMarker == null || nextKeyMarker.isBlank()) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "MALFORMED_PAGINATION: truncated listing missing NextKeyMarker"
+                    );
+                }
+                if (nextUploadIdMarker == null || nextUploadIdMarker.isBlank()) {
+                    return new MultipartUploadPresenceObservation(
+                            key,
+                            uploadId,
+                            MultipartUploadPresence.UNKNOWN,
+                            Instant.now(),
+                            "MALFORMED_PAGINATION: truncated listing missing NextUploadIdMarker"
+                    );
+                }
+
+                if (currentKeyMarker != null) {
+                    int keyCmp = nextKeyMarker.compareTo(currentKeyMarker);
+                    if (keyCmp < 0) {
+                        return new MultipartUploadPresenceObservation(
+                                key,
+                                uploadId,
+                                MultipartUploadPresence.UNKNOWN,
+                                Instant.now(),
+                                "NON_PROGRESSING_PAGINATION: regressing key marker"
+                        );
+                    }
+                    if (keyCmp == 0) {
+                        int uploadIdCmp = nextUploadIdMarker.compareTo(currentUploadIdMarker);
+                        if (uploadIdCmp < 0) {
+                            return new MultipartUploadPresenceObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartUploadPresence.UNKNOWN,
+                                    Instant.now(),
+                                    "NON_PROGRESSING_PAGINATION: regressing upload ID marker"
+                            );
+                        }
+                        if (uploadIdCmp == 0) {
+                            return new MultipartUploadPresenceObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartUploadPresence.UNKNOWN,
+                                    Instant.now(),
+                                    "NON_PROGRESSING_PAGINATION: repeated marker pair"
+                            );
+                        }
+                    }
+                }
+
+                currentKeyMarker = nextKeyMarker;
+                currentUploadIdMarker = nextUploadIdMarker;
+            }
+
+            return new MultipartUploadPresenceObservation(
+                    key,
+                    uploadId,
+                    MultipartUploadPresence.UNKNOWN,
+                    Instant.now(),
+                    "PAGINATION_BUDGET_EXCEEDED: listings truncated beyond " + OBSERVATION_MAX_PAGES + " pages"
+            );
+        } catch (S3Exception e) {
+            return new MultipartUploadPresenceObservation(
+                    key,
+                    uploadId,
+                    MultipartUploadPresence.UNKNOWN,
+                    Instant.now(),
+                    classifySafeObservationError(e)
+            );
+        } catch (AwsServiceException | SdkClientException e) {
+            return new MultipartUploadPresenceObservation(
+                    key,
+                    uploadId,
+                    MultipartUploadPresence.UNKNOWN,
+                    Instant.now(),
+                    classifySafeObservationError(e)
+            );
+        }
+    }
+
+    @Override
+    public StorageObjectPresenceObservation observeObjectPresence(StorageKey key) {
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+
+        HeadObjectRequest headRequest = HeadObjectRequest.builder()
+                .bucket(this.bucket)
+                .key(key.value())
+                .overrideConfiguration(createObservationRequestOverrideConfiguration())
+                .build();
+
+        try {
+            HeadObjectResponse response = s3Client.headObject(headRequest);
+            Map<String, String> userMetadata = (response.hasMetadata() && response.metadata() != null)
+                    ? response.metadata()
+                    : Map.of();
+            MultipartObjectMetadata metadata = new MultipartObjectMetadata(
+                    key,
+                    response.contentLength(),
+                    response.contentType(),
+                    response.eTag(),
+                    userMetadata,
+                    response.versionId(),
+                    PROVIDER_ID,
+                    this.bucket
+            );
+            return new StorageObjectPresenceObservation(
+                    key,
+                    StorageObjectPresence.PRESENT,
+                    metadata,
+                    Instant.now(),
+                    null
+            );
+        } catch (NoSuchKeyException e) {
+            return new StorageObjectPresenceObservation(
+                    key,
+                    StorageObjectPresence.NOT_FOUND,
+                    null,
+                    Instant.now(),
+                    null
+            );
+        } catch (S3Exception e) {
+            if (isExplicitNoSuchKey(e)) {
+                return new StorageObjectPresenceObservation(
+                        key,
+                        StorageObjectPresence.NOT_FOUND,
+                        null,
+                        Instant.now(),
+                        null
+                );
+            }
+            return new StorageObjectPresenceObservation(
+                    key,
+                    StorageObjectPresence.UNKNOWN,
+                    null,
+                    Instant.now(),
+                    classifySafeObservationError(e)
+            );
+        } catch (AwsServiceException | SdkClientException e) {
+            return new StorageObjectPresenceObservation(
+                    key,
+                    StorageObjectPresence.UNKNOWN,
+                    null,
+                    Instant.now(),
+                    classifySafeObservationError(e)
+            );
+        }
+    }
+
+    @Override
+    public MultipartPartsObservation observeUploadedParts(StorageKey key, String uploadId) {
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+        Objects.requireNonNull(uploadId, "uploadId cannot be null.");
+        if (uploadId.isBlank()) {
+            throw new IllegalArgumentException("uploadId cannot be blank.");
+        }
+
+        try {
+            List<MultipartUploadedPart> result = new ArrayList<>();
+            Integer currentMarker = null;
+
+            for (int page = 1; page <= OBSERVATION_MAX_PAGES; page++) {
+                ListPartsRequest.Builder requestBuilder = ListPartsRequest.builder()
+                        .bucket(this.bucket)
+                        .key(key.value())
+                        .uploadId(uploadId)
+                        .maxParts(OBSERVATION_MAX_PARTS_PER_PAGE)
+                        .overrideConfiguration(createObservationRequestOverrideConfiguration());
+
+                if (currentMarker != null) {
+                    requestBuilder.partNumberMarker(currentMarker);
+                }
+
+                ListPartsResponse response = s3Client.listParts(requestBuilder.build());
+
+                int partsOnThisPage = 0;
+                Integer lastPartOnPage = null;
+
+                if (response.parts() != null) {
+                    for (Part part : response.parts()) {
+                        if (part == null || part.partNumber() == null) {
+                            return new MultipartPartsObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartPartsSummary.UNKNOWN,
+                                    List.of(),
+                                    Instant.now(),
+                                    "MALFORMED_PAGINATION: malformed or null part record"
+                            );
+                        }
+                        if (part.partNumber() < 1 || part.partNumber() > 10_000) {
+                            return new MultipartPartsObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartPartsSummary.UNKNOWN,
+                                    List.of(),
+                                    Instant.now(),
+                                    "MALFORMED_PAGINATION: part number out of range (" + part.partNumber() + ")"
+                            );
+                        }
+                        if (lastPartOnPage != null && part.partNumber() <= lastPartOnPage) {
+                            return new MultipartPartsObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartPartsSummary.UNKNOWN,
+                                    List.of(),
+                                    Instant.now(),
+                                    "MALFORMED_PAGINATION: parts out of order on page"
+                            );
+                        }
+                        if (currentMarker != null && part.partNumber() <= currentMarker) {
+                            return new MultipartPartsObservation(
+                                    key,
+                                    uploadId,
+                                    MultipartPartsSummary.UNKNOWN,
+                                    List.of(),
+                                    Instant.now(),
+                                    "MALFORMED_PAGINATION: part number (" + part.partNumber()
+                                            + ") not greater than marker (" + currentMarker + ")"
+                            );
+                        }
+                        lastPartOnPage = part.partNumber();
+                        partsOnThisPage++;
+                        result.add(new MultipartUploadedPart(
+                                part.partNumber(),
+                                part.size() != null ? part.size() : 0L,
+                                part.eTag()
+                        ));
+                    }
+                }
+
+                Boolean isTruncated = response.isTruncated();
+                if (isTruncated == null) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "AMBIGUOUS_PAGINATION: missing IsTruncated in response"
+                    );
+                }
+
+                if (!isTruncated) {
+                    MultipartPartsSummary summary = result.isEmpty()
+                            ? MultipartPartsSummary.ZERO_PARTS_OBSERVED
+                            : MultipartPartsSummary.PARTS_RETURNED;
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            summary,
+                            result,
+                            Instant.now(),
+                            null
+                    );
+                }
+
+                if (page == OBSERVATION_MAX_PAGES) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "PAGINATION_BUDGET_EXCEEDED: parts truncated beyond " + OBSERVATION_MAX_PAGES + " pages"
+                    );
+                }
+
+                if (partsOnThisPage == 0) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "MALFORMED_PAGINATION: truncated parts listing with empty parts"
+                    );
+                }
+
+                Integer nextMarker = response.nextPartNumberMarker();
+                if (nextMarker == null) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "MALFORMED_PAGINATION: truncated parts listing missing NextPartNumberMarker"
+                    );
+                }
+
+                if (nextMarker < 1 || nextMarker > 10_000) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "MALFORMED_PAGINATION: NextPartNumberMarker out of range (" + nextMarker + ")"
+                    );
+                }
+
+                if (currentMarker != null) {
+                    if (nextMarker.equals(currentMarker)) {
+                        return new MultipartPartsObservation(
+                                key,
+                                uploadId,
+                                MultipartPartsSummary.UNKNOWN,
+                                List.of(),
+                                Instant.now(),
+                                "NON_PROGRESSING_PAGINATION: repeated part marker"
+                        );
+                    }
+                    if (nextMarker < currentMarker) {
+                        return new MultipartPartsObservation(
+                                key,
+                                uploadId,
+                                MultipartPartsSummary.UNKNOWN,
+                                List.of(),
+                                Instant.now(),
+                                "NON_PROGRESSING_PAGINATION: regressing part marker"
+                        );
+                    }
+                }
+
+                if (!nextMarker.equals(lastPartOnPage)) {
+                    return new MultipartPartsObservation(
+                            key,
+                            uploadId,
+                            MultipartPartsSummary.UNKNOWN,
+                            List.of(),
+                            Instant.now(),
+                            "MALFORMED_PAGINATION: NextPartNumberMarker (" + nextMarker
+                                    + ") inconsistent with last part on page (" + lastPartOnPage + ")"
+                    );
+                }
+
+                currentMarker = nextMarker;
+            }
+
+            return new MultipartPartsObservation(
+                    key,
+                    uploadId,
+                    MultipartPartsSummary.UNKNOWN,
+                    List.of(),
+                    Instant.now(),
+                    "PAGINATION_BUDGET_EXCEEDED: parts truncated beyond " + OBSERVATION_MAX_PAGES + " pages"
+            );
+        } catch (NoSuchUploadException e) {
+            return new MultipartPartsObservation(
+                    key,
+                    uploadId,
+                    MultipartPartsSummary.NO_SUCH_UPLOAD,
+                    List.of(),
+                    Instant.now(),
+                    null
+            );
+        } catch (S3Exception e) {
+            if (isNoSuchUpload(e)) {
+                return new MultipartPartsObservation(
+                        key,
+                        uploadId,
+                        MultipartPartsSummary.NO_SUCH_UPLOAD,
+                        List.of(),
+                        Instant.now(),
+                        null
+                );
+            }
+            return new MultipartPartsObservation(
+                    key,
+                    uploadId,
+                    MultipartPartsSummary.UNKNOWN,
+                    List.of(),
+                    Instant.now(),
+                    classifySafeObservationError(e)
+            );
+        } catch (AwsServiceException | SdkClientException e) {
+            return new MultipartPartsObservation(
+                    key,
+                    uploadId,
+                    MultipartPartsSummary.UNKNOWN,
+                    List.of(),
+                    Instant.now(),
+                    classifySafeObservationError(e)
+            );
+        }
+    }
+
+    @Override
+    public MultipartUploadObservationSnapshot observeMultipartUpload(StorageKey key, String uploadId) {
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+        Objects.requireNonNull(uploadId, "uploadId cannot be null.");
+        if (uploadId.isBlank()) {
+            throw new IllegalArgumentException("uploadId cannot be blank.");
+        }
+
+        MultipartUploadPresenceObservation presenceObs = observeMultipartUploadPresence(key, uploadId);
+        StorageObjectPresenceObservation objectObs = observeObjectPresence(key);
+        MultipartPartsObservation partsObs = observeUploadedParts(key, uploadId);
+
+        String consolidatedDiagnostic = buildConsolidatedDiagnostic(presenceObs, objectObs, partsObs);
+
+        return new MultipartUploadObservationSnapshot(
+                key,
+                uploadId,
+                presenceObs.presence(),
+                objectObs.presence(),
+                partsObs.summary(),
+                partsObs.parts(),
+                objectObs.metadata(),
+                Instant.now(),
+                consolidatedDiagnostic
+        );
+    }
+
+    private AwsRequestOverrideConfiguration createObservationRequestOverrideConfiguration() {
+        return AwsRequestOverrideConfiguration.builder()
+                .apiCallTimeout(OBSERVATION_API_CALL_TIMEOUT)
+                .apiCallAttemptTimeout(OBSERVATION_API_CALL_ATTEMPT_TIMEOUT)
+                .build();
+    }
+
+    @Override
     @PreDestroy
     public void close() {
         if (ownsS3Client && s3Client != null) {
@@ -816,5 +1359,97 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         }
         String errorCode = (e.awsErrorDetails() != null) ? e.awsErrorDetails().errorCode() : null;
         return "NoSuchUpload".equalsIgnoreCase(errorCode);
+    }
+
+    private static boolean isExplicitNoSuchKey(S3Exception e) {
+        if (e instanceof NoSuchKeyException) {
+            return true;
+        }
+        String errorCode = (e.awsErrorDetails() != null) ? e.awsErrorDetails().errorCode() : null;
+        return "NoSuchKey".equalsIgnoreCase(errorCode);
+    }
+
+    private static String buildConsolidatedDiagnostic(
+            MultipartUploadPresenceObservation presenceObs,
+            StorageObjectPresenceObservation objectObs,
+            MultipartPartsObservation partsObs
+    ) {
+        List<String> diagnostics = new ArrayList<>();
+        if (presenceObs.safeDiagnostic() != null) {
+            diagnostics.add("uploadPresence: " + presenceObs.safeDiagnostic());
+        }
+        if (objectObs.safeDiagnostic() != null) {
+            diagnostics.add("objectPresence: " + objectObs.safeDiagnostic());
+        }
+        if (partsObs.safeDiagnostic() != null) {
+            diagnostics.add("partsSummary: " + partsObs.safeDiagnostic());
+        }
+        return diagnostics.isEmpty() ? null : String.join("; ", diagnostics);
+    }
+
+    private static String classifySafeObservationError(Throwable ex) {
+        if (ex == null) {
+            return "PROVIDER_ERROR";
+        }
+        if (ex instanceof S3Exception s3e) {
+            int statusCode = s3e.statusCode();
+            String errorCode = (s3e.awsErrorDetails() != null) ? s3e.awsErrorDetails().errorCode() : null;
+
+            if (statusCode == 403 || "AccessDenied".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_ACCESS_DENIED";
+            }
+            if (statusCode == 401) {
+                return "PROVIDER_UNAUTHORIZED";
+            }
+            if ("NoSuchBucket".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_BUCKET_NOT_FOUND";
+            }
+            if ("NoSuchKey".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_KEY_NOT_FOUND";
+            }
+            if ("NoSuchUpload".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_UPLOAD_NOT_FOUND";
+            }
+            if (statusCode == 404) {
+                return "PROVIDER_RESOURCE_NOT_FOUND";
+            }
+            if (statusCode == 503 || "ServiceUnavailable".equalsIgnoreCase(errorCode) || "SlowDown".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_SERVICE_UNAVAILABLE";
+            }
+            if (statusCode == 500) {
+                return "PROVIDER_ERROR";
+            }
+            if (statusCode >= 500 && statusCode < 600) {
+                return "PROVIDER_SERVER_ERROR";
+            }
+            if (statusCode == 400 || "InvalidRequest".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_BAD_REQUEST";
+            }
+            if (statusCode == 409 || "Conflict".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_CONFLICT";
+            }
+            if (statusCode == 412 || "PreconditionFailed".equalsIgnoreCase(errorCode)) {
+                return "PROVIDER_PRECONDITION_FAILED";
+            }
+            if (statusCode >= 400 && statusCode < 500) {
+                return "PROVIDER_CLIENT_ERROR";
+            }
+            return "PROVIDER_ERROR";
+        }
+
+        Throwable current = ex;
+        while (current != null) {
+            String name = current.getClass().getSimpleName().toLowerCase();
+            String msg = (current.getMessage() != null) ? current.getMessage().toLowerCase() : "";
+            if (name.contains("timeout") || msg.contains("timed out") || msg.contains("timeout")) {
+                return "TIMEOUT_UNCERTAINTY";
+            }
+            if (name.contains("connect") || msg.contains("connection refused") || msg.contains("connection reset")) {
+                return "CONNECTION_FAILURE";
+            }
+            current = current.getCause();
+        }
+
+        return "PROVIDER_ERROR";
     }
 }
