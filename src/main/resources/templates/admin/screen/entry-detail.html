@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="_csrf" th:content="${_csrf?.token}" />
+    <meta name="_csrf_header" th:content="${_csrf?.headerName}" />
     <title>Chi tiết Screen Entry | Kiếm Lai Universe</title>
     <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
 </head>
@@ -202,8 +204,433 @@
                     </div>
                 </section>
             </div>
+
+            <!-- Video Playback & Upload Section (MS-08 Multipart Web-to-B2) -->
+            <section class="admin-table-panel" style="padding: 24px; margin-top: 24px;" id="videoSection">
+                <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 8px;">
+                    Video phát sóng & Tải lên (Web-to-B2 Multipart)
+                </h3>
+
+                <!-- Case 1: Video is already attached -->
+                <div th:if="${entry.videoMediaAssetId != null}" id="attachedVideoView">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                        <span style="background: #e6f4ea; color: #137333; padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 600;">
+                            ✓ Đã gắn Video Media Asset
+                        </span>
+                        <span style="font-size: 13px; color: #5f6368;">
+                            Asset ID: <code th:text="${entry.videoMediaAssetId}">uuid</code>
+                        </span>
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <video controls preload="metadata" style="max-width: 100%; width: 720px; border-radius: 8px; background: #000; box-shadow: 0 2px 8px rgba(0,0,0,0.15);"
+                               th:src="@{/media/assets/{id}/content(id=${entry.videoMediaAssetId})}">
+                            Trình duyệt của bạn không hỗ trợ phát video HTML5.
+                        </video>
+                    </div>
+
+                    <div>
+                        <a th:href="@{/media/assets/{id}/content(id=${entry.videoMediaAssetId})}" target="_blank"
+                           class="admin-secondary-button" style="text-decoration: none; padding: 8px 16px; font-size: 13px; display: inline-block;">
+                            Mở luồng video trực tiếp ↗
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Case 2: No video attached yet - Render Multipart Upload Surface -->
+                <div th:unless="${entry.videoMediaAssetId != null}" id="uploadVideoView"
+                     th:data-title-id="${title.id}"
+                     th:data-entry-id="${entry.id}">
+
+                    <p style="margin-top: 0; margin-bottom: 16px; color: #5f6368; font-size: 14px; line-height: 1.5;">
+                        Chọn file video MP4 để tải lên trực tiếp từ trình duyệt tới Backblaze B2 thông qua multipart upload.<br/>
+                        Giới hạn dung lượng thử nghiệm trình duyệt (V1 Smoke Slice): <strong>500 MiB</strong>. Kích thước chunk: <strong>25 MiB</strong>.<br/>
+                        <span style="font-size: 12px; color: #70757a;">(Lưu ý: Nền tảng Backblaze B2 hỗ trợ tới 50 GiB; giới hạn 500 MiB này được áp dụng tại giao diện trình duyệt để đảm bảo an toàn bộ nhớ V8 heap khi tính toán SHA-256 client-side trước khi tích hợp streaming hasher).</span>
+                    </p>
+
+                    <!-- Alert message container -->
+                    <div id="uploadAlertBox" style="display: none; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 14px;"></div>
+
+                    <!-- File picker & upload controls -->
+                    <div id="uploadControls" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px;">
+                        <input type="file" id="videoFileInput" accept="video/mp4"
+                                style="font-size: 14px; border: 1px solid #dadce0; padding: 8px 12px; border-radius: 4px; background: #fff;" />
+                        <button type="button" id="startUploadBtn" class="admin-primary-button"
+                                style="padding: 10px 20px; font-size: 14px; cursor: pointer;" disabled>
+                            Bắt đầu tải lên B2
+                        </button>
+                        <button type="button" id="retryInitBtn" class="admin-secondary-button"
+                                style="display: none; padding: 10px 20px; font-size: 14px; color: #1a73e8; border-color: #1a73e8; cursor: pointer;">
+                            Thử lại khởi tạo
+                        </button>
+                        <button type="button" id="abortUploadBtn" class="admin-secondary-button"
+                                style="display: none; padding: 10px 20px; font-size: 14px; color: #c5221f; border-color: #c5221f; cursor: pointer;">
+                            Hủy tải lên
+                        </button>
+                    </div>
+
+                    <!-- Selected file metadata info box -->
+                    <div id="fileInfoBox" style="display: none; background: #f8f9fa; border: 1px solid #e8eaed; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px;">
+                        <div><strong>Tên file:</strong> <span id="infoFileName"></span></div>
+                        <div style="margin-top: 4px;"><strong>Dung lượng:</strong> <span id="infoFileSize"></span> (<span id="infoPartCount"></span> phần x 25 MiB)</div>
+                    </div>
+
+                    <!-- Upload progress bar & details -->
+                    <div id="progressContainer" style="display: none; margin-bottom: 16px;">
+                        <div style="background: #e8eaed; border-radius: 8px; overflow: hidden; height: 16px; margin-bottom: 8px;">
+                            <div id="progressBar" style="background: #1a73e8; height: 100%; width: 0%; transition: width 0.2s ease;"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 13px; color: #5f6368;">
+                            <span id="progressStatusText">Đang chuẩn bị...</span>
+                            <span id="progressPercentText">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- Inline player revealed upon completion -->
+                    <div id="completedVideoContainer" style="display: none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                            <span style="background: #e6f4ea; color: #137333; padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: 600;">
+                                ✓ Tải lên và gắn video thành công!
+                            </span>
+                            <span style="font-size: 13px; color: #5f6368;">
+                                Asset ID: <code id="completedAssetId"></code>
+                            </span>
+                        </div>
+                        <div style="margin-bottom: 16px;">
+                            <video id="completedVideoPlayer" controls preload="metadata" style="max-width: 100%; width: 720px; border-radius: 8px; background: #000; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                            </video>
+                        </div>
+                        <div>
+                            <a id="completedDirectLink" href="#" target="_blank" class="admin-secondary-button"
+                               style="text-decoration: none; padding: 8px 16px; font-size: 13px; display: inline-block;">
+                                Mở luồng video trực tiếp ↗
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </section>
     </main>
 </div>
+
+<script th:src="@{/js/screen/screen-video-uploader.js}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const uploadView = document.getElementById('uploadVideoView');
+    if (!uploadView) return;
+
+    const titleId = uploadView.getAttribute('data-title-id');
+    const entryId = uploadView.getAttribute('data-entry-id');
+
+    const fileInput = document.getElementById('videoFileInput');
+    const startUploadBtn = document.getElementById('startUploadBtn');
+    const retryInitBtn = document.getElementById('retryInitBtn');
+    const abortUploadBtn = document.getElementById('abortUploadBtn');
+    const alertBox = document.getElementById('uploadAlertBox');
+    const fileInfoBox = document.getElementById('fileInfoBox');
+    const infoFileName = document.getElementById('infoFileName');
+    const infoFileSize = document.getElementById('infoFileSize');
+    const infoPartCount = document.getElementById('infoPartCount');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressStatusText = document.getElementById('progressStatusText');
+    const progressPercentText = document.getElementById('progressPercentText');
+    const completedContainer = document.getElementById('completedVideoContainer');
+    const completedAssetId = document.getElementById('completedAssetId');
+    const completedPlayer = document.getElementById('completedVideoPlayer');
+    const completedDirectLink = document.getElementById('completedDirectLink');
+
+    const PART_SIZE = 26214400; // 25 MiB fixed part size
+    const MAX_BROWSER_SMOKE_SIZE = 524288000; // 500 MiB (Conservative client limit for V1 browser smoke slice to prevent V8 memory exhaustion)
+
+    const Uploader = window.ScreenVideoUploader || window.KiemLai?.ScreenVideoUploader;
+    if (!Uploader) {
+        console.error('ScreenVideoUploader library is not loaded.');
+        return;
+    }
+
+    const coordinator = new Uploader.UploadCoordinator();
+    const STORAGE_KEY = 'screen_video_attempt_' + entryId;
+
+    function saveAttempt(attempt) {
+        try {
+            if (attempt) {
+                sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+                    idempotencyKey: attempt.idempotencyKey,
+                    fileName: attempt.file?.name,
+                    fileSize: attempt.file?.size,
+                    sessionId: attempt.sessionId
+                }));
+            }
+        } catch (e) { /* ignore storage quotas */ }
+    }
+
+    function getSavedAttempt() {
+        try {
+            const raw = sessionStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function clearSavedAttempt() {
+        try {
+            sessionStorage.removeItem(STORAGE_KEY);
+        } catch (e) { /* ignore */ }
+    }
+
+    function getCsrfHeaders(headers = {}) {
+        const token = document.querySelector('meta[name="_csrf"]')?.getAttribute('content');
+        const headerName = document.querySelector('meta[name="_csrf_header"]')?.getAttribute('content');
+        if (token && headerName) {
+            headers[headerName] = token;
+        }
+        return headers;
+    }
+
+    function formatBytes(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
+        if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + ' MB';
+        return (bytes / 1073741824).toFixed(2) + ' GB';
+    }
+
+    function showAlert(type, message) {
+        alertBox.style.display = 'block';
+        if (type === 'error') {
+            alertBox.style.background = '#fce8e6';
+            alertBox.style.color = '#c5221f';
+            alertBox.style.border = '1px solid #fad2cf';
+        } else if (type === 'success') {
+            alertBox.style.background = '#e6f4ea';
+            alertBox.style.color = '#137333';
+            alertBox.style.border = '1px solid #ceead6';
+        } else {
+            alertBox.style.background = '#feefe3';
+            alertBox.style.color = '#b06000';
+            alertBox.style.border = '1px solid #fddbba';
+        }
+        alertBox.textContent = message;
+    }
+
+    function hideAlert() {
+        alertBox.style.display = 'none';
+        alertBox.textContent = '';
+    }
+
+    function updateProgress(percent, status) {
+        const bounded = Math.max(0, Math.min(100, percent));
+        progressBar.style.width = bounded + '%';
+        progressPercentText.textContent = Math.round(bounded) + '%';
+        if (status) {
+            progressStatusText.textContent = status;
+        }
+    }
+
+    fileInput.addEventListener('change', function () {
+        hideAlert();
+        retryInitBtn.style.display = 'none';
+
+        const active = coordinator.getCurrentAttempt();
+        if (active && !active.isSettled) {
+            showAlert('error', 'Một phiên tải lên trước đó vẫn đang hoạt động hoặc chưa được giải quyết (Trạng thái: '
+                + active.phase + ', Session ID: ' + (active.sessionId || 'chưa cấp')
+                + '). Vui lòng bấm "Hủy tải lên" hoặc giải quyết phiên hiện tại trước khi chọn file mới.');
+            fileInput.value = '';
+            startUploadBtn.disabled = true;
+            return;
+        }
+
+        const file = fileInput.files[0];
+        if (!file) {
+            fileInfoBox.style.display = 'none';
+            startUploadBtn.disabled = true;
+            return;
+        }
+
+        if (!file.name.toLowerCase().endsWith('.mp4')) {
+            showAlert('error', 'Chỉ chấp nhận file định dạng MP4 (*.mp4).');
+            fileInfoBox.style.display = 'none';
+            startUploadBtn.disabled = true;
+            return;
+        }
+
+        if (file.size > MAX_BROWSER_SMOKE_SIZE) {
+            showAlert('error', 'Dung lượng file (' + formatBytes(file.size) + ') vượt quá giới hạn thử nghiệm trình duyệt (500 MiB). Vui lòng chọn file video nhỏ hơn để thử nghiệm.');
+            fileInfoBox.style.display = 'none';
+            startUploadBtn.disabled = true;
+            return;
+        }
+
+        const expectedParts = Math.max(1, Math.ceil(file.size / PART_SIZE));
+        infoFileName.textContent = file.name;
+        infoFileSize.textContent = formatBytes(file.size);
+        infoPartCount.textContent = expectedParts;
+        fileInfoBox.style.display = 'block';
+        startUploadBtn.disabled = false;
+    });
+
+    const uploadCallbacks = {
+        onAttemptCreated: function (attempt) {
+            saveAttempt(attempt);
+        },
+        onSessionInitiated: function (sessionData, attempt) {
+            saveAttempt(attempt);
+        },
+        onProgress: function (percent, status) {
+            updateProgress(percent, status);
+        },
+        onSuccess: function (completeData) {
+            clearSavedAttempt();
+            coordinator.dismissSettledAttempt();
+
+            abortUploadBtn.style.display = 'none';
+            retryInitBtn.style.display = 'none';
+            document.getElementById('uploadControls').style.display = 'none';
+            fileInfoBox.style.display = 'none';
+
+            completedAssetId.textContent = completeData.videoMediaAssetId;
+            completedPlayer.src = completeData.playbackUrl;
+            completedDirectLink.href = completeData.playbackUrl;
+            completedContainer.style.display = 'block';
+
+            showAlert('success', 'Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry. Bạn có thể phát video ngay bên dưới.');
+        },
+        onError: function (err, attempt) {
+            console.error('Upload failed:', err);
+            const failurePhase = (attempt && attempt.failedAtPhase) ? attempt.failedAtPhase : (attempt ? attempt.phase : null);
+
+            if (err.isLostResponse || err.isUncertainInitiation || (attempt && !attempt.sessionId && (failurePhase === Uploader.UploadPhase.INITIATING || failurePhase === Uploader.UploadPhase.FAILED))) {
+                showAlert('error', err.message + '. Trạng thái trên máy chủ chưa xác định. Vui lòng bấm "Thử lại khởi tạo" để tiếp tục an toàn với cùng khóa phiên bảo vệ (Idempotency Key: ' + attempt.idempotencyKey + '), không tạo phiên trùng lặp.');
+                retryInitBtn.style.display = 'inline-block';
+                startUploadBtn.disabled = true;
+                fileInput.disabled = true;
+                abortUploadBtn.style.display = 'none';
+            } else if (attempt && attempt.sessionId && failurePhase === Uploader.UploadPhase.UPLOADING_PARTS) {
+                showAlert('error', 'Lỗi trong quá trình truyền chunk lên B2: ' + err.message + '. Session ID: ' + attempt.sessionId + '. Bạn có thể bấm "Hủy tải lên" để hủy phiên trên hệ thống, hoặc kiểm tra kết nối mạng/CORS trước khi thử lại.');
+                abortUploadBtn.style.display = 'inline-block';
+                abortUploadBtn.disabled = false;
+                startUploadBtn.disabled = true;
+                fileInput.disabled = true;
+                retryInitBtn.style.display = 'none';
+            } else if (attempt && failurePhase === Uploader.UploadPhase.COMPLETING) {
+                showAlert('error', 'Lỗi khi xác nhận hoàn tất phiên tải trên B2: ' + err.message + '. Session ID: ' + (attempt.sessionId || 'N/A') + '. CẢNH BÁO: Trạng thái gộp file trên B2 chưa xác định. Vui lòng KHÔNG bắt đầu tải file mới ngay để tránh xung đột dữ liệu. Bạn có thể làm mới trang để kiểm tra xem video đã được gắn hay chưa.');
+                abortUploadBtn.style.display = 'none';
+                startUploadBtn.disabled = true;
+                fileInput.disabled = true;
+                retryInitBtn.style.display = 'none';
+            } else if (failurePhase === Uploader.UploadPhase.HASHING) {
+                showAlert('error', 'Lỗi trước khi tạo phiên: ' + err.message);
+                startUploadBtn.disabled = false;
+                fileInput.disabled = false;
+                abortUploadBtn.style.display = 'none';
+                retryInitBtn.style.display = 'none';
+            } else {
+                showAlert('error', 'Lỗi: ' + err.message + (attempt && attempt.sessionId ? (' (Session ID: ' + attempt.sessionId + ')') : '') + '.');
+                if (attempt && !attempt.isSettled) {
+                    startUploadBtn.disabled = true;
+                    fileInput.disabled = true;
+                    if (attempt.sessionId) {
+                        abortUploadBtn.style.display = 'inline-block';
+                        abortUploadBtn.disabled = false;
+                    }
+                } else {
+                    startUploadBtn.disabled = false;
+                    fileInput.disabled = false;
+                    abortUploadBtn.style.display = 'none';
+                }
+                retryInitBtn.style.display = 'none';
+            }
+        }
+    };
+
+    startUploadBtn.addEventListener('click', async function () {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const active = coordinator.getCurrentAttempt();
+        if (active && !active.isSettled) {
+            showAlert('error', 'Một phiên tải lên trước đó vẫn đang hoạt động hoặc chưa được giải quyết an toàn. Vui lòng hủy hoặc giải quyết phiên hiện tại trước.');
+            return;
+        }
+
+        hideAlert();
+        retryInitBtn.style.display = 'none';
+        fileInput.disabled = true;
+        startUploadBtn.disabled = true;
+        abortUploadBtn.style.display = 'inline-block';
+        abortUploadBtn.disabled = false;
+        progressContainer.style.display = 'block';
+        updateProgress(0, 'Đang chuẩn bị phiên tải lên...');
+
+        // Reuse stable idempotencyKey from sessionStorage if retrying same file after reload
+        let idempotencyKey;
+        const saved = getSavedAttempt();
+        if (saved && saved.fileName === file.name && saved.fileSize === file.size && saved.idempotencyKey) {
+            idempotencyKey = saved.idempotencyKey;
+        }
+
+        await coordinator.startAttempt({
+            file: file,
+            titleId: titleId,
+            entryId: entryId,
+            idempotencyKey: idempotencyKey,
+            callbacks: uploadCallbacks,
+            getCsrfHeaders: getCsrfHeaders
+        });
+    });
+
+    retryInitBtn.addEventListener('click', async function () {
+        hideAlert();
+        retryInitBtn.style.display = 'none';
+        fileInput.disabled = true;
+        startUploadBtn.disabled = true;
+        abortUploadBtn.style.display = 'inline-block';
+        abortUploadBtn.disabled = false;
+        progressContainer.style.display = 'block';
+        updateProgress(0, 'Đang thử lại khởi tạo với cùng khóa phiên bảo vệ...');
+
+        await coordinator.retryInitiation({
+            titleId: titleId,
+            entryId: entryId,
+            callbacks: uploadCallbacks,
+            getCsrfHeaders: getCsrfHeaders
+        });
+    });
+
+    abortUploadBtn.addEventListener('click', async function () {
+        const attempt = coordinator.getCurrentAttempt();
+        if (!attempt) return;
+
+        if (!confirm('Bạn có chắc chắn muốn yêu cầu hủy phiên tải lên này?')) return;
+
+        abortUploadBtn.disabled = true;
+        retryInitBtn.style.display = 'none';
+
+        await coordinator.abortAttempt({
+            titleId: titleId,
+            entryId: entryId,
+            getCsrfHeaders: getCsrfHeaders,
+            callbacks: {
+                onAborted: function (data) {
+                    clearSavedAttempt();
+                    coordinator.dismissSettledAttempt();
+
+                    showAlert('warning', 'Phiên tải lên đã được đánh dấu hủy trên hệ thống (' + (data.status || 'ABORTED') + '). Session ID: ' + (attempt.sessionId || 'N/A') + '. Lưu ý: Quá trình dọn dẹp B2 từ xa tuân thủ hợp đồng bảo vệ cách ly.');
+                    progressContainer.style.display = 'none';
+                    abortUploadBtn.style.display = 'none';
+                    startUploadBtn.disabled = false;
+                    fileInput.disabled = false;
+                },
+                onError: function (err) {
+                    showAlert('error', err.message + '. Trạng thái phiên trên hệ thống chưa được xác nhận hủy.');
+                    abortUploadBtn.disabled = false;
+                }
+            }
+        });
+    });
+});
+</script>
 </body>
 </html>

@@ -109,6 +109,59 @@ class ScreenMediaValidationAdapterTest {
                 .hasMessageContaining(nonImageType.name());
     }
 
+    @Test
+    @DisplayName("Validation: null video asset ID is treated as valid optional no-op")
+    void shouldAcceptNullVideoAssetIdWithoutCallingMediaContract() {
+        assertThatCode(() -> adapter.validateVideoMediaAsset(null))
+                .doesNotThrowAnyException();
+
+        verify(mediaContract, never()).getAssetDetail(any());
+    }
+
+    @Test
+    @DisplayName("Validation: active VIDEO asset passes validation")
+    void shouldAcceptActiveVideoAsset() {
+        MediaAssetDetailDTO detail = createDetail(assetId, MediaTypeDTO.VIDEO, MediaAssetStatusDTO.ACTIVE);
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.of(detail));
+
+        assertThatCode(() -> adapter.validateVideoMediaAsset(assetId))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Validation: missing video asset throws ScreenMediaAssetNotFoundException")
+    void shouldRejectMissingVideoAsset() {
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> adapter.validateVideoMediaAsset(assetId))
+                .isInstanceOf(ScreenMediaAssetNotFoundException.class)
+                .hasMessageContaining(assetId.toString());
+    }
+
+    @Test
+    @DisplayName("Validation: deleted video asset throws ScreenMediaAssetNotFoundException")
+    void shouldRejectDeletedVideoAsset() {
+        MediaAssetDetailDTO detail = createDetail(assetId, MediaTypeDTO.VIDEO, MediaAssetStatusDTO.DELETED);
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.of(detail));
+
+        assertThatThrownBy(() -> adapter.validateVideoMediaAsset(assetId))
+                .isInstanceOf(ScreenMediaAssetNotFoundException.class)
+                .hasMessageContaining(assetId.toString());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MediaTypeDTO.class, names = {"IMAGE", "AUDIO", "DOCUMENT"})
+    @DisplayName("Validation: non-VIDEO media types throw InvalidScreenMediaAssetTypeException")
+    void shouldRejectNonVideoMediaTypes(MediaTypeDTO nonVideoType) {
+        MediaAssetDetailDTO detail = createDetail(assetId, nonVideoType, MediaAssetStatusDTO.ACTIVE);
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.of(detail));
+
+        assertThatThrownBy(() -> adapter.validateVideoMediaAsset(assetId))
+                .isInstanceOf(InvalidScreenMediaAssetTypeException.class)
+                .hasMessageContaining(assetId.toString())
+                .hasMessageContaining(nonVideoType.name());
+    }
+
     private MediaAssetDetailDTO createDetail(UUID id, MediaTypeDTO type, MediaAssetStatusDTO status) {
         Instant now = Instant.parse("2026-10-06T10:00:00Z");
         MediaVersionDTO version = new MediaVersionDTO(

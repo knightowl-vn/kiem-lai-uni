@@ -42,4 +42,25 @@ public class ScreenMediaValidationAdapter implements ScreenMediaValidationPort {
             throw new InvalidScreenMediaAssetTypeException(mediaAssetId, String.valueOf(detail.mediaType()));
         }
     }
+
+    @Override
+    public void validateVideoMediaAsset(UUID mediaAssetId) {
+        if (mediaAssetId == null) {
+            return;
+        }
+
+        Optional<MediaAssetDetailDTO> detailOpt = mediaContract.getAssetDetail(mediaAssetId);
+        if (detailOpt.isEmpty()) {
+            throw new ScreenMediaAssetNotFoundException(mediaAssetId);
+        }
+
+        MediaAssetDetailDTO detail = detailOpt.get();
+        if (detail.status() == MediaAssetStatusDTO.DELETED) {
+            throw new ScreenMediaAssetNotFoundException(mediaAssetId);
+        }
+
+        if (detail.mediaType() != MediaTypeDTO.VIDEO) {
+            throw new InvalidScreenMediaAssetTypeException(mediaAssetId, "VIDEO", String.valueOf(detail.mediaType()));
+        }
+    }
 }

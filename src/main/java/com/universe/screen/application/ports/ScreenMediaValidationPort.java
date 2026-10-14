@@ -19,4 +19,14 @@ public interface ScreenMediaValidationPort {
      * @param mediaAssetId the scalar UUID of the media asset to validate
      */
     void validateImageMediaAsset(UUID mediaAssetId);
+
+    /**
+     * Validates that the specified media asset exists and is a valid video asset.
+     *
+     * <p>If {@code mediaAssetId} is null, validation succeeds as a no-op since video
+     * attachment references are optional until attached.
+     *
+     * @param mediaAssetId the scalar UUID of the media asset to validate
+     */
+    void validateVideoMediaAsset(UUID mediaAssetId);
 }

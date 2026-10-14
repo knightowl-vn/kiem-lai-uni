@@ -36,7 +36,12 @@ import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.ports.MediaAssetCandidate;
 import com.universe.media.application.variant.GenerateMediaImageVariantCommand;
 import com.universe.media.application.variant.GenerateMediaImageVariantUseCase;
+import com.universe.media.application.storage.MediaUploadSessionService;
+import com.universe.media.application.storage.MultipartManifestPart;
+import com.universe.media.contracts.dto.AllocateUploadSessionRequestDTO;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
+import com.universe.media.contracts.dto.ClaimCompletionIntentRequestDTO;
+import com.universe.media.contracts.dto.CompleteMultipartUploadRequestDTO;
 import com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
@@ -47,6 +52,7 @@ import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
@@ -58,7 +64,9 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.media.domain.ImageVariantSpec;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
+import com.universe.media.domain.MediaUploadSession;
 import com.universe.media.domain.MediaVisibility;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -89,7 +97,9 @@ public class MediaFacade implements MediaContract {
     private final AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase;
     private final FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase;
     private final UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase;
+    private final MediaUploadSessionService mediaUploadSessionService;
 
+    @Autowired
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
             GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase,
@@ -104,7 +114,8 @@ public class MediaFacade implements MediaContract {
             OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase,
             AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase,
             FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
-            UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase
+            UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase,
+            @Autowired(required = false) MediaUploadSessionService mediaUploadSessionService
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -161,6 +172,42 @@ public class MediaFacade implements MediaContract {
         this.uploadMediaAssetVersionConditionalUseCase = Objects.requireNonNull(
                 uploadMediaAssetVersionConditionalUseCase,
                 "UploadMediaAssetVersionConditionalUseCase cannot be null."
+        );
+        this.mediaUploadSessionService = mediaUploadSessionService;
+    }
+
+    public MediaFacade(
+            GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
+            GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase,
+            ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase,
+            ArchiveMediaAssetUseCase archiveMediaAssetUseCase,
+            RestoreMediaAssetUseCase restoreMediaAssetUseCase,
+            DeleteMediaAssetUseCase deleteMediaAssetUseCase,
+            UploadMediaAssetUseCase uploadMediaAssetUseCase,
+            UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase,
+            GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase,
+            GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase,
+            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase,
+            AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase,
+            FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
+            UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase
+    ) {
+        this(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                null
         );
     }
 
@@ -497,5 +544,117 @@ public class MediaFacade implements MediaContract {
             case ARCHIVED -> MediaAssetStatusDTO.ARCHIVED;
             case DELETED -> MediaAssetStatusDTO.DELETED;
         };
+    }
+
+    @Override
+    public MediaUploadSessionResponseDTO allocateUploadSession(AllocateUploadSessionRequestDTO request) {
+        Objects.requireNonNull(request, "AllocateUploadSessionRequestDTO cannot be null.");
+        ensureUploadSessionServiceAvailable();
+        MediaUploadSession session = mediaUploadSessionService.allocateSession(
+                request.initiatorPrincipalId(),
+                request.consumerContext(),
+                request.targetEntityType(),
+                request.targetEntityId(),
+                request.idempotencyKey(),
+                request.declaredSizeBytes(),
+                request.originalFilename(),
+                request.clientTag()
+        );
+        return toUploadSessionResponseDTO(session);
+    }
+
+    @Override
+    public MediaUploadSessionResponseDTO initiateUploadSession(UUID sessionId, String requestingPrincipalId) {
+        Objects.requireNonNull(sessionId, "sessionId cannot be null.");
+        Objects.requireNonNull(requestingPrincipalId, "requestingPrincipalId cannot be null.");
+        ensureUploadSessionServiceAvailable();
+        MediaUploadSession session = mediaUploadSessionService.initiateMultipartUpload(sessionId, requestingPrincipalId);
+        return toUploadSessionResponseDTO(session);
+    }
+
+    @Override
+    public String generatePresignedPartUploadUrl(UUID sessionId, int partNumber, String requestingPrincipalId) {
+        Objects.requireNonNull(sessionId, "sessionId cannot be null.");
+        Objects.requireNonNull(requestingPrincipalId, "requestingPrincipalId cannot be null.");
+        ensureUploadSessionServiceAvailable();
+        return mediaUploadSessionService.generatePresignedPartUploadUrl(sessionId, partNumber, requestingPrincipalId);
+    }
+
+    @Override
+    public MediaUploadSessionResponseDTO claimCompletionIntent(ClaimCompletionIntentRequestDTO request) {
+        Objects.requireNonNull(request, "ClaimCompletionIntentRequestDTO cannot be null.");
+        ensureUploadSessionServiceAvailable();
+        List<MultipartManifestPart> domainManifest = request.manifest().stream()
+                .map(p -> new MultipartManifestPart(p.partNumber(), p.sizeBytes(), p.eTag()))
+                .toList();
+        MediaUploadSession session = mediaUploadSessionService.claimCompletionIntent(
+                request.sessionId(),
+                request.requestingPrincipalId(),
+                request.targetEntityType(),
+                request.targetEntityId(),
+                request.declaredContentHash(),
+                domainManifest
+        );
+        return toUploadSessionResponseDTO(session);
+    }
+
+    @Override
+    public MediaUploadSessionResponseDTO completeMultipartUpload(CompleteMultipartUploadRequestDTO request) {
+        Objects.requireNonNull(request, "CompleteMultipartUploadRequestDTO cannot be null.");
+        ensureUploadSessionServiceAvailable();
+        List<MultipartManifestPart> domainManifest = (request.manifest() != null)
+                ? request.manifest().stream().map(p -> new MultipartManifestPart(p.partNumber(), p.sizeBytes(), p.eTag())).toList()
+                : null;
+        MediaUploadSession session = mediaUploadSessionService.completeMultipartUpload(
+                request.sessionId(),
+                request.requestingPrincipalId(),
+                domainManifest
+        );
+        return toUploadSessionResponseDTO(session);
+    }
+
+    @Override
+    public MediaUploadSessionResponseDTO abortUploadSession(UUID sessionId, String requestingPrincipalId) {
+        Objects.requireNonNull(sessionId, "sessionId cannot be null.");
+        Objects.requireNonNull(requestingPrincipalId, "requestingPrincipalId cannot be null.");
+        ensureUploadSessionServiceAvailable();
+        MediaUploadSession session = mediaUploadSessionService.abortSession(sessionId, requestingPrincipalId);
+        return toUploadSessionResponseDTO(session);
+    }
+
+    @Override
+    public Optional<MediaUploadSessionResponseDTO> getUploadSession(UUID sessionId) {
+        Objects.requireNonNull(sessionId, "sessionId cannot be null.");
+        ensureUploadSessionServiceAvailable();
+        return mediaUploadSessionService.findById(sessionId)
+                .map(this::toUploadSessionResponseDTO);
+    }
+
+    private MediaUploadSessionResponseDTO toUploadSessionResponseDTO(MediaUploadSession session) {
+        if (session == null) {
+            return null;
+        }
+        return new MediaUploadSessionResponseDTO(
+                session.getId(),
+                session.getStatus().name(),
+                session.getInitiatorPrincipalId(),
+                session.getConsumerContext(),
+                session.getTargetEntityType(),
+                session.getTargetEntityId(),
+                session.getDeclaredSizeBytes(),
+                session.getPartSizeBytes(),
+                session.getExpectedPartCount(),
+                session.getOriginalFilename(),
+                session.getClientTag(),
+                session.getRegisteredAssetId(),
+                session.getCreatedAt(),
+                session.getExpiresAt()
+        );
+    }
+
+    private void ensureUploadSessionServiceAvailable() {
+        if (mediaUploadSessionService == null) {
+            throw new IllegalStateException("MediaUploadSessionService is not configured or available.");
+        }
     }
 }

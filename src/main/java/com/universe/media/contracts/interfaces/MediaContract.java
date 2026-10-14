@@ -1,6 +1,9 @@
 package com.universe.media.contracts.interfaces;
 
+import com.universe.media.contracts.dto.AllocateUploadSessionRequestDTO;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
+import com.universe.media.contracts.dto.ClaimCompletionIntentRequestDTO;
+import com.universe.media.contracts.dto.CompleteMultipartUploadRequestDTO;
 import com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
@@ -9,6 +12,7 @@ import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
+import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
@@ -185,4 +189,96 @@ public interface MediaContract {
     List<MediaAssetCandidateDTO> findActiveAssetsByClientTagKeyset(
             FindActiveMediaAssetsKeysetQuery query
     );
+
+    /**
+     * Allocates a durable multipart upload session.
+     *
+     * @param request upload session allocation request
+     * @return session response DTO
+     */
+    default MediaUploadSessionResponseDTO allocateUploadSession(
+            AllocateUploadSessionRequestDTO request
+    ) {
+        throw new UnsupportedOperationException("allocateUploadSession is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Initiates a multipart upload on the storage provider and transitions session to INITIATED.
+     *
+     * @param sessionId upload session ID
+     * @param requestingPrincipalId requesting actor principal ID
+     * @return session response DTO
+     */
+    default MediaUploadSessionResponseDTO initiateUploadSession(
+            UUID sessionId,
+            String requestingPrincipalId
+    ) {
+        throw new UnsupportedOperationException("initiateUploadSession is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Generates a short-lived presigned PUT upload URL for an individual part.
+     *
+     * @param sessionId upload session ID
+     * @param partNumber 1-based part number
+     * @param requestingPrincipalId requesting actor principal ID
+     * @return presigned PUT upload URL
+     */
+    default String generatePresignedPartUploadUrl(
+            UUID sessionId,
+            int partNumber,
+            String requestingPrincipalId
+    ) {
+        throw new UnsupportedOperationException("generatePresignedPartUploadUrl is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Atomically validates and claims completion intent for a multipart upload session.
+     *
+     * @param request claim completion intent request
+     * @return session response DTO
+     */
+    default MediaUploadSessionResponseDTO claimCompletionIntent(
+            ClaimCompletionIntentRequestDTO request
+    ) {
+        throw new UnsupportedOperationException("claimCompletionIntent is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Completes multipart upload on storage provider, registers MediaAsset, and finalizes session.
+     *
+     * @param request complete multipart upload request
+     * @return session response DTO
+     */
+    default MediaUploadSessionResponseDTO completeMultipartUpload(
+            CompleteMultipartUploadRequestDTO request
+    ) {
+        throw new UnsupportedOperationException("completeMultipartUpload is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Aborts an upload session and tombstones its storage reservation.
+     *
+     * @param sessionId upload session ID
+     * @param requestingPrincipalId requesting actor principal ID
+     * @return session response DTO
+     */
+    default MediaUploadSessionResponseDTO abortUploadSession(
+            UUID sessionId,
+            String requestingPrincipalId
+    ) {
+        throw new UnsupportedOperationException("abortUploadSession is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Retrieves current state of an upload session.
+     *
+     * @param sessionId upload session ID
+     * @return Optional containing session response DTO if present
+     */
+    default Optional<MediaUploadSessionResponseDTO> getUploadSession(
+            UUID sessionId
+    ) {
+        throw new UnsupportedOperationException("getUploadSession is not supported by this MediaContract implementation.");
+    }
 }
