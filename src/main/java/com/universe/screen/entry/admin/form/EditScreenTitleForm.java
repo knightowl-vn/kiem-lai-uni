@@ -2,6 +2,7 @@ package com.universe.screen.entry.admin.form;
 
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
+import org.springframework.web.multipart.MultipartFile;
 
 public class EditScreenTitleForm {
 
@@ -13,6 +14,10 @@ public class EditScreenTitleForm {
     private ScreenPresentation presentation;
     private String posterMediaAssetId;
     private String backdropMediaAssetId;
+    private MultipartFile posterFile;
+    private boolean removePoster;
+    private MultipartFile backdropFile;
+    private boolean removeBackdrop;
 
     public EditScreenTitleForm() {
     }
@@ -99,5 +104,37 @@ public class EditScreenTitleForm {
 
     public void setBackdropMediaAssetId(String backdropMediaAssetId) {
         this.backdropMediaAssetId = backdropMediaAssetId;
+    }
+
+    public MultipartFile getPosterFile() {
+        return posterFile;
+    }
+
+    public void setPosterFile(MultipartFile posterFile) {
+        this.posterFile = posterFile;
+    }
+
+    public boolean isRemovePoster() {
+        return removePoster;
+    }
+
+    public void setRemovePoster(boolean removePoster) {
+        this.removePoster = removePoster;
+    }
+
+    public MultipartFile getBackdropFile() {
+        return backdropFile;
+    }
+
+    public void setBackdropFile(MultipartFile backdropFile) {
+        this.backdropFile = backdropFile;
+    }
+
+    public boolean isRemoveBackdrop() {
+        return removeBackdrop;
+    }
+
+    public void setRemoveBackdrop(boolean removeBackdrop) {
+        this.removeBackdrop = removeBackdrop;
     }
 }

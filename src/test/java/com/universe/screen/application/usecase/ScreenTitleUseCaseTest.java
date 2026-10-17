@@ -111,6 +111,90 @@ class ScreenTitleUseCaseTest {
         verify(mediaValidationPort).validateImageMediaAsset(backdropId);
     }
 
+    @Test
+    @DisplayName("CreateTitle: automatically generates normalized slug from Vietnamese title when slug is null")
+    void shouldGenerateSlugAutomaticallyWhenSlugIsNull() {
+        CreateScreenTitleCommand command = new CreateScreenTitleCommand(
+                "Kiếm Lai: Đại Chiến Ma Giới (Đặc Biệt)", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D, null, null
+        );
+
+        when(titleRepository.existsBySlug("kiem-lai-dai-chien-ma-gioi-dac-biet")).thenReturn(false);
+        when(clockPort.now()).thenReturn(now);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = createUseCase.execute(command);
+
+        assertThat(result.slug()).isEqualTo("kiem-lai-dai-chien-ma-gioi-dac-biet");
+    }
+
+    @Test
+    @DisplayName("CreateTitle: deterministically resolves slug collisions with incremental numeric suffixes")
+    void shouldResolveSlugCollisionDeterministically() {
+        CreateScreenTitleCommand command = new CreateScreenTitleCommand(
+                "Kiếm Lai Phần 1", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
+        );
+
+        when(titleRepository.existsBySlug("kiem-lai-phan-1")).thenReturn(true);
+        when(titleRepository.existsBySlug("kiem-lai-phan-1-2")).thenReturn(true);
+        when(titleRepository.existsBySlug("kiem-lai-phan-1-3")).thenReturn(false);
+        when(clockPort.now()).thenReturn(now);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = createUseCase.execute(command);
+
+        assertThat(result.slug()).isEqualTo("kiem-lai-phan-1-3");
+    }
+
+    @Test
+    @DisplayName("CreateTitle: truncates base slug so numeric collision suffix does not exceed MAX_SLUG_LENGTH (180 chars)")
+    void shouldResolveSlugCollisionWithinMaxSlugLengthWhenBaseSlugIsLong() {
+        String longTitle = "a".repeat(200);
+        CreateScreenTitleCommand command = new CreateScreenTitleCommand(
+                longTitle, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
+        );
+
+        String maxBase = "a".repeat(180);
+        when(titleRepository.existsBySlug(maxBase)).thenReturn(true);
+        String expectedCandidate = "a".repeat(178) + "-2";
+        when(titleRepository.existsBySlug(expectedCandidate)).thenReturn(false);
+        when(clockPort.now()).thenReturn(now);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = createUseCase.execute(command);
+
+        assertThat(result.slug()).isEqualTo(expectedCandidate);
+        assertThat(result.slug().length()).isLessThanOrEqualTo(180);
+    }
+
+    @Test
+    @DisplayName("CreateTitle: uses IdGeneratorPort when provided for server-side immutable identifier")
+    void shouldUseIdGeneratorPortWhenProvided() {
+        com.universe.shared.id.IdGeneratorPort customIdGenerator = org.mockito.Mockito.mock(com.universe.shared.id.IdGeneratorPort.class);
+        UUID generatedId = UUID.randomUUID();
+        when(customIdGenerator.generate()).thenReturn(generatedId);
+
+        CreateScreenTitleUseCase customUseCase = new CreateScreenTitleUseCase(
+                titleRepository, mediaValidationPort, clockPort, customIdGenerator
+        );
+
+        CreateScreenTitleCommand command = new CreateScreenTitleCommand(
+                "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
+        );
+
+        when(titleRepository.existsBySlug("kiem-lai")).thenReturn(false);
+        when(clockPort.now()).thenReturn(now);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = customUseCase.execute(command);
+
+        assertThat(result.id()).isEqualTo(generatedId);
+        verify(customIdGenerator).generate();
+    }
+
     @ParameterizedTest(name = "Structure={0}, Presentation={1}")
     @MethodSource("provideApprovedClassificationCombinations")
     @DisplayName("CreateTitle: exhausts all approved structure and presentation combinations")
@@ -247,6 +331,28 @@ class ScreenTitleUseCaseTest {
 
         assertThat(result.title()).isEqualTo("Updated Title");
         assertThat(result.slug()).isEqualTo("same-slug");
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: renaming title with null slug preserves established slug exactly")
+    void shouldPreserveExistingSlugWhenRenamingTitleWithoutSlug() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "established-slug", "Old Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, null, "Brand New Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
+        );
+
+        when(titleRepository.findById(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(3600));
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.title()).isEqualTo("Brand New Title");
+        assertThat(result.slug()).isEqualTo("established-slug");
     }
 
     @Test

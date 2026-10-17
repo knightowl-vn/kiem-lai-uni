@@ -41,11 +41,14 @@ public class UpdateScreenTitleUseCase {
         ScreenTitle existing = titleRepository.findById(command.titleId())
                 .orElseThrow(() -> new ScreenTitleNotFoundException(command.titleId()));
 
-        String requestedSlug = command.slug() != null ? command.slug().trim().toLowerCase(Locale.ROOT) : "";
-        if (!requestedSlug.equalsIgnoreCase(existing.getSlug())) {
-            Optional<ScreenTitle> slugOwner = titleRepository.findBySlug(requestedSlug);
+        String targetSlug = (command.slug() != null && !command.slug().isBlank())
+                ? command.slug().trim().toLowerCase(Locale.ROOT)
+                : existing.getSlug();
+
+        if (!targetSlug.equalsIgnoreCase(existing.getSlug())) {
+            Optional<ScreenTitle> slugOwner = titleRepository.findBySlug(targetSlug);
             if (slugOwner.isPresent() && !slugOwner.get().getId().equals(existing.getId())) {
-                throw new ScreenTitleSlugAlreadyExistsException(command.slug());
+                throw new ScreenTitleSlugAlreadyExistsException(targetSlug);
             }
         }
 
@@ -55,7 +58,7 @@ public class UpdateScreenTitleUseCase {
         Instant now = clockPort.now();
 
         existing.updateDetails(
-                command.slug(),
+                targetSlug,
                 command.title(),
                 command.originalTitle(),
                 command.synopsis(),

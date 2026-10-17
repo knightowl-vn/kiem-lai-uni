@@ -14,6 +14,7 @@ import com.universe.identity.infrastructure.security.SafeReturnToValidator;
 import com.universe.screen.application.commands.CreateScreenTitleCommand;
 import com.universe.screen.application.commands.UpdateScreenTitleCommand;
 import com.universe.screen.application.dto.ScreenTitleDTO;
+import com.universe.screen.application.ports.ScreenImageMediaPort;
 import com.universe.screen.application.usecase.ArchiveScreenTitleUseCase;
 import com.universe.screen.application.usecase.CreateScreenTitleUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
@@ -122,6 +123,9 @@ class AdminScreenTitleSecurityIntegrationTest {
 
     @MockBean
     private ArchiveScreenTitleUseCase archiveScreenTitleUseCase;
+
+    @MockBean
+    private ScreenImageMediaPort screenImageMediaPort;
 
     private ScreenTitleDTO sampleTitle;
 

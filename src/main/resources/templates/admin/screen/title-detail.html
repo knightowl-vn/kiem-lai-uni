@@ -117,16 +117,22 @@
                             </td>
                         </tr>
                         <tr style="border-bottom: 1px solid #f1f3f4;">
-                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Poster Media Asset ID</td>
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500; vertical-align: top;">Ảnh Poster</td>
                             <td style="padding: 10px 0;">
-                                <code th:if="${title.posterMediaAssetId != null}" th:text="${title.posterMediaAssetId}">uuid</code>
+                                <div th:if="${title.posterMediaAssetId != null}">
+                                    <img th:src="@{/media/assets/{id}/content(id=${title.posterMediaAssetId})}" alt="Poster"
+                                         style="max-height: 180px; border-radius: 4px; border: 1px solid #dadce0; object-fit: cover; display: block;">
+                                </div>
                                 <span th:unless="${title.posterMediaAssetId != null}" style="color: #80868b;">Chưa thiết lập</span>
                             </td>
                         </tr>
                         <tr style="border-bottom: 1px solid #f1f3f4;">
-                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Backdrop Media Asset ID</td>
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500; vertical-align: top;">Ảnh Backdrop</td>
                             <td style="padding: 10px 0;">
-                                <code th:if="${title.backdropMediaAssetId != null}" th:text="${title.backdropMediaAssetId}">uuid</code>
+                                <div th:if="${title.backdropMediaAssetId != null}">
+                                    <img th:src="@{/media/assets/{id}/content(id=${title.backdropMediaAssetId})}" alt="Backdrop"
+                                         style="max-height: 140px; max-width: 100%; border-radius: 4px; border: 1px solid #dadce0; object-fit: cover; display: block;">
+                                </div>
                                 <span th:unless="${title.backdropMediaAssetId != null}" style="color: #80868b;">Chưa thiết lập</span>
                             </td>
                         </tr>

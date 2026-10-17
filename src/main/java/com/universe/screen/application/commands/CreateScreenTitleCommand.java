@@ -15,4 +15,15 @@ public record CreateScreenTitleCommand(
         UUID posterMediaAssetId,
         UUID backdropMediaAssetId
 ) {
+    public CreateScreenTitleCommand(
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId
+    ) {
+        this(null, title, originalTitle, synopsis, structure, presentation, posterMediaAssetId, backdropMediaAssetId);
+    }
 }

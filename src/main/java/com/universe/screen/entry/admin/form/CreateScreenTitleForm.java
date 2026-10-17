@@ -2,6 +2,7 @@ package com.universe.screen.entry.admin.form;
 
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
+import org.springframework.web.multipart.MultipartFile;
 
 public class CreateScreenTitleForm {
 
@@ -13,6 +14,8 @@ public class CreateScreenTitleForm {
     private ScreenPresentation presentation;
     private String posterMediaAssetId;
     private String backdropMediaAssetId;
+    private MultipartFile posterFile;
+    private MultipartFile backdropFile;
 
     public CreateScreenTitleForm() {
     }
@@ -35,6 +38,24 @@ public class CreateScreenTitleForm {
         this.presentation = presentation;
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
+    }
+
+    public CreateScreenTitleForm(
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            MultipartFile posterFile,
+            MultipartFile backdropFile
+    ) {
+        this.title = title;
+        this.originalTitle = originalTitle;
+        this.synopsis = synopsis;
+        this.structure = structure;
+        this.presentation = presentation;
+        this.posterFile = posterFile;
+        this.backdropFile = backdropFile;
     }
 
     public String getTitle() {
@@ -99,5 +120,21 @@ public class CreateScreenTitleForm {
 
     public void setBackdropMediaAssetId(String backdropMediaAssetId) {
         this.backdropMediaAssetId = backdropMediaAssetId;
+    }
+
+    public MultipartFile getPosterFile() {
+        return posterFile;
+    }
+
+    public void setPosterFile(MultipartFile posterFile) {
+        this.posterFile = posterFile;
+    }
+
+    public MultipartFile getBackdropFile() {
+        return backdropFile;
+    }
+
+    public void setBackdropFile(MultipartFile backdropFile) {
+        this.backdropFile = backdropFile;
     }
 }

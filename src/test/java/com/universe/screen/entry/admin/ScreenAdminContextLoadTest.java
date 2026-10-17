@@ -22,10 +22,12 @@ import com.universe.screen.application.usecase.GetScreenTitleListUseCase;
 import com.universe.screen.application.usecase.PublishScreenEntryUseCase;
 import com.universe.screen.application.usecase.PublishScreenTitleUseCase;
 import com.universe.screen.application.usecase.RemoveScreenFranchiseMemberUseCase;
+import com.universe.screen.application.ports.ScreenImageMediaPort;
 import com.universe.screen.application.usecase.UpdateScreenEntryUseCase;
 import com.universe.screen.application.usecase.UpdateScreenFranchiseMemberOrderUseCase;
 import com.universe.screen.application.usecase.UpdateScreenFranchiseUseCase;
 import com.universe.screen.application.usecase.UpdateScreenTitleUseCase;
+import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -88,6 +90,12 @@ class ScreenAdminContextLoadTest {
     @MockBean
     private ClockPort clockPort;
 
+    @MockBean
+    private IdGeneratorPort idGeneratorPort;
+
+    @MockBean
+    private ScreenImageMediaPort screenImageMediaPort;
+
     @Autowired
     private AdminScreenFranchisePageController franchisePageController;
 
@@ -113,6 +121,9 @@ class ScreenAdminContextLoadTest {
     private CreateScreenTitleUseCase createScreenTitleUseCase;
 
     @Autowired
+    private UpdateScreenTitleUseCase updateScreenTitleUseCase;
+
+    @Autowired
     private PublishScreenTitleUseCase publishScreenTitleUseCase;
 
     @Autowired
@@ -120,6 +131,9 @@ class ScreenAdminContextLoadTest {
 
     @Autowired
     private GetScreenTitleListUseCase getScreenTitleListUseCase;
+
+    @Autowired
+    private GetScreenTitleDetailUseCase getScreenTitleDetailUseCase;
 
     @Autowired
     private AdminScreenEntryPageController entryPageController;
@@ -156,6 +170,7 @@ class ScreenAdminContextLoadTest {
         assertThat(createScreenFranchiseUseCase).isNotNull();
         assertThat(addScreenFranchiseMemberUseCase).isNotNull();
         assertThat(createScreenTitleUseCase).isNotNull();
+        assertThat(updateScreenTitleUseCase).isNotNull();
         assertThat(publishScreenTitleUseCase).isNotNull();
         assertThat(archiveScreenTitleUseCase).isNotNull();
         assertThat(getScreenTitleListUseCase).isNotNull();

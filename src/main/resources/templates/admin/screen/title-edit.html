@@ -22,7 +22,7 @@
                     <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #5f6368; letter-spacing: 0.5px;">SCREEN MODULE</span>
                     <h2 style="margin: 4px 0 6px; font-size: 24px;">Chỉnh sửa Screen Title</h2>
                     <p style="margin: 0; color: #5f6368; font-size: 14px;">
-                        Cập nhật thông tin tiêu đề, phân loại và tham chiếu hình ảnh. Trạng thái và thời gian xuất bản được bảo toàn.
+                        Cập nhật thông tin tiêu đề, phân loại và quản lý hình ảnh poster/backdrop.
                     </p>
                 </div>
             </div>
@@ -41,7 +41,7 @@
                     <strong th:text="${title.status}">DRAFT</strong>
                 </div>
 
-                <form method="post" th:action="@{/admin/screen/titles/{id}/update(id=${title.id})}" th:object="${form}">
+                <form method="post" th:action="@{/admin/screen/titles/{id}/update(id=${title.id})}" th:object="${form}" enctype="multipart/form-data">
                     <div style="margin-bottom: 20px;">
                         <label for="title" style="display: block; font-weight: 600; margin-bottom: 6px;">Tiêu đề hiển thị <span style="color: #c5221f;">*</span></label>
                         <input id="title" type="text" th:field="*{title}" required
@@ -50,11 +50,10 @@
                     </div>
 
                     <div style="margin-bottom: 20px;">
-                        <label for="slug" style="display: block; font-weight: 600; margin-bottom: 6px;">Slug URL <span style="color: #c5221f;">*</span></label>
-                        <input id="slug" type="text" th:field="*{slug}" required
-                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
-                               placeholder="Ví dụ: kiem-lai-phan-1">
-                        <small style="color: #5f6368; display: block; margin-top: 4px;">Chữ thường không dấu, số và dấu gạch nối (^[a-z0-9]+(?:-[a-z0-9]+)*$). Tối đa 180 ký tự.</small>
+                        <label for="slug" style="display: block; font-weight: 600; margin-bottom: 6px;">Slug URL</label>
+                        <input id="slug" type="text" th:field="*{slug}" readonly
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; background: #f1f3f4; color: #5f6368;">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Slug được tự động bảo toàn khi đổi tiêu đề để đảm bảo tính ổn định của đường dẫn (URL) công khai.</small>
                     </div>
 
                     <div style="margin-bottom: 20px;">
@@ -90,20 +89,64 @@
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 20px;">
-                        <label for="posterMediaAssetId" style="display: block; font-weight: 600; margin-bottom: 6px;">Poster Media Asset ID (UUID)</label>
-                        <input id="posterMediaAssetId" type="text" th:field="*{posterMediaAssetId}"
-                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
-                               placeholder="Để trống để xóa tham chiếu poster">
-                        <small style="color: #5f6368; display: block; margin-top: 4px;">Để trống để xóa poster hoặc nhập UUID hợp lệ của tài sản IMAGE trong Media.</small>
+                    <!-- Poster Section -->
+                    <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px;">Ảnh Poster</label>
+
+                        <div th:if="${title.posterMediaAssetId != null}" style="margin-bottom: 12px; display: flex; gap: 16px; align-items: flex-start;">
+                            <div>
+                                <img th:src="@{/media/assets/{id}/content(id=${title.posterMediaAssetId})}" alt="Poster hiện tại"
+                                     style="max-height: 180px; border-radius: 4px; border: 1px solid #dadce0; object-fit: cover;">
+                            </div>
+                            <div>
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #c5221f; cursor: pointer; margin-top: 4px;">
+                                    <input type="checkbox" th:field="*{removePoster}"> Xóa ảnh poster hiện tại
+                                </label>
+                            </div>
+                        </div>
+                        <div th:unless="${title.posterMediaAssetId != null}" style="margin-bottom: 12px; color: #80868b; font-size: 13px;">
+                            Chưa có ảnh poster.
+                        </div>
+
+                        <label for="posterFile" style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px;"
+                               th:text="${title.posterMediaAssetId != null} ? 'Tải ảnh mới để thay thế poster:' : 'Tải lên ảnh poster:'">Tải ảnh poster:</label>
+                        <input id="posterFile" type="file" name="posterFile" accept="image/jpeg,image/png,image/webp"
+                               style="width: 100%; padding: 8px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 13px; background: #fff;"
+                               onchange="previewImage(this, 'posterPreview', 'posterPreviewContainer');">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Định dạng JPG, PNG hoặc WebP. Tối đa 5MB.</small>
+                        <div id="posterPreviewContainer" style="display: none; margin-top: 10px;">
+                            <span style="font-size: 12px; color: #5f6368; display: block; margin-bottom: 4px;">Xem trước ảnh mới:</span>
+                            <img id="posterPreview" src="#" alt="Poster Preview" style="max-height: 180px; border-radius: 4px; border: 1px solid #dadce0; object-fit: cover;">
+                        </div>
                     </div>
 
-                    <div style="margin-bottom: 24px;">
-                        <label for="backdropMediaAssetId" style="display: block; font-weight: 600; margin-bottom: 6px;">Backdrop Media Asset ID (UUID)</label>
-                        <input id="backdropMediaAssetId" type="text" th:field="*{backdropMediaAssetId}"
-                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
-                               placeholder="Để trống để xóa tham chiếu backdrop">
-                        <small style="color: #5f6368; display: block; margin-top: 4px;">Để trống để xóa backdrop hoặc nhập UUID hợp lệ của tài sản IMAGE trong Media.</small>
+                    <!-- Backdrop Section -->
+                    <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px;">Ảnh Backdrop (Hình nền)</label>
+
+                        <div th:if="${title.backdropMediaAssetId != null}" style="margin-bottom: 12px;">
+                            <img th:src="@{/media/assets/{id}/content(id=${title.backdropMediaAssetId})}" alt="Backdrop hiện tại"
+                                 style="max-height: 140px; max-width: 100%; border-radius: 4px; border: 1px solid #dadce0; object-fit: cover;">
+                            <div style="margin-top: 4px; display: flex; justify-content: flex-end; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #c5221f; cursor: pointer;">
+                                    <input type="checkbox" th:field="*{removeBackdrop}"> Xóa ảnh backdrop hiện tại
+                                </label>
+                            </div>
+                        </div>
+                        <div th:unless="${title.backdropMediaAssetId != null}" style="margin-bottom: 12px; color: #80868b; font-size: 13px;">
+                            Chưa có ảnh backdrop.
+                        </div>
+
+                        <label for="backdropFile" style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px;"
+                               th:text="${title.backdropMediaAssetId != null} ? 'Tải ảnh mới để thay thế backdrop:' : 'Tải lên ảnh backdrop:'">Tải ảnh backdrop:</label>
+                        <input id="backdropFile" type="file" name="backdropFile" accept="image/jpeg,image/png,image/webp"
+                               style="width: 100%; padding: 8px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 13px; background: #fff;"
+                               onchange="previewImage(this, 'backdropPreview', 'backdropPreviewContainer');">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Định dạng JPG, PNG hoặc WebP. Tối đa 5MB.</small>
+                        <div id="backdropPreviewContainer" style="display: none; margin-top: 10px;">
+                            <span style="font-size: 12px; color: #5f6368; display: block; margin-bottom: 4px;">Xem trước ảnh mới:</span>
+                            <img id="backdropPreview" src="#" alt="Backdrop Preview" style="max-height: 140px; max-width: 100%; border-radius: 4px; border: 1px solid #dadce0; object-fit: cover;">
+                        </div>
                     </div>
 
                     <div style="display: flex; gap: 12px; align-items: center;">
@@ -119,5 +162,23 @@
         </section>
     </main>
 </div>
+
+<script>
+function previewImage(input, previewId, containerId) {
+    var preview = document.getElementById(previewId);
+    var container = document.getElementById(containerId);
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            preview.src = e.target.result;
+            container.style.display = 'block';
+        };
+        reader.readAsDataURL(input.files[0]);
+    } else {
+        preview.src = '#';
+        container.style.display = 'none';
+    }
+}
+</script>
 </body>
 </html>

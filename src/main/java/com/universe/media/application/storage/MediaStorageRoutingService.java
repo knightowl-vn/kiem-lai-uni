@@ -24,6 +24,9 @@ public class MediaStorageRoutingService {
 
     public static final String WIKI_ARTICLE_COVER_TAG_PREFIX = "wiki.article.cover";
     public static final String IDENTITY_AVATAR_TAG_PREFIX = "identity.avatar";
+    public static final String SCREEN_POSTER_TAG_PREFIX = "screen.poster";
+    public static final String SCREEN_BACKDROP_TAG_PREFIX = "screen.backdrop";
+    public static final String SCREEN_TAG_PREFIX = "screen.";
 
     private final String b2Bucket;
     private final String r2Bucket;
@@ -111,15 +114,40 @@ public class MediaStorageRoutingService {
         String folder = resolveFolder(mediaType, clientTag);
         UUID uniqueNonce = UUID.randomUUID();
 
+        String slugPrefix = extractSlugPrefix(clientTag);
+        String filePrefix = slugPrefix != null ? slugPrefix + "-" : "";
+
         if (assetId != null) {
-            return StorageKey.of(folder + "/" + assetId + "_v" + versionNumber + "_" + uniqueNonce);
+            return StorageKey.of(folder + "/" + filePrefix + assetId + "_v" + versionNumber + "_" + uniqueNonce);
         }
-        return StorageKey.of(folder + "/" + uniqueNonce);
+        return StorageKey.of(folder + "/" + filePrefix + uniqueNonce);
+    }
+
+    private static String extractSlugPrefix(String clientTag) {
+        if (clientTag == null || !clientTag.startsWith(SCREEN_TAG_PREFIX) || !clientTag.contains(":")) {
+            return null;
+        }
+        int colonIdx = clientTag.indexOf(':');
+        String rawSlug = clientTag.substring(colonIdx + 1).trim().toLowerCase(java.util.Locale.ROOT);
+        String sanitized = rawSlug.replaceAll("[^a-z0-9-]", "-").replaceAll("(^-+)|(-+$)", "");
+        if (sanitized.isBlank()) {
+            return null;
+        }
+        return (sanitized.length() > 40) ? sanitized.substring(0, 40).replaceAll("-+$", "") : sanitized;
     }
 
     private String resolveFolder(MediaType mediaType, String clientTag) {
         if (mediaType == MediaType.IMAGE) {
             if (clientTag != null) {
+                if (clientTag.startsWith(SCREEN_POSTER_TAG_PREFIX)) {
+                    return "kiemlai/screen/posters";
+                }
+                if (clientTag.startsWith(SCREEN_BACKDROP_TAG_PREFIX)) {
+                    return "kiemlai/screen/backdrops";
+                }
+                if (clientTag.startsWith(SCREEN_TAG_PREFIX)) {
+                    return "kiemlai/screen";
+                }
                 if (clientTag.startsWith(WIKI_ARTICLE_COVER_TAG_PREFIX)) {
                     return "kiemlai/wiki/covers";
                 }

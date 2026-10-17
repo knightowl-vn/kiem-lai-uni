@@ -110,24 +110,25 @@ class AdminScreenTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Title create contract: title-create.html contains form with all domain fields")
+    @DisplayName("Title create contract: title-create.html contains form with domain fields and file upload inputs without media UUIDs")
     void titleCreatePageDefinesExpectedStructure() throws Exception {
         String template = read("src/main/resources/templates/admin/screen/title-create.html");
 
         assertThat(template).contains("th:action=\"@{/admin/screen/titles}\"");
         assertThat(template).contains("th:field=\"*{title}\"");
-        assertThat(template).contains("th:field=\"*{slug}\"");
         assertThat(template).contains("th:field=\"*{originalTitle}\"");
         assertThat(template).contains("th:field=\"*{synopsis}\"");
         assertThat(template).contains("th:field=\"*{structure}\"");
         assertThat(template).contains("th:field=\"*{presentation}\"");
-        assertThat(template).contains("th:field=\"*{posterMediaAssetId}\"");
-        assertThat(template).contains("th:field=\"*{backdropMediaAssetId}\"");
+        assertThat(template).contains("name=\"posterFile\"");
+        assertThat(template).contains("name=\"backdropFile\"");
+        assertThat(template).doesNotContain("th:field=\"*{posterMediaAssetId}\"");
+        assertThat(template).doesNotContain("th:field=\"*{backdropMediaAssetId}\"");
         assertThat(template).contains("type=\"submit\"");
     }
 
     @Test
-    @DisplayName("Title edit contract: title-edit.html contains update action and existing data")
+    @DisplayName("Title edit contract: title-edit.html contains update action, image file uploads, removal flags, and no media UUID inputs")
     void titleEditPageDefinesExpectedStructure() throws Exception {
         String template = read("src/main/resources/templates/admin/screen/title-edit.html");
 
@@ -138,8 +139,12 @@ class AdminScreenTemplateContractTest {
         assertThat(template).contains("th:field=\"*{synopsis}\"");
         assertThat(template).contains("th:field=\"*{structure}\"");
         assertThat(template).contains("th:field=\"*{presentation}\"");
-        assertThat(template).contains("th:field=\"*{posterMediaAssetId}\"");
-        assertThat(template).contains("th:field=\"*{backdropMediaAssetId}\"");
+        assertThat(template).contains("name=\"posterFile\"");
+        assertThat(template).contains("name=\"backdropFile\"");
+        assertThat(template).contains("th:field=\"*{removePoster}\"");
+        assertThat(template).contains("th:field=\"*{removeBackdrop}\"");
+        assertThat(template).doesNotContain("th:field=\"*{posterMediaAssetId}\"");
+        assertThat(template).doesNotContain("th:field=\"*{backdropMediaAssetId}\"");
         assertThat(template).contains("th:text=\"${title.id}\"");
         assertThat(template).contains("th:text=\"${title.status}\"");
     }

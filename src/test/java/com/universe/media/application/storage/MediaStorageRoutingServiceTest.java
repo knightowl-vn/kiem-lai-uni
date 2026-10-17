@@ -166,6 +166,53 @@ class MediaStorageRoutingServiceTest {
                 1
         );
         assertThat(novelImageKey.value()).startsWith("kiemlai/novel/" + assetId + "_v1_");
+
+        // Screen poster without slug hint
+        StorageKey screenPosterKey = routingService.generateStorageKey(
+                MediaType.IMAGE,
+                "screen.poster",
+                assetId,
+                1
+        );
+        assertThat(screenPosterKey.value()).startsWith("kiemlai/screen/posters/" + assetId + "_v1_");
+
+        // Screen poster with slug hint
+        StorageKey screenPosterWithSlugKey = routingService.generateStorageKey(
+                MediaType.IMAGE,
+                "screen.poster:kiem-lai-phan-1",
+                assetId,
+                1
+        );
+        assertThat(screenPosterWithSlugKey.value()).startsWith("kiemlai/screen/posters/kiem-lai-phan-1-" + assetId + "_v1_");
+
+        // Screen backdrop with slug hint
+        StorageKey screenBackdropKey = routingService.generateStorageKey(
+                MediaType.IMAGE,
+                "screen.backdrop:kiem-lai-phan-1",
+                assetId,
+                1
+        );
+        assertThat(screenBackdropKey.value()).startsWith("kiemlai/screen/backdrops/kiem-lai-phan-1-" + assetId + "_v1_");
+
+        // Screen generic tag
+        StorageKey screenGenericKey = routingService.generateStorageKey(
+                MediaType.IMAGE,
+                "screen.banner",
+                assetId,
+                1
+        );
+        assertThat(screenGenericKey.value()).startsWith("kiemlai/screen/" + assetId + "_v1_");
+
+        // Slug hint length truncation (> 40 chars)
+        String veryLongSlug = "this-is-a-very-long-screen-title-slug-that-exceeds-forty-characters";
+        StorageKey longSlugKey = routingService.generateStorageKey(
+                MediaType.IMAGE,
+                "screen.poster:" + veryLongSlug,
+                assetId,
+                1
+        );
+        String prefix = veryLongSlug.substring(0, 40).replaceAll("-+$", "");
+        assertThat(longSlugKey.value()).startsWith("kiemlai/screen/posters/" + prefix + "-" + assetId + "_v1_");
     }
 
     @Test
@@ -218,5 +265,29 @@ class MediaStorageRoutingServiceTest {
         assertThatThrownBy(() -> sentinelB2Service.resolveBucketName(MediaStorageRoutingService.B2_PROVIDER))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Storage provider 'b2' requires an authentic configured bucket");
+    }
+
+    @Test
+    @DisplayName("does not extract slug prefix for non-Screen client tags containing colons")
+    void shouldNotExtractSlugPrefixForNonScreenClientTags() {
+        UUID assetId = UUID.randomUUID();
+
+        StorageKey wikiKey = routingService.generateStorageKey(
+                MediaType.IMAGE,
+                "wiki.article:some-slug",
+                assetId,
+                1
+        );
+        assertThat(wikiKey.value()).startsWith("kiemlai/wiki/" + assetId + "_v1_");
+        assertThat(wikiKey.value()).doesNotContain("some-slug");
+
+        StorageKey novelKey = routingService.generateStorageKey(
+                MediaType.IMAGE,
+                "novel.chapter:cover",
+                assetId,
+                1
+        );
+        assertThat(novelKey.value()).startsWith("kiemlai/novel/" + assetId + "_v1_");
+        assertThat(novelKey.value()).doesNotContain("cover");
     }
 }
