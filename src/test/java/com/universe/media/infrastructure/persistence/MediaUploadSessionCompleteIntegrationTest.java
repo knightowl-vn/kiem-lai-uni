@@ -2,6 +2,7 @@ package com.universe.media.infrastructure.persistence;
 
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.exceptions.StorageUploadNotFoundException;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
 import com.universe.media.application.ports.storage.MultipartObjectMetadata;
 import com.universe.media.application.ports.storage.MultipartStoragePort;
@@ -73,6 +74,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -123,9 +125,22 @@ class MediaUploadSessionCompleteIntegrationTest {
 
     @TestConfiguration
     static class TestConfig {
+        private static final AtomicReference<Instant> testClock = new AtomicReference<>();
+
+        public static void setClock(Instant instant) {
+            testClock.set(instant);
+        }
+
+        public static void resetClock() {
+            testClock.set(null);
+        }
+
         @Bean
         public ClockPort clockPort() {
-            return Instant::now;
+            return () -> {
+                Instant fixed = testClock.get();
+                return fixed != null ? fixed : Instant.now();
+            };
         }
 
         @Bean
@@ -171,7 +186,8 @@ class MediaUploadSessionCompleteIntegrationTest {
     private static final String B2_BUCKET = "kiemlai-video";
     private static final String PRINCIPAL = "user-creator-s2cc";
     private static final String CONSUMER = "SCREEN";
-    private static final String TARGET_TYPE = "ScreenEntry";
+    private static final String TARGET_TYPE = "SCREEN_ENTRY";
+    private static final String CLIENT_TAG = "screen-video";
     private static final String VALID_CONTENT_HASH = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
     private static final long DECLARED_SIZE = 52428800L; // 50 MiB, 2 parts of 26214400 bytes each
     private static final String PROVIDER_UPLOAD_ID = "b2-up-real-atomicity-001";
@@ -182,6 +198,7 @@ class MediaUploadSessionCompleteIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        TestConfig.resetClock();
         Mockito.reset(
                 multipartStoragePort,
                 mediaAssetPersistenceAdapter,
@@ -203,6 +220,7 @@ class MediaUploadSessionCompleteIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        TestConfig.resetClock();
         Mockito.reset(
                 multipartStoragePort,
                 mediaAssetPersistenceAdapter,
@@ -361,7 +379,7 @@ class MediaUploadSessionCompleteIntegrationTest {
                 expectedParts,
                 VALID_CONTENT_HASH,
                 "video.mp4",
-                "screen-tag",
+                CLIENT_TAG,
                 MediaUploadSessionStatus.COMPLETING,
                 expiresAt,
                 null,
@@ -400,7 +418,7 @@ class MediaUploadSessionCompleteIntegrationTest {
                 expectedParts,
                 VALID_CONTENT_HASH,
                 "video.mp4",
-                "screen-tag",
+                CLIENT_TAG,
                 MediaUploadSessionStatus.COMPLETING,
                 expiresAt,
                 null,
@@ -526,10 +544,10 @@ class MediaUploadSessionCompleteIntegrationTest {
         );
         assertThat(assetRow.get("id")).isEqualTo(registeredAssetId.toString());
         assertThat(assetRow.get("media_type")).isEqualTo("VIDEO");
-        assertThat(assetRow.get("visibility")).isEqualTo("PUBLIC");
+        assertThat(assetRow.get("visibility")).isEqualTo("PRIVATE");
         assertThat(assetRow.get("status")).isEqualTo("ACTIVE");
         assertThat(((Number) assetRow.get("current_version_number")).intValue()).isEqualTo(1);
-        assertThat(assetRow.get("client_tag")).isEqualTo("screen-tag");
+        assertThat(assetRow.get("client_tag")).isEqualTo(CLIENT_TAG);
         assertThat(assetRow.get("created_at")).isNotNull();
         assertThat(assetRow.get("updated_at")).isNotNull();
 
@@ -898,7 +916,7 @@ class MediaUploadSessionCompleteIntegrationTest {
     }
 
     @Test
-    @DisplayName("Fails closed when provider listUploadedParts throws NoSuchUpload, preserving COMPLETING state")
+    @DisplayName("Fails closed when provider listUploadedParts throws unrelated StorageObjectNotFoundException, never initiating recovery HEAD inspection")
     void shouldFailClosedWhenListUploadedPartsReturnsNoSuchUpload() {
         TestFixture fixture = createAndPersistCompletingFixture("err-list-nosuch");
 
@@ -913,6 +931,9 @@ class MediaUploadSessionCompleteIntegrationTest {
 
         assertThatThrownBy(() -> sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest()))
                 .isInstanceOf(StorageObjectNotFoundException.class);
+
+        // An unrelated StorageObjectNotFoundException must fail closed immediately and never initiate recovery HEAD inspection
+        verify(multipartStoragePort, never()).inspectObjectMetadata(any());
 
         Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
                 "SELECT status, registered_asset_id FROM media_upload_sessions WHERE id = ?",
@@ -975,7 +996,7 @@ class MediaUploadSessionCompleteIntegrationTest {
             });
 
             // Worker 2 must be strictly rejected with IllegalStateException due to active lease
-            assertThatThrownBy(worker2Future::get)
+            assertThatThrownBy(() -> worker2Future.get(15, TimeUnit.SECONDS))
                     .isInstanceOf(java.util.concurrent.ExecutionException.class)
                     .hasCauseInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Concurrent completion in progress");
@@ -994,13 +1015,17 @@ class MediaUploadSessionCompleteIntegrationTest {
             );
             assertThat(keyVersionCount).isEqualTo(1);
 
-            // Verify exactly one MediaAsset exists for the winning asset ID
-            Integer assetCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM media_assets WHERE id = ?",
-                    Integer.class,
+            // Verify exactly one MediaAsset exists for the winning asset ID with PRIVATE visibility and CLIENT_TAG
+            Map<String, Object> winningAssetRow = jdbcTemplate.queryForMap(
+                    "SELECT id, media_type, visibility, status, current_version_number, client_tag FROM media_assets WHERE id = ?",
                     worker1Session.getRegisteredAssetId().toString()
             );
-            assertThat(assetCount).isEqualTo(1);
+            assertThat(winningAssetRow.get("id")).isEqualTo(worker1Session.getRegisteredAssetId().toString());
+            assertThat(winningAssetRow.get("media_type")).isEqualTo("VIDEO");
+            assertThat(winningAssetRow.get("visibility")).isEqualTo("PRIVATE");
+            assertThat(winningAssetRow.get("status")).isEqualTo("ACTIVE");
+            assertThat(((Number) winningAssetRow.get("current_version_number")).intValue()).isEqualTo(1);
+            assertThat(winningAssetRow.get("client_tag")).isEqualTo(CLIENT_TAG);
 
             // Verify consistent committed allocation state pointing to the registered version
             Map<String, Object> allocRow = jdbcTemplate.queryForMap(
@@ -1020,7 +1045,7 @@ class MediaUploadSessionCompleteIntegrationTest {
             assertThat(sessionRow.get("lease_owner")).isNull();
             assertThat(sessionRow.get("lease_expires_at")).isNull();
         } finally {
-            executor.shutdown();
+            executor.shutdownNow();
             executor.awaitTermination(5, TimeUnit.SECONDS);
         }
     }
@@ -1259,5 +1284,362 @@ class MediaUploadSessionCompleteIntegrationTest {
         assertThat(listPartsTxActive.get()).isFalse();
         assertThat(completeTxActive.get()).isFalse();
         assertThat(headTxActive.get()).isFalse();
+    }
+
+    // =============================================================================================
+    // 6. Guarded Multipart Completion Recovery & Concurrent Fencing (MS-08E2-G1A)
+    // =============================================================================================
+
+    @Test
+    @DisplayName("Guarded recovery after TxB rollback: enforces active lease rejection, succeeds after legitimate expiry via NoSuchUpload + HEAD, commits exactly 1 asset/version, and returns idempotently")
+    void shouldRecoverMultipartCompletionAfterTxBRegistrationRollbackAndHonorLeaseFencing() {
+        TestFixture fixture = createAndPersistCompletingFixture("recovery-rb");
+        Instant baseTime = Instant.now();
+        TestConfig.setClock(baseTime);
+
+        // 1. Initial Attempt: Mock B2 completion succeeds
+        when(multipartStoragePort.listUploadedParts(fixture.storageKey(), PROVIDER_UPLOAD_ID))
+                .thenReturn(createStandard2UploadedParts());
+
+        when(multipartStoragePort.completeMultipartUpload(eq(fixture.storageKey()), eq(PROVIDER_UPLOAD_ID), any()))
+                .thenReturn(new MultipartCompletedObject(
+                        StorageLocation.of(B2_PROVIDER, fixture.storageKey()),
+                        "\"complete-etag-50mib\"",
+                        "ver-b2-rec-001"
+                ));
+
+        when(multipartStoragePort.inspectObjectMetadata(fixture.storageKey()))
+                .thenReturn(new MultipartObjectMetadata(
+                        fixture.storageKey(),
+                        DECLARED_SIZE,
+                        "video/mp4",
+                        "\"complete-etag-50mib\"",
+                        Map.of(
+                                MediaUploadSessionService.METADATA_SESSION_ID, fixture.sessionId().toString(),
+                                MediaUploadSessionService.METADATA_ALLOCATION_ID, fixture.allocationId().toString()
+                        ),
+                        "ver-b2-rec-001",
+                        B2_PROVIDER,
+                        B2_BUCKET
+                ));
+
+        Set<String> preExistingAssetIds = new HashSet<>(
+                jdbcTemplate.queryForList("SELECT id FROM media_assets", String.class)
+        );
+
+        // 2. Fault Injection: Inject failure during TX-B version save
+        Mockito.doThrow(new RuntimeException("Injected TX-B rollback failure on initial completion attempt"))
+                .when(mediaAssetVersionPersistenceAdapter)
+                .save(any(MediaAssetVersion.class));
+
+        assertThatThrownBy(() -> sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest()))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Injected TX-B rollback failure");
+
+        // 3. Assert real MySQL rollback: zero assets, zero versions, session COMPLETING, allocation RESERVED
+        List<String> postRollbackAssetIds = jdbcTemplate.queryForList("SELECT id FROM media_assets", String.class);
+        assertThat(postRollbackAssetIds).containsExactlyInAnyOrderElementsOf(preExistingAssetIds);
+
+        Integer versionCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_asset_versions WHERE storage_key = ?",
+                Integer.class,
+                fixture.storageKey().value()
+        );
+        assertThat(versionCount).isEqualTo(0);
+
+        Map<String, Object> rolledBackAlloc = jdbcTemplate.queryForMap(
+                "SELECT allocation_status, allocated_by_type, allocated_by_id FROM media_storage_key_allocations WHERE id = ?",
+                fixture.allocationId().toString()
+        );
+        assertThat(rolledBackAlloc.get("allocation_status")).isEqualTo(StorageKeyAllocationStatus.RESERVED.name());
+        assertThat(rolledBackAlloc.get("allocated_by_type")).isEqualTo(StorageKeyAllocationType.UPLOAD_SESSION.name());
+        assertThat(rolledBackAlloc.get("allocated_by_id")).isEqualTo(fixture.sessionId().toString());
+
+        Map<String, Object> rolledBackSession = jdbcTemplate.queryForMap(
+                "SELECT status, registered_asset_id, lease_owner, lease_expires_at FROM media_upload_sessions WHERE id = ?",
+                fixture.sessionId().toString()
+        );
+        assertThat(rolledBackSession.get("status")).isEqualTo(MediaUploadSessionStatus.COMPLETING.name());
+        assertThat(rolledBackSession.get("registered_asset_id")).isNull();
+        String activeClaimToken = (String) rolledBackSession.get("lease_owner");
+        assertThat(activeClaimToken).isNotNull().startsWith("COMPLETION_CLAIM:");
+        assertThat(rolledBackSession.get("lease_expires_at")).isNotNull();
+
+        // 4. Active Lease Fencing: Immediate retry while lease is active MUST be rejected with IllegalStateException
+        assertThatThrownBy(() -> sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Concurrent completion in progress")
+                .hasMessageContaining("lease held by");
+
+        // 5. Restore persistence adapter spy to call real method for recovery attempt
+        Mockito.doAnswer(inv -> inv.callRealMethod())
+                .when(mediaAssetVersionPersistenceAdapter)
+                .save(any(MediaAssetVersion.class));
+
+        // 6. Legitimate Expiration: Advance clock past 5-minute lease duration (6 minutes later)
+        TestConfig.setClock(baseTime.plus(Duration.ofMinutes(6)));
+
+        // 7. Mock remote provider for Scenario A recovery:
+        // listUploadedParts throws StorageUploadNotFoundException (upload already assembled on provider)
+        when(multipartStoragePort.listUploadedParts(fixture.storageKey(), PROVIDER_UPLOAD_ID))
+                .thenThrow(new StorageUploadNotFoundException(fixture.storageKey(), PROVIDER_UPLOAD_ID));
+
+        // 8. Execute recovery completion attempt
+        MediaUploadSession recovered = sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest());
+
+        assertThat(recovered).isNotNull();
+        assertThat(recovered.getStatus()).isEqualTo(MediaUploadSessionStatus.COMPLETED);
+        assertThat(recovered.getRegisteredAssetId()).isNotNull();
+        assertThat(recovered.getLeaseOwner()).isNull();
+        assertThat(recovered.getLeaseExpiresAt()).isNull();
+
+        UUID registeredAssetId = recovered.getRegisteredAssetId();
+        createdAssetIds.add(registeredAssetId);
+
+        // 9. Verify exact MySQL database state after guarded recovery:
+        // A: Exactly 1 MediaAsset
+        Map<String, Object> assetRow = jdbcTemplate.queryForMap(
+                "SELECT id, media_type, visibility, status, current_version_number, client_tag FROM media_assets WHERE id = ?",
+                registeredAssetId.toString()
+        );
+        assertThat(assetRow.get("id")).isEqualTo(registeredAssetId.toString());
+        assertThat(assetRow.get("media_type")).isEqualTo("VIDEO");
+        assertThat(assetRow.get("visibility")).isEqualTo("PRIVATE");
+        assertThat(assetRow.get("status")).isEqualTo("ACTIVE");
+        assertThat(((Number) assetRow.get("current_version_number")).intValue()).isEqualTo(1);
+        assertThat(assetRow.get("client_tag")).isEqualTo(CLIENT_TAG);
+
+        // B: Exactly 1 MediaAssetVersion with server-origin / client-declared provenance
+        Map<String, Object> versionRow = jdbcTemplate.queryForMap(
+                "SELECT id, asset_id, version_number, storage_provider_id, storage_key, content_hash_status, size_bytes FROM media_asset_versions WHERE asset_id = ?",
+                registeredAssetId.toString()
+        );
+        assertThat(versionRow.get("asset_id")).isEqualTo(registeredAssetId.toString());
+        assertThat(((Number) versionRow.get("version_number")).intValue()).isEqualTo(1);
+        assertThat(versionRow.get("storage_provider_id")).isEqualTo("b2");
+        assertThat(versionRow.get("storage_key")).isEqualTo(fixture.storageKey().value());
+        assertThat(versionRow.get("content_hash_status")).isEqualTo("CLIENT_DECLARED_UNVERIFIED");
+        assertThat(((Number) versionRow.get("size_bytes")).longValue()).isEqualTo(DECLARED_SIZE);
+
+        // C: Exactly 1 COMMITTED allocation with ownership handoff to ASSET_VERSION
+        Map<String, Object> allocRow = jdbcTemplate.queryForMap(
+                "SELECT id, allocation_status, allocated_by_type, allocated_by_id FROM media_storage_key_allocations WHERE id = ?",
+                fixture.allocationId().toString()
+        );
+        assertThat(allocRow.get("allocation_status")).isEqualTo(StorageKeyAllocationStatus.COMMITTED.name());
+        assertThat(allocRow.get("allocated_by_type")).isEqualTo(StorageKeyAllocationType.ASSET_VERSION.name());
+        assertThat(allocRow.get("allocated_by_id")).isEqualTo(versionRow.get("id"));
+
+        // D: MediaUploadSession completed in MySQL
+        Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
+                "SELECT id, status, registered_asset_id, lease_owner, lease_expires_at, completed_at FROM media_upload_sessions WHERE id = ?",
+                fixture.sessionId().toString()
+        );
+        assertThat(sessionRow.get("status")).isEqualTo(MediaUploadSessionStatus.COMPLETED.name());
+        assertThat(sessionRow.get("registered_asset_id")).isEqualTo(registeredAssetId.toString());
+        assertThat(sessionRow.get("lease_owner")).isNull();
+        assertThat(sessionRow.get("lease_expires_at")).isNull();
+        assertThat(sessionRow.get("completed_at")).isNotNull();
+
+        // E: Verify provider completeMultipartUpload was NOT called a second time during recovery
+        verify(multipartStoragePort, times(1)).completeMultipartUpload(any(), any(), any());
+
+        // 10. Repeated Completion Idempotency: re-call completeMultipartUpload
+        MediaUploadSession idempotent = sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest());
+        assertThat(idempotent.getStatus()).isEqualTo(MediaUploadSessionStatus.COMPLETED);
+        assertThat(idempotent.getRegisteredAssetId()).isEqualTo(registeredAssetId);
+
+        // Verify zero additional rows inserted in MySQL
+        Integer finalAssetCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_assets WHERE id = ?",
+                Integer.class,
+                registeredAssetId.toString()
+        );
+        assertThat(finalAssetCount).isEqualTo(1);
+
+        Integer finalVersionCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_asset_versions WHERE asset_id = ?",
+                Integer.class,
+                registeredAssetId.toString()
+        );
+        assertThat(finalVersionCount).isEqualTo(1);
+
+        // CompleteMultipartUpload still called only once across the entire test
+        verify(multipartStoragePort, times(1)).completeMultipartUpload(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Concurrent recovery callers with controlled contention: winning recovery worker completes, competing worker rejects, exactly one registration")
+    void shouldHandleConcurrentRecoveryWorkersDeterministicallyWithSingleWinner() throws Exception {
+        TestFixture fixture = createAndPersistCompletingFixture("race-recovery");
+
+        // Simulate an expired lease from a previous failed attempt eligible for recovery reclaim
+        Instant expiredLeaseAt = clockPort.now().minus(Duration.ofMinutes(5));
+        updatePersistedLease(fixture.sessionId(), "stale-worker-recovery", expiredLeaseAt);
+
+        // Provider reports upload already assembled/absent on listUploadedParts
+        when(multipartStoragePort.listUploadedParts(fixture.storageKey(), PROVIDER_UPLOAD_ID))
+                .thenThrow(new StorageUploadNotFoundException(fixture.storageKey(), PROVIDER_UPLOAD_ID));
+
+        CountDownLatch worker1TxACommittedLatch = new CountDownLatch(1);
+        CountDownLatch worker2AttemptedLatch = new CountDownLatch(1);
+
+        // Synchronize during Scenario A inspectObjectMetadata (after Worker 1 committed TX-A recovery claim in MySQL)
+        when(multipartStoragePort.inspectObjectMetadata(fixture.storageKey())).thenAnswer(inv -> {
+            worker1TxACommittedLatch.countDown();
+            assertThat(worker2AttemptedLatch.await(10, TimeUnit.SECONDS)).isTrue();
+            return new MultipartObjectMetadata(
+                    fixture.storageKey(),
+                    DECLARED_SIZE,
+                    "video/mp4",
+                    "\"complete-etag-50mib\"",
+                    Map.of(
+                            MediaUploadSessionService.METADATA_SESSION_ID, fixture.sessionId().toString(),
+                            MediaUploadSessionService.METADATA_ALLOCATION_ID, fixture.allocationId().toString()
+                    ),
+                    "ver-b2-race-rec-001",
+                    B2_PROVIDER,
+                    B2_BUCKET
+            );
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            // Thread 1: Worker 1 reclaims expired lease and recovers object metadata
+            Future<MediaUploadSession> worker1Future = executor.submit(() ->
+                    sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest())
+            );
+
+            // Thread 2: Worker 2 races while Worker 1's recovery claim lease is actively held in MySQL
+            Future<MediaUploadSession> worker2Future = executor.submit(() -> {
+                try {
+                    assertThat(worker1TxACommittedLatch.await(10, TimeUnit.SECONDS)).isTrue();
+                    return sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest());
+                } finally {
+                    worker2AttemptedLatch.countDown();
+                }
+            });
+
+            // Worker 2 must be strictly rejected by active lease check
+            assertThatThrownBy(() -> worker2Future.get(15, TimeUnit.SECONDS))
+                    .isInstanceOf(java.util.concurrent.ExecutionException.class)
+                    .hasCauseInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Concurrent completion in progress");
+
+            // Worker 1 completes registration successfully
+            MediaUploadSession worker1Session = worker1Future.get(15, TimeUnit.SECONDS);
+            assertThat(worker1Session).isNotNull();
+            assertThat(worker1Session.getStatus()).isEqualTo(MediaUploadSessionStatus.COMPLETED);
+            UUID registeredAssetId = worker1Session.getRegisteredAssetId();
+            assertThat(registeredAssetId).isNotNull();
+            createdAssetIds.add(registeredAssetId);
+
+            // Verify exactly one MediaAsset in MySQL with PRIVATE visibility and CLIENT_TAG
+            Map<String, Object> assetRow = jdbcTemplate.queryForMap(
+                    "SELECT id, media_type, visibility, status, current_version_number, client_tag FROM media_assets WHERE id = ?",
+                    registeredAssetId.toString()
+            );
+            assertThat(assetRow.get("id")).isEqualTo(registeredAssetId.toString());
+            assertThat(assetRow.get("media_type")).isEqualTo("VIDEO");
+            assertThat(assetRow.get("visibility")).isEqualTo("PRIVATE");
+            assertThat(assetRow.get("status")).isEqualTo("ACTIVE");
+            assertThat(((Number) assetRow.get("current_version_number")).intValue()).isEqualTo(1);
+            assertThat(assetRow.get("client_tag")).isEqualTo(CLIENT_TAG);
+
+            // Verify exactly one MediaAssetVersion in MySQL
+            Integer versionCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM media_asset_versions WHERE asset_id = ?",
+                    Integer.class,
+                    registeredAssetId.toString()
+            );
+            assertThat(versionCount).isEqualTo(1);
+
+            // Verify exactly one COMMITTED allocation in MySQL
+            Map<String, Object> allocRow = jdbcTemplate.queryForMap(
+                    "SELECT allocation_status, allocated_by_type, allocated_by_id FROM media_storage_key_allocations WHERE id = ?",
+                    fixture.allocationId().toString()
+            );
+            assertThat(allocRow.get("allocation_status")).isEqualTo(StorageKeyAllocationStatus.COMMITTED.name());
+            assertThat(allocRow.get("allocated_by_type")).isEqualTo(StorageKeyAllocationType.ASSET_VERSION.name());
+
+            // Verify session is COMPLETED in MySQL with cleared lease
+            Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
+                    "SELECT status, registered_asset_id, lease_owner, lease_expires_at FROM media_upload_sessions WHERE id = ?",
+                    fixture.sessionId().toString()
+            );
+            assertThat(sessionRow.get("status")).isEqualTo(MediaUploadSessionStatus.COMPLETED.name());
+            assertThat(sessionRow.get("registered_asset_id")).isEqualTo(registeredAssetId.toString());
+            assertThat(sessionRow.get("lease_owner")).isNull();
+            assertThat(sessionRow.get("lease_expires_at")).isNull();
+
+            // Zero calls to completeMultipartUpload or abortMultipartUpload
+            verify(multipartStoragePort, never()).completeMultipartUpload(any(), any(), any());
+            verify(multipartStoragePort, never()).abortMultipartUpload(any(), any());
+
+            // Subsequent idempotent call by Worker 2 succeeds and returns the winning asset ID
+            MediaUploadSession followUpSession = sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest());
+            assertThat(followUpSession.getStatus()).isEqualTo(MediaUploadSessionStatus.COMPLETED);
+            assertThat(followUpSession.getRegisteredAssetId()).isEqualTo(registeredAssetId);
+        } finally {
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("Rejects recovery TX-B registration when claim token is replaced by competing worker before TX-B commits")
+    void shouldRejectStaleRecoveryWorkerWhenClaimTokenReplacedBeforeTxBCommit() {
+        TestFixture fixture = createAndPersistCompletingFixture("fence-replace-claim");
+
+        when(multipartStoragePort.listUploadedParts(fixture.storageKey(), PROVIDER_UPLOAD_ID))
+                .thenThrow(new StorageUploadNotFoundException(fixture.storageKey(), PROVIDER_UPLOAD_ID));
+
+        // When inspectObjectMetadata is called (outside MySQL transaction, between TX-A and TX-B),
+        // simulate a competing worker or reaper replacing the lease in MySQL with a different claim token
+        when(multipartStoragePort.inspectObjectMetadata(fixture.storageKey())).thenAnswer(inv -> {
+            Instant futureLeaseAt = clockPort.now().plus(Duration.ofMinutes(5));
+            updatePersistedLease(fixture.sessionId(), "COMPLETION_CLAIM:competing-replacement-token", futureLeaseAt);
+
+            return new MultipartObjectMetadata(
+                    fixture.storageKey(),
+                    DECLARED_SIZE,
+                    "video/mp4",
+                    "\"complete-etag-50mib\"",
+                    Map.of(
+                            MediaUploadSessionService.METADATA_SESSION_ID, fixture.sessionId().toString(),
+                            MediaUploadSessionService.METADATA_ALLOCATION_ID, fixture.allocationId().toString()
+                    ),
+                    "ver-b2-fence-rep-001",
+                    B2_PROVIDER,
+                    B2_BUCKET
+            );
+        });
+
+        // Stale worker's attempt to commit TX-B MUST fail due to claim token mismatch
+        assertThatThrownBy(() -> sessionService.completeMultipartUpload(fixture.sessionId(), PRINCIPAL, fixture.manifest()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Completion claim token mismatch")
+                .hasMessageContaining("competing-replacement-token");
+
+        // Verify session remains COMPLETING in MySQL and zero assets/versions were committed by the stale worker
+        Map<String, Object> sessionRow = jdbcTemplate.queryForMap(
+                "SELECT status, registered_asset_id FROM media_upload_sessions WHERE id = ?",
+                fixture.sessionId().toString()
+        );
+        assertThat(sessionRow.get("status")).isEqualTo(MediaUploadSessionStatus.COMPLETING.name());
+        assertThat(sessionRow.get("registered_asset_id")).isNull();
+
+        Map<String, Object> allocRow = jdbcTemplate.queryForMap(
+                "SELECT allocation_status FROM media_storage_key_allocations WHERE id = ?",
+                fixture.allocationId().toString()
+        );
+        assertThat(allocRow.get("allocation_status")).isEqualTo(StorageKeyAllocationStatus.RESERVED.name());
+
+        Integer versionCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_asset_versions WHERE storage_key = ?",
+                Integer.class,
+                fixture.storageKey().value()
+        );
+        assertThat(versionCount).isEqualTo(0);
     }
 }
