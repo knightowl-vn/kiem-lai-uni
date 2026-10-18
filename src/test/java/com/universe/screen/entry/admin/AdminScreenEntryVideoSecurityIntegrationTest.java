@@ -21,8 +21,10 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
+import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
@@ -48,6 +50,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -128,6 +131,12 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
 
     @MockBean
     private AttachScreenEntryVideoUseCase attachScreenEntryVideoUseCase;
+
+    @MockBean
+    private DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase;
+
+    @MockBean
+    private ReplaceScreenEntryVideoUseCase replaceScreenEntryVideoUseCase;
 
     @MockBean
     private MediaContract mediaContract;
@@ -383,5 +392,56 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
                         ))))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @DisplayName("Security: Unauthenticated request cannot detach video")
+    void unauthenticated_cannotDetachVideo() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @DisplayName("Security: USER role cannot detach video")
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    void regularUser_cannotDetachVideo() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @DisplayName("Security: ADMIN without CSRF cannot detach video")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void adminUser_withoutCsrf_cannotDetachVideo() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @DisplayName("Security: ADMIN with CSRF can detach video successfully")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void adminUser_withCsrf_canDetachVideo() throws Exception {
+        ScreenEntryDTO detachedEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                null, null, 1200L, ScreenPublicationStatus.DRAFT, null, now, now
+        );
+        when(detachScreenEntryVideoUseCase.execute(TITLE_ID, ENTRY_ID, ASSET_ID)).thenReturn(detachedEntry);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("expectedVideoMediaAssetId", ASSET_ID.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DETACHED"));
+
+        verify(detachScreenEntryVideoUseCase).execute(TITLE_ID, ENTRY_ID, ASSET_ID);
     }
 }

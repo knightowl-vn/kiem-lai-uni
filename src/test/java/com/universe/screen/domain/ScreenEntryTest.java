@@ -688,6 +688,225 @@ class ScreenEntryTest {
     }
 
     @Test
+    @DisplayName("detachVideo successfully removes video from DRAFT entry and preserves all other fields")
+    void shouldDetachVideoFromDraftEntry() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+        UUID thumbId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", videoId, thumbId, 1200L, T0
+        );
+
+        entry.detachVideo(T1);
+
+        assertThat(entry.getVideoMediaAssetId()).isNull();
+        assertThat(entry.getThumbnailMediaAssetId()).isEqualTo(thumbId);
+        assertThat(entry.getDurationSeconds()).isEqualTo(1200L);
+        assertThat(entry.getPublishedAt()).isNull();
+        assertThat(entry.getStatus()).isEqualTo(ScreenPublicationStatus.DRAFT);
+        assertThat(entry.getUpdatedAt()).isEqualTo(T1);
+    }
+
+    @Test
+    @DisplayName("detachVideo successfully removes video from ARCHIVED entry")
+    void shouldDetachVideoFromArchivedEntry() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", videoId, null, 1200L, T0
+        );
+        entry.archive(T1);
+
+        entry.detachVideo(T2);
+
+        assertThat(entry.getVideoMediaAssetId()).isNull();
+        assertThat(entry.getStatus()).isEqualTo(ScreenPublicationStatus.ARCHIVED);
+        assertThat(entry.getUpdatedAt()).isEqualTo(T2);
+    }
+
+    @Test
+    @DisplayName("detachVideo rejects detaching video from PUBLISHED entry")
+    void shouldRejectDetachingVideoFromPublishedEntry() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", videoId, null, 1200L, T0
+        );
+        entry.publish(T1);
+
+        assertThatThrownBy(() -> entry.detachVideo(T2))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("PUBLISHED");
+    }
+
+    @Test
+    @DisplayName("detachVideo rejects detaching when no video is attached")
+    void shouldRejectDetachingWhenNoVideoAttached() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", T0
+        );
+
+        assertThatThrownBy(() -> entry.detachVideo(T1))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chưa gắn video");
+    }
+
+    @Test
+    @DisplayName("detachVideo validates authoritativeUpdatedAt timestamp")
+    void shouldValidateDetachTimestamp() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", videoId, null, 1200L, T1
+        );
+
+        assertThatThrownBy(() -> entry.detachVideo(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("UpdatedAt timestamp cannot be null");
+
+        assertThatThrownBy(() -> entry.detachVideo(T0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("UpdatedAt timestamp cannot be before");
+    }
+
+    @Test
+    @DisplayName("replaceVideo successfully swaps video on DRAFT entry")
+    void shouldReplaceVideoOnDraftEntry() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID oldVideoId = UUID.randomUUID();
+        UUID newVideoId = UUID.randomUUID();
+        UUID thumbId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", oldVideoId, thumbId, 1200L, T0
+        );
+
+        entry.replaceVideo(newVideoId, T1);
+
+        assertThat(entry.getVideoMediaAssetId()).isEqualTo(newVideoId);
+        assertThat(entry.getThumbnailMediaAssetId()).isEqualTo(thumbId);
+        assertThat(entry.getDurationSeconds()).isEqualTo(1200L);
+        assertThat(entry.getPublishedAt()).isNull();
+        assertThat(entry.getStatus()).isEqualTo(ScreenPublicationStatus.DRAFT);
+        assertThat(entry.getUpdatedAt()).isEqualTo(T1);
+    }
+
+    @Test
+    @DisplayName("replaceVideo successfully swaps video on PUBLISHED entry preserving status and publishedAt")
+    void shouldReplaceVideoOnPublishedEntryPreservingPublicationState() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID oldVideoId = UUID.randomUUID();
+        UUID newVideoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", oldVideoId, null, 1200L, T0
+        );
+        entry.publish(T1);
+
+        entry.replaceVideo(newVideoId, T2);
+
+        assertThat(entry.getVideoMediaAssetId()).isEqualTo(newVideoId);
+        assertThat(entry.getStatus()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        assertThat(entry.getPublishedAt()).isEqualTo(T1);
+        assertThat(entry.getUpdatedAt()).isEqualTo(T2);
+    }
+
+    @Test
+    @DisplayName("replaceVideo successfully swaps video on ARCHIVED entry")
+    void shouldReplaceVideoOnArchivedEntry() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID oldVideoId = UUID.randomUUID();
+        UUID newVideoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", oldVideoId, null, 1200L, T0
+        );
+        entry.archive(T1);
+
+        entry.replaceVideo(newVideoId, T2);
+
+        assertThat(entry.getVideoMediaAssetId()).isEqualTo(newVideoId);
+        assertThat(entry.getStatus()).isEqualTo(ScreenPublicationStatus.ARCHIVED);
+        assertThat(entry.getUpdatedAt()).isEqualTo(T2);
+    }
+
+    @Test
+    @DisplayName("replaceVideo rejects null newVideoMediaAssetId")
+    void shouldRejectNullNewVideoIdOnReplacement() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID oldVideoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", oldVideoId, null, 1200L, T0
+        );
+
+        assertThatThrownBy(() -> entry.replaceVideo(null, T1))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("New video Media Asset ID cannot be null");
+    }
+
+    @Test
+    @DisplayName("replaceVideo rejects replacing when entry has no attached video")
+    void shouldRejectReplacementWhenNoVideoAttached() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID newVideoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", T0
+        );
+
+        assertThatThrownBy(() -> entry.replaceVideo(newVideoId, T1))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chưa gắn video");
+    }
+
+    @Test
+    @DisplayName("replaceVideo validates authoritativeUpdatedAt timestamp")
+    void shouldValidateReplaceTimestamp() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        UUID oldVideoId = UUID.randomUUID();
+        UUID newVideoId = UUID.randomUUID();
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Mô tả", oldVideoId, null, 1200L, T1
+        );
+
+        assertThatThrownBy(() -> entry.replaceVideo(newVideoId, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("UpdatedAt timestamp cannot be null");
+
+        assertThatThrownBy(() -> entry.replaceVideo(newVideoId, T0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("UpdatedAt timestamp cannot be before");
+    }
+
+    @Test
     @DisplayName("Implements identity-based equals and hashCode")
     void shouldImplementIdentityBasedEquality() {
         UUID id = UUID.randomUUID();

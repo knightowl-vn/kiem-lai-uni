@@ -1,6 +1,7 @@
 package com.universe.screen.entry.admin.dto;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Request payload to initiate a multipart video upload session for a ScreenEntry.
@@ -8,7 +9,9 @@ import java.util.Objects;
 public record InitiateVideoUploadSessionRequest(
         long declaredSizeBytes,
         String originalFilename,
-        String idempotencyKey
+        String idempotencyKey,
+        Boolean isReplacement,
+        UUID expectedCurrentVideoMediaAssetId
 ) {
     public InitiateVideoUploadSessionRequest {
         if (declaredSizeBytes <= 0) {
@@ -18,5 +21,9 @@ public record InitiateVideoUploadSessionRequest(
         if (originalFilename.isBlank()) {
             throw new IllegalArgumentException("originalFilename cannot be blank.");
         }
+    }
+
+    public InitiateVideoUploadSessionRequest(long declaredSizeBytes, String originalFilename, String idempotencyKey) {
+        this(declaredSizeBytes, originalFilename, idempotencyKey, false, null);
     }
 }

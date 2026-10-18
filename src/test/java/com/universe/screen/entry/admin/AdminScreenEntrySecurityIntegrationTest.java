@@ -17,6 +17,7 @@ import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.usecase.ArchiveScreenEntryUseCase;
 import com.universe.screen.application.usecase.CreateScreenEntryUseCase;
+import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryListUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
@@ -37,6 +38,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
@@ -133,6 +135,9 @@ class AdminScreenEntrySecurityIntegrationTest {
 
     @MockBean
     private ArchiveScreenEntryUseCase archiveScreenEntryUseCase;
+
+    @MockBean
+    private DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase;
 
     private ScreenTitleDTO sampleTitle;
     private ScreenEntryDTO sampleEntry;
@@ -382,5 +387,54 @@ class AdminScreenEntrySecurityIntegrationTest {
                 .andExpect(result -> assertFalse(result.getFlashMap().containsKey("successMessage")));
 
         verify(updateScreenEntryUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Security: Unauthenticated request cannot post detach video form")
+    void unauthenticated_cannotPostDetachForm() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    @DisplayName("Security: USER role cannot post detach video form")
+    void regularUser_cannotPostDetachForm() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN without CSRF cannot post detach video form")
+    void adminUser_withoutCsrf_cannotPostDetachForm() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Security: ADMIN with CSRF can post detach video form and redirects to detail")
+    void adminUser_withCsrf_canPostDetachForm() throws Exception {
+        UUID currentVideoId = UUID.randomUUID();
+        when(detachScreenEntryVideoUseCase.execute(TITLE_ID, ENTRY_ID, currentVideoId)).thenReturn(sampleEntry);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/detach", TITLE_ID, ENTRY_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("expectedVideoMediaAssetId", currentVideoId.toString()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/screen/titles/" + TITLE_ID + "/entries/" + ENTRY_ID))
+                .andExpect(flash().attributeExists("successMessage"));
+
+        verify(detachScreenEntryVideoUseCase).execute(TITLE_ID, ENTRY_ID, currentVideoId);
     }
 }

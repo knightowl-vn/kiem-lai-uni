@@ -8,16 +8,20 @@ import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsEx
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.usecase.ArchiveScreenEntryUseCase;
 import com.universe.screen.application.usecase.CreateScreenEntryUseCase;
+import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.PublishScreenEntryUseCase;
 import com.universe.screen.application.usecase.UpdateScreenEntryUseCase;
 import com.universe.screen.entry.admin.form.CreateScreenEntryForm;
 import com.universe.screen.entry.admin.form.EditScreenEntryForm;
+import com.universe.shared.exceptions.BaseApplicationException;
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.Objects;
@@ -31,17 +35,20 @@ public class AdminScreenEntryCommandController {
     private final UpdateScreenEntryUseCase updateScreenEntryUseCase;
     private final PublishScreenEntryUseCase publishScreenEntryUseCase;
     private final ArchiveScreenEntryUseCase archiveScreenEntryUseCase;
+    private final DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase;
 
     public AdminScreenEntryCommandController(
             CreateScreenEntryUseCase createScreenEntryUseCase,
             UpdateScreenEntryUseCase updateScreenEntryUseCase,
             PublishScreenEntryUseCase publishScreenEntryUseCase,
-            ArchiveScreenEntryUseCase archiveScreenEntryUseCase
+            ArchiveScreenEntryUseCase archiveScreenEntryUseCase,
+            DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase
     ) {
         this.createScreenEntryUseCase = Objects.requireNonNull(createScreenEntryUseCase, "CreateScreenEntryUseCase cannot be null.");
         this.updateScreenEntryUseCase = Objects.requireNonNull(updateScreenEntryUseCase, "UpdateScreenEntryUseCase cannot be null.");
         this.publishScreenEntryUseCase = Objects.requireNonNull(publishScreenEntryUseCase, "PublishScreenEntryUseCase cannot be null.");
         this.archiveScreenEntryUseCase = Objects.requireNonNull(archiveScreenEntryUseCase, "ArchiveScreenEntryUseCase cannot be null.");
+        this.detachScreenEntryVideoUseCase = Objects.requireNonNull(detachScreenEntryVideoUseCase, "DetachScreenEntryVideoUseCase cannot be null.");
     }
 
     @PostMapping
@@ -173,6 +180,37 @@ public class AdminScreenEntryCommandController {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             return "redirect:/admin/screen/titles";
         } catch (IllegalStateException | IllegalArgumentException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+        }
+
+        return "redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId;
+    }
+
+    @PostMapping(
+            value = "/{entryId}/video/detach",
+            consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE, MediaType.MULTIPART_FORM_DATA_VALUE}
+    )
+    public String detachVideo(
+            @PathVariable UUID titleId,
+            @PathVariable UUID entryId,
+            @RequestParam(name = "expectedVideoMediaAssetId", required = false) UUID expectedVideoMediaAssetId,
+            RedirectAttributes redirectAttributes
+    ) {
+        if (expectedVideoMediaAssetId == null) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Không tìm thấy mã video hiện tại để xác thực thao tác gỡ bỏ.");
+            return "redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId;
+        }
+
+        try {
+            detachScreenEntryVideoUseCase.execute(titleId, entryId, expectedVideoMediaAssetId);
+            redirectAttributes.addFlashAttribute("successMessage", "Đã gỡ bỏ video khỏi Screen Entry thành công. Video gốc vẫn được bảo toàn an toàn trên hệ thống Media.");
+        } catch (ScreenEntryNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return "redirect:/admin/screen/titles/" + titleId + "/entries";
+        } catch (ScreenTitleNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return "redirect:/admin/screen/titles";
+        } catch (BaseApplicationException | IllegalArgumentException | IllegalStateException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
         }
 

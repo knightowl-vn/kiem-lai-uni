@@ -77,7 +77,9 @@
             registeredAssetId: null,
             playbackUrl: null,
             error: null,
-            partsManifest: []
+            partsManifest: [],
+            isReplacement: options.isReplacement || false,
+            expectedCurrentVideoMediaAssetId: options.expectedCurrentVideoMediaAssetId || null
         };
     }
 
@@ -149,10 +151,22 @@
             throw unsettledErr;
         }
 
+        // Fail-closed validation for replacement mode: require non-empty expectedCurrentVideoMediaAssetId
+        if (params.isReplacement && (!params.expectedCurrentVideoMediaAssetId || typeof params.expectedCurrentVideoMediaAssetId !== 'string' || !params.expectedCurrentVideoMediaAssetId.trim())) {
+            const missingIdErr = new Error('expectedCurrentVideoMediaAssetId không được để trống khi thực hiện thay thế video.');
+            missingIdErr.code = 'MISSING_EXPECTED_ASSET_ID';
+            if (callbacks.onError) {
+                callbacks.onError(missingIdErr, null);
+            }
+            throw missingIdErr;
+        }
+
         // Create new attempt context
         const attempt = createAttempt(file, entryId, {
             idempotencyKey: params.idempotencyKey,
-            abortController: params.abortController
+            abortController: params.abortController,
+            isReplacement: params.isReplacement,
+            expectedCurrentVideoMediaAssetId: params.expectedCurrentVideoMediaAssetId
         });
         this.currentAttempt = attempt;
         const currentGen = attempt.generation;
@@ -224,14 +238,22 @@
 
         let initResp;
         try {
+            const initBody = {
+                declaredSizeBytes: attempt.file.size,
+                originalFilename: attempt.file.name,
+                idempotencyKey: attempt.idempotencyKey
+            };
+            if (attempt.isReplacement) {
+                initBody.isReplacement = true;
+                if (attempt.expectedCurrentVideoMediaAssetId) {
+                    initBody.expectedCurrentVideoMediaAssetId = attempt.expectedCurrentVideoMediaAssetId;
+                }
+            }
+
             initResp = await fetchFn(`/admin/screen/titles/${titleId}/entries/${entryId}/video/upload-session`, {
                 method: 'POST',
                 headers: getCsrfHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({
-                    declaredSizeBytes: attempt.file.size,
-                    originalFilename: attempt.file.name,
-                    idempotencyKey: attempt.idempotencyKey
-                }),
+                body: JSON.stringify(initBody),
                 signal: signal
             });
         } catch (netErr) {
@@ -522,13 +544,18 @@
         const signal = attempt.abortController ? attempt.abortController.signal : undefined;
         let completeResp;
         try {
+            const completeBody = {
+                declaredContentHash: contentHash,
+                parts: attempt.partsManifest
+            };
+            if (attempt.expectedCurrentVideoMediaAssetId) {
+                completeBody.expectedCurrentVideoMediaAssetId = attempt.expectedCurrentVideoMediaAssetId;
+            }
+
             completeResp = await fetchFn(`/admin/screen/titles/${titleId}/entries/${entryId}/video/upload-session/${attempt.sessionId}/complete`, {
                 method: 'POST',
                 headers: getCsrfHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({
-                    declaredContentHash: contentHash,
-                    parts: attempt.partsManifest
-                }),
+                body: JSON.stringify(completeBody),
                 signal: signal
             });
         } catch (netErr) {
@@ -555,7 +582,10 @@
         attempt.playbackUrl = completeData.playbackUrl;
 
         if (callbacks.onProgress && !this.isStale(attempt, currentGen)) {
-            callbacks.onProgress(100, 'Tải lên và gắn video thành công!', attempt);
+            const successMsg = completeData.status === 'REPLACED'
+                    ? 'Tải lên và thay thế video thành công!'
+                    : 'Tải lên và gắn video thành công!';
+            callbacks.onProgress(100, successMsg, attempt);
         }
         if (callbacks.onSuccess && !this.isStale(attempt, currentGen)) {
             callbacks.onSuccess(completeData, attempt);

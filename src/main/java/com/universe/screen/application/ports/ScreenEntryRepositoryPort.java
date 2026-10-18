@@ -15,6 +15,11 @@ public interface ScreenEntryRepositoryPort {
 
     Optional<ScreenEntry> findById(UUID id);
 
+    /**
+     * Retrieves entry with pessimistic row-level lock (FOR UPDATE) for safe concurrent mutations.
+     */
+    Optional<ScreenEntry> findByIdForUpdate(UUID id);
+
     Optional<ScreenEntry> findByTitleIdAndSlug(UUID titleId, String slug);
 
     Optional<ScreenEntry> findPublishedById(UUID id);

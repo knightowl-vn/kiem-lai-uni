@@ -11,6 +11,7 @@ import com.universe.screen.application.usecase.ArchiveScreenTitleUseCase;
 import com.universe.screen.application.usecase.CreateScreenEntryUseCase;
 import com.universe.screen.application.usecase.CreateScreenFranchiseUseCase;
 import com.universe.screen.application.usecase.CreateScreenTitleUseCase;
+import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.GetAvailableScreenTitlesUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryListUseCase;
@@ -65,7 +66,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         CreateScreenEntryUseCase.class,
         UpdateScreenEntryUseCase.class,
         PublishScreenEntryUseCase.class,
-        ArchiveScreenEntryUseCase.class
+        ArchiveScreenEntryUseCase.class,
+        DetachScreenEntryVideoUseCase.class
 })
 @TestPropertySource(properties = {
         "spring.main.banner-mode=off"
@@ -159,6 +161,9 @@ class ScreenAdminContextLoadTest {
     @Autowired
     private ArchiveScreenEntryUseCase archiveScreenEntryUseCase;
 
+    @Autowired
+    private DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase;
+
     @Test
     @DisplayName("Spring Wiring: Admin Screen controllers and use cases are successfully wired into Spring context")
     void shouldSuccessfullyWireAdminBeans() {
@@ -182,5 +187,6 @@ class ScreenAdminContextLoadTest {
         assertThat(updateScreenEntryUseCase).isNotNull();
         assertThat(publishScreenEntryUseCase).isNotNull();
         assertThat(archiveScreenEntryUseCase).isNotNull();
+        assertThat(detachScreenEntryVideoUseCase).isNotNull();
     }
 }

@@ -8,6 +8,7 @@ import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsEx
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.usecase.ArchiveScreenEntryUseCase;
 import com.universe.screen.application.usecase.CreateScreenEntryUseCase;
+import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.PublishScreenEntryUseCase;
 import com.universe.screen.application.usecase.UpdateScreenEntryUseCase;
 import com.universe.screen.domain.ScreenEntryType;
@@ -51,6 +52,9 @@ class AdminScreenEntryCommandControllerTest {
     @Mock
     private ArchiveScreenEntryUseCase archiveScreenEntryUseCase;
 
+    @Mock
+    private DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase;
+
     private AdminScreenEntryCommandController controller;
 
     private final UUID titleId = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -66,7 +70,8 @@ class AdminScreenEntryCommandControllerTest {
                 createScreenEntryUseCase,
                 updateScreenEntryUseCase,
                 publishScreenEntryUseCase,
-                archiveScreenEntryUseCase
+                archiveScreenEntryUseCase,
+                detachScreenEntryVideoUseCase
         );
 
         sampleEntry = new ScreenEntryDTO(
@@ -373,6 +378,73 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("already archived");
+        }
+    }
+
+    @Nested
+    @DisplayName("detachVideo")
+    class DetachVideoTests {
+
+        @Test
+        @DisplayName("Command: detachVideo successfully detaches video and redirects to detail with success message")
+        void shouldDetachVideoSuccessfully() {
+            UUID currentVideoId = UUID.randomUUID();
+            ScreenEntryDTO detached = new ScreenEntryDTO(
+                    entryId, titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                    "Tóm tắt", null, null, 1200L, ScreenPublicationStatus.DRAFT,
+                    null, now, now
+            );
+            when(detachScreenEntryVideoUseCase.execute(titleId, entryId, currentVideoId)).thenReturn(detached);
+
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+            String view = controller.detachVideo(titleId, entryId, currentVideoId, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("successMessage");
+            assertThat((String) redirectAttributes.getFlashAttributes().get("successMessage")).contains("gỡ bỏ");
+            verify(detachScreenEntryVideoUseCase).execute(titleId, entryId, currentVideoId);
+        }
+
+        @Test
+        @DisplayName("Command: detachVideo without expectedVideoMediaAssetId redirects with error flash message (E2L1-02)")
+        void shouldRedirectWithErrorWhenExpectedIdIsNull() {
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+            String view = controller.detachVideo(titleId, entryId, null, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .contains("Không tìm thấy mã video hiện tại");
+            verify(detachScreenEntryVideoUseCase, never()).execute(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("CRITICAL TITLE/ENTRY OWNERSHIP: detachVideo with foreign title redirects to entries list with error")
+        void shouldRedirectToEntriesListWhenForeignTitle() {
+            UUID currentVideoId = UUID.randomUUID();
+            when(detachScreenEntryVideoUseCase.execute(foreignTitleId, entryId, currentVideoId))
+                    .thenThrow(new ScreenEntryNotFoundException(entryId));
+
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+            String view = controller.detachVideo(foreignTitleId, entryId, currentVideoId, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + foreignTitleId + "/entries");
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+        }
+
+        @Test
+        @DisplayName("Command: detachVideo on conflict or illegal state redirects to detail with error message")
+        void shouldRedirectToDetailOnError() {
+            UUID currentVideoId = UUID.randomUUID();
+            when(detachScreenEntryVideoUseCase.execute(titleId, entryId, currentVideoId))
+                    .thenThrow(new IllegalStateException("Không thể gỡ bỏ video khỏi Screen Entry đang ở trạng thái PUBLISHED."));
+
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+            String view = controller.detachVideo(titleId, entryId, currentVideoId, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("PUBLISHED");
         }
     }
 }

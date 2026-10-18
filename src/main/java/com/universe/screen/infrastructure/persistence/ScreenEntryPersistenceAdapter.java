@@ -83,6 +83,15 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
     }
 
     @Override
+    @Transactional
+    public Optional<ScreenEntry> findByIdForUpdate(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return repository.findByIdForUpdate(id.toString()).map(ScreenEntryPersistenceMapper::toDomain);
+    }
+
+    @Override
     public Optional<ScreenEntry> findPublishedById(UUID id) {
         if (id == null) {
             return Optional.empty();

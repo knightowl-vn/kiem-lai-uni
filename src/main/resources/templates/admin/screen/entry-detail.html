@@ -229,18 +229,52 @@
                         </video>
                     </div>
 
-                    <div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
                         <a th:href="@{/media/assets/{id}/content(id=${entry.videoMediaAssetId})}" target="_blank"
                            class="admin-secondary-button" style="text-decoration: none; padding: 8px 16px; font-size: 13px; display: inline-block;">
                             Mở luồng video trực tiếp ↗
                         </a>
+
+                        <!-- Replace Action Button: Toggles the upload form for explicit replacement -->
+                        <button type="button" id="toggleReplaceBtn" class="admin-secondary-button"
+                                style="padding: 8px 16px; font-size: 13px; color: #1a73e8; border-color: #1a73e8; cursor: pointer;">
+                            Thay thế video ⟳
+                        </button>
+
+                        <!-- Detach Action Form (Allowed only when NOT PUBLISHED) -->
+                        <form th:if="${entry.status.name() != 'PUBLISHED'}"
+                              method="post"
+                              th:action="@{/admin/screen/titles/{titleId}/entries/{entryId}/video/detach(titleId=${title.id}, entryId=${entry.id})}"
+                              style="display: inline;">
+                            <input type="hidden" name="expectedVideoMediaAssetId" th:value="${entry.videoMediaAssetId}" />
+                            <button type="submit" class="admin-secondary-button"
+                                    style="padding: 8px 16px; font-size: 13px; color: #c5221f; border-color: #c5221f; cursor: pointer;"
+                                    onclick="return confirm('Bạn có chắc chắn muốn gỡ bỏ video khỏi tập phim này không? File video vẫn được bảo toàn an toàn trên hệ thống Media.');">
+                                Gỡ bỏ video
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Notice if entry is PUBLISHED and cannot be detached -->
+                    <div th:if="${entry.status.name() == 'PUBLISHED'}"
+                         style="background: #e8f0fe; border: 1px solid #d2e3fc; padding: 10px 14px; border-radius: 4px; font-size: 12px; color: #1967d2; margin-top: 12px;">
+                        Tập phim đang ở trạng thái PUBLISHED (Đã xuất bản). Để đảm bảo trải nghiệm người xem công khai không bị gián đoạn, bạn không thể gỡ bỏ video trực tiếp. Hãy sử dụng tính năng <strong>Thay thế video</strong> hoặc chuyển trạng thái sang <strong>Lưu trữ (Archive)</strong> trước khi gỡ bỏ.
                     </div>
                 </div>
 
-                <!-- Case 2: No video attached yet - Render Multipart Upload Surface -->
-                <div th:unless="${entry.videoMediaAssetId != null}" id="uploadVideoView"
+                <!-- Multipart Upload Surface (Initial Upload or Replacement Mode) -->
+                <div id="uploadVideoView"
+                     th:style="${entry.videoMediaAssetId != null} ? 'display: none; margin-top: 24px; padding-top: 20px; border-top: 1px dashed #dadce0;' : 'display: block;'"
                      th:data-title-id="${title.id}"
-                     th:data-entry-id="${entry.id}">
+                     th:data-entry-id="${entry.id}"
+                     th:data-is-replacement="${entry.videoMediaAssetId != null}"
+                     th:data-expected-video-asset-id="${entry.videoMediaAssetId}">
+
+                    <!-- Replacement notice banner -->
+                    <div th:if="${entry.videoMediaAssetId != null}" style="background: #fef7e0; border: 1px solid #feefc3; padding: 10px 14px; border-radius: 4px; font-size: 13px; color: #b06000; margin-bottom: 16px;">
+                        <strong>Chế độ thay thế video:</strong> Video hiện tại sẽ tiếp tục được giữ nguyên và phát sóng bình thường cho đến khi video mới hoàn tất tải lên và được gán thành công. Video cũ sẽ không bị xóa và được bảo toàn an toàn.
+                        <button type="button" id="cancelReplaceBtn" style="margin-left: 12px; background: none; border: none; text-decoration: underline; color: #1a73e8; cursor: pointer; font-size: 13px;">[Hủy thay thế]</button>
+                    </div>
 
                     <p style="margin-top: 0; margin-bottom: 16px; color: #5f6368; font-size: 14px; line-height: 1.5;">
                         Chọn file video MP4 để tải lên trực tiếp từ trình duyệt tới Backblaze B2 thông qua multipart upload.<br/>
@@ -339,6 +373,21 @@ document.addEventListener('DOMContentLoaded', function () {
     const completedAssetId = document.getElementById('completedAssetId');
     const completedPlayer = document.getElementById('completedVideoPlayer');
     const completedDirectLink = document.getElementById('completedDirectLink');
+    const toggleReplaceBtn = document.getElementById('toggleReplaceBtn');
+    const cancelReplaceBtn = document.getElementById('cancelReplaceBtn');
+
+    if (toggleReplaceBtn) {
+        toggleReplaceBtn.addEventListener('click', function () {
+            uploadView.style.display = 'block';
+            toggleReplaceBtn.style.display = 'none';
+        });
+    }
+    if (cancelReplaceBtn) {
+        cancelReplaceBtn.addEventListener('click', function () {
+            uploadView.style.display = 'none';
+            if (toggleReplaceBtn) toggleReplaceBtn.style.display = 'inline-block';
+        });
+    }
 
     const PART_SIZE = 26214400; // 25 MiB fixed part size
     const MAX_BROWSER_SMOKE_SIZE = 524288000; // 500 MiB (Conservative client limit for V1 browser smoke slice to prevent V8 memory exhaustion)
@@ -495,7 +544,10 @@ document.addEventListener('DOMContentLoaded', function () {
             completedDirectLink.href = completeData.playbackUrl;
             completedContainer.style.display = 'block';
 
-            showAlert('success', 'Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry. Bạn có thể phát video ngay bên dưới.');
+            const successMsg = completeData.status === 'REPLACED'
+                    ? 'Video đã được tải lên Backblaze B2 và thay thế thành công trên Screen Entry. Bạn có thể phát video mới ngay bên dưới.'
+                    : 'Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry. Bạn có thể phát video ngay bên dưới.';
+            showAlert('success', successMsg);
         },
         onError: function (err, attempt) {
             console.error('Upload failed:', err);
@@ -571,11 +623,16 @@ document.addEventListener('DOMContentLoaded', function () {
             idempotencyKey = saved.idempotencyKey;
         }
 
+        const isReplacement = uploadView.getAttribute('data-is-replacement') === 'true';
+        const expectedCurrentVideoMediaAssetId = uploadView.getAttribute('data-expected-video-asset-id') || null;
+
         await coordinator.startAttempt({
             file: file,
             titleId: titleId,
             entryId: entryId,
             idempotencyKey: idempotencyKey,
+            isReplacement: isReplacement,
+            expectedCurrentVideoMediaAssetId: expectedCurrentVideoMediaAssetId,
             callbacks: uploadCallbacks,
             getCsrfHeaders: getCsrfHeaders
         });

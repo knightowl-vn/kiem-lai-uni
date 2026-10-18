@@ -226,6 +226,18 @@ class AdminScreenTemplateContractTest {
         assertThat(template).contains("th:href=\"@{/admin/screen/titles/{titleId}/entries/{entryId}/edit(titleId=${title.id}, entryId=${entry.id})}\"");
     }
 
+    @Test
+    @DisplayName("Entry detail contract: entry-detail.html contains detach action form and replacement controls")
+    void entryDetailPageDefinesDetachAndReplacementStructure() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/entry-detail.html");
+
+        assertThat(template).contains("/entries/{entryId}/video/detach");
+        assertThat(template).contains("Gỡ bỏ video");
+        assertThat(template).contains("id=\"toggleReplaceBtn\"");
+        assertThat(template).contains("id=\"cancelReplaceBtn\"");
+        assertThat(template).contains("data-is-replacement");
+    }
+
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8);
     }

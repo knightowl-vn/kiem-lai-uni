@@ -355,6 +355,71 @@ public final class ScreenEntry {
     }
 
     /**
+     * Detaches the currently attached video from this ScreenEntry.
+     *
+     * <p>Invariants:
+     * <ul>
+     *   <li>Cannot detach video from a {@link ScreenPublicationStatus#PUBLISHED} entry to prevent leaving a public entry without playable media.</li>
+     *   <li>Cannot detach if no video is currently attached.</li>
+     *   <li>Preserves publication timestamps, thumbnail, duration, and catalog details.</li>
+     * </ul>
+     *
+     * @param authoritativeUpdatedAt authoritative modification timestamp
+     * @throws IllegalStateException if entry is published or if no video is attached
+     * @throws IllegalArgumentException if modification timestamp is before createdAt or current updatedAt
+     */
+    public void detachVideo(Instant authoritativeUpdatedAt) {
+        Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
+
+        if (this.status == ScreenPublicationStatus.PUBLISHED) {
+            throw new IllegalStateException("Không thể gỡ bỏ video khỏi Screen Entry đang ở trạng thái PUBLISHED. Vui lòng lưu trữ (Archive) entry hoặc sử dụng tính năng thay thế (Replace) video.");
+        }
+        if (this.videoMediaAssetId == null) {
+            throw new IllegalStateException("Screen Entry hiện tại chưa gắn video nào để gỡ bỏ.");
+        }
+        if (authoritativeUpdatedAt.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before createdAt timestamp.");
+        }
+        if (authoritativeUpdatedAt.isBefore(this.updatedAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before current updatedAt timestamp.");
+        }
+
+        this.videoMediaAssetId = null;
+        this.updatedAt = authoritativeUpdatedAt;
+    }
+
+    /**
+     * Atomically replaces the currently attached video with a new video Media Asset.
+     *
+     * <p>Allowed on DRAFT, PUBLISHED, and ARCHIVED entries. When replacing video on a PUBLISHED
+     * entry, the published status and authoritative publication timestamp are strictly preserved,
+     * ensuring the entry remains continuously valid and publicly playable.
+     *
+     * @param newVideoMediaAssetId scalar ID of the new video Media Asset
+     * @param authoritativeUpdatedAt authoritative modification timestamp
+     * @throws NullPointerException if newVideoMediaAssetId is null
+     * @throws IllegalStateException if entry has no video currently attached (use initial attach instead)
+     * @throws IllegalArgumentException if modification timestamp is before createdAt or current updatedAt
+     */
+    public void replaceVideo(UUID newVideoMediaAssetId, Instant authoritativeUpdatedAt) {
+        Objects.requireNonNull(newVideoMediaAssetId, "New video Media Asset ID cannot be null.");
+        Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
+
+        if (this.videoMediaAssetId == null) {
+            throw new IllegalStateException("Screen Entry chưa gắn video nào để thay thế. Vui lòng sử dụng tính năng gắn video ban đầu.");
+        }
+        if (authoritativeUpdatedAt.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before createdAt timestamp.");
+        }
+        if (authoritativeUpdatedAt.isBefore(this.updatedAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before current updatedAt timestamp.");
+        }
+
+        this.videoMediaAssetId = newVideoMediaAssetId;
+        this.updatedAt = authoritativeUpdatedAt;
+    }
+
+    /**
      * Updates entry duration in seconds.
      *
      * @param newDurationSeconds duration in seconds (nullable; &gt; 0 when present)
