@@ -944,6 +944,62 @@ public class MediaUploadSessionService {
         return savedSession;
     }
 
+    /**
+     * Safely expires an active upload session (ALLOCATED or INITIATED) whose expiresAt has elapsed.
+     * Transitions status to EXPIRED (setting cleanupStatus to PENDING if providerUploadId is present)
+     * and tombstones the associated storage key allocation.
+     *
+     * <p>Fails safely (returns empty) if session is already completed, completing, or cleaned up,
+     * or if completion intent or registered asset evidence is present.
+     *
+     * @param sessionId upload session to expire
+     * @return updated session if expired, empty if session was not eligible for automated expiration
+     */
+    @Transactional
+    public Optional<MediaUploadSession> expireSession(UUID sessionId) {
+        Objects.requireNonNull(sessionId, "Session ID cannot be null.");
+        MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("Upload session not found for ID: " + sessionId));
+
+        Instant now = clockPort.now();
+
+        // 1. Must be currently active (ALLOCATED or INITIATED)
+        if (session.getStatus() != MediaUploadSessionStatus.ALLOCATED
+                && session.getStatus() != MediaUploadSessionStatus.INITIATED) {
+            return Optional.empty();
+        }
+
+        // 2. Must be past expiresAt
+        if (session.getExpiresAt().isAfter(now)) {
+            return Optional.empty();
+        }
+
+        // 3. Must not hold active initiation lease
+        if (session.getStatus() == MediaUploadSessionStatus.ALLOCATED && session.getLeaseOwner() != null) {
+            if (session.getLeaseExpiresAt() != null && session.getLeaseExpiresAt().isAfter(now)) {
+                return Optional.empty();
+            }
+        }
+
+        // 4. Must not have active completion intent or registered asset
+        if (session.getDeclaredContentHash() != null || session.getManifestHash() != null
+                || session.getRegisteredAssetId() != null || session.getCompletedAt() != null) {
+            log.warn("Upload session {} is past expiresAt but has completion evidence; skipping automated expiration.", sessionId);
+            return Optional.empty();
+        }
+
+        // 5. Transition to EXPIRED
+        session.expire(now);
+
+        // 6. Save and tombstone allocation
+        MediaUploadSession savedSession = sessionRepositoryPort.save(session);
+        if (savedSession.getStorageAllocationId() != null) {
+            storageKeyAllocationService.tombstoneAllocation(savedSession.getStorageAllocationId());
+        }
+
+        return Optional.of(savedSession);
+    }
+
     private void validateAllocationBinding(StorageKeyAllocation allocation, MediaUploadSession session) {
         if (allocation.getStatus() != StorageKeyAllocationStatus.RESERVED) {
             throw new IllegalStateException(
