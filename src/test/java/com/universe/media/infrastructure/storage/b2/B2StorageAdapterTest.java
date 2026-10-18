@@ -40,6 +40,7 @@ import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
@@ -47,11 +48,14 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.ListPartsResponse;
 import software.amazon.awssdk.services.s3.model.MultipartUpload;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -652,6 +656,514 @@ class B2StorageAdapterTest {
         void shouldRequireNonNullKey() {
             assertThatThrownBy(() -> adapter.delete(null))
                     .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("Purge Exact Key Tests")
+    class PurgeExactKeyTests {
+
+        @Test
+        @DisplayName("purges single version with explicit versionId and never issues unversioned delete")
+        void shouldPurgeSingleVersionWithExplicitVersionId() {
+            StorageKey key = StorageKey.of("media/screen/video.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/video.mp4")
+                    .versionId("vid-1")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            ListObjectVersionsResponse verifyPage = ListObjectVersionsResponse.builder()
+                    .versions(List.of())
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1, verifyPage);
+
+            adapter.purgeExactKey(key);
+
+            ArgumentCaptor<DeleteObjectRequest> captor = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+            verify(s3Client, times(1)).deleteObject(captor.capture());
+            assertThat(captor.getValue().bucket()).isEqualTo(BUCKET);
+            assertThat(captor.getValue().key()).isEqualTo("media/screen/video.mp4");
+            assertThat(captor.getValue().versionId()).isEqualTo("vid-1");
+            assertThat(captor.getAllValues()).allMatch(req -> req.versionId() != null && !req.versionId().isBlank());
+        }
+
+        @Test
+        @DisplayName("purges multiple versions and delete markers with explicit versionIds")
+        void shouldPurgeMultipleVersionsAndDeleteMarkers() {
+            StorageKey key = StorageKey.of("media/screen/video.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/video.mp4")
+                    .versionId("vid-1")
+                    .build();
+            ObjectVersion v2 = ObjectVersion.builder()
+                    .key("media/screen/video.mp4")
+                    .versionId("vid-2")
+                    .build();
+            DeleteMarkerEntry dm1 = DeleteMarkerEntry.builder()
+                    .key("media/screen/video.mp4")
+                    .versionId("marker-1")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1, v2)
+                    .deleteMarkers(dm1)
+                    .isTruncated(false)
+                    .build();
+
+            ListObjectVersionsResponse verifyPage = ListObjectVersionsResponse.builder()
+                    .versions(List.of())
+                    .deleteMarkers(List.of())
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1, verifyPage);
+
+            adapter.purgeExactKey(key);
+
+            ArgumentCaptor<DeleteObjectRequest> captor = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+            verify(s3Client, times(3)).deleteObject(captor.capture());
+            List<DeleteObjectRequest> deleteRequests = captor.getAllValues();
+
+            assertThat(deleteRequests).extracting(DeleteObjectRequest::key)
+                    .containsOnly("media/screen/video.mp4");
+            assertThat(deleteRequests).extracting(DeleteObjectRequest::versionId)
+                    .containsExactlyInAnyOrder("vid-1", "vid-2", "marker-1");
+            assertThat(deleteRequests).allMatch(req -> req.versionId() != null && !req.versionId().isBlank());
+        }
+
+        @Test
+        @DisplayName("filters out prefix-colliding keys and never deletes them")
+        void shouldFilterOutPrefixCollidingKeysAndNeverDeleteThem() {
+            StorageKey key = StorageKey.of("media/screen/video.mp4");
+
+            ObjectVersion targetVersion = ObjectVersion.builder()
+                    .key("media/screen/video.mp4")
+                    .versionId("vid-target")
+                    .build();
+            ObjectVersion collisionVersion = ObjectVersion.builder()
+                    .key("media/screen/video.mp4.sha256")
+                    .versionId("vid-sha")
+                    .build();
+            DeleteMarkerEntry collisionMarker = DeleteMarkerEntry.builder()
+                    .key("media/screen/video.mp4/sub")
+                    .versionId("vid-sub")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(targetVersion, collisionVersion)
+                    .deleteMarkers(collisionMarker)
+                    .isTruncated(false)
+                    .build();
+
+            ListObjectVersionsResponse verifyPage = ListObjectVersionsResponse.builder()
+                    .versions(collisionVersion)
+                    .deleteMarkers(collisionMarker)
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1, verifyPage);
+
+            adapter.purgeExactKey(key);
+
+            ArgumentCaptor<DeleteObjectRequest> captor = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+            verify(s3Client, times(1)).deleteObject(captor.capture());
+            assertThat(captor.getValue().key()).isEqualTo("media/screen/video.mp4");
+            assertThat(captor.getValue().versionId()).isEqualTo("vid-target");
+        }
+
+        @Test
+        @DisplayName("handles paginated listings cleanly")
+        void shouldHandlePaginatedListingsCleanly() {
+            StorageKey key = StorageKey.of("media/screen/paginated.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/paginated.mp4")
+                    .versionId("vid-p1")
+                    .build();
+            ObjectVersion v2 = ObjectVersion.builder()
+                    .key("media/screen/paginated.mp4")
+                    .versionId("vid-p2")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(true)
+                    .nextKeyMarker("media/screen/paginated.mp4")
+                    .nextVersionIdMarker("vid-p1")
+                    .build();
+
+            ListObjectVersionsResponse page2 = ListObjectVersionsResponse.builder()
+                    .versions(v2)
+                    .isTruncated(false)
+                    .build();
+
+            ListObjectVersionsResponse verifyPage = ListObjectVersionsResponse.builder()
+                    .versions(List.of())
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1, page2, verifyPage);
+
+            adapter.purgeExactKey(key);
+
+            ArgumentCaptor<DeleteObjectRequest> captor = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+            verify(s3Client, times(2)).deleteObject(captor.capture());
+            assertThat(captor.getAllValues()).extracting(DeleteObjectRequest::versionId)
+                    .containsExactly("vid-p1", "vid-p2");
+            assertThat(captor.getAllValues()).allMatch(req -> req.versionId() != null && !req.versionId().isBlank());
+        }
+
+        @Test
+        @DisplayName("is idempotent when key has no existing versions or markers in successful listing")
+        void shouldBeIdempotentWhenNoVersionsExist() {
+            StorageKey key = StorageKey.of("media/screen/missing.mp4");
+
+            ListObjectVersionsResponse emptyResponse = ListObjectVersionsResponse.builder()
+                    .versions(List.of())
+                    .deleteMarkers(List.of())
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(emptyResponse);
+
+            assertThatCode(() -> adapter.purgeExactKey(key)).doesNotThrowAnyException();
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("fails when listing throws 404 (listing 404 is NOT success)")
+        void shouldFailWhenListingThrows404() {
+            StorageKey key = StorageKey.of("media/screen/404.mp4");
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenThrow((S3Exception) S3Exception.builder().statusCode(404).message("Not Found").build());
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Failed to list object versions for key: media/screen/404.mp4");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("fails when listing throws NoSuchBucket (unknown bucket is NOT success)")
+        void shouldFailWhenListingThrowsNoSuchBucket() {
+            StorageKey key = StorageKey.of("media/screen/no-bucket.mp4");
+
+            S3Exception noSuchBucket = (S3Exception) S3Exception.builder()
+                    .statusCode(404)
+                    .message("The specified bucket does not exist")
+                    .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchBucket").errorMessage("The specified bucket does not exist").build())
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenThrow(noSuchBucket);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Failed to list object versions for key: media/screen/no-bucket.mp4");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("fails when deleteObject throws generic 404 or NoSuchBucket (distinguishes provider error)")
+        void shouldFailWhenDeleteThrowsGeneric404OrNoSuchBucket() {
+            StorageKey key = StorageKey.of("media/screen/delete-404.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/delete-404.mp4")
+                    .versionId("vid-1")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1);
+
+            S3Exception generic404 = (S3Exception) S3Exception.builder()
+                    .statusCode(404)
+                    .message("The specified bucket does not exist")
+                    .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchBucket").errorMessage("The specified bucket does not exist").build())
+                    .build();
+
+            when(s3Client.deleteObject(any(DeleteObjectRequest.class)))
+                    .thenThrow(generic404);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Failed to physically purge version vid-1 for key: media/screen/delete-404.mp4");
+        }
+
+        @Test
+        @DisplayName("treats unambiguous NoSuchVersion during version deletion as idempotent success")
+        void shouldTreatUnambiguousNoSuchVersionDuringVersionDeleteAsIdempotentSuccess() {
+            StorageKey key = StorageKey.of("media/screen/already-deleted.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/already-deleted.mp4")
+                    .versionId("vid-already-gone")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            ListObjectVersionsResponse verifyPage = ListObjectVersionsResponse.builder()
+                    .versions(List.of())
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1, verifyPage);
+
+            S3Exception noSuchVersion = (S3Exception) S3Exception.builder()
+                    .statusCode(404)
+                    .message("The specified version does not exist")
+                    .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchVersion").errorMessage("The specified version does not exist").build())
+                    .build();
+
+            when(s3Client.deleteObject(any(DeleteObjectRequest.class)))
+                    .thenThrow(noSuchVersion);
+
+            assertThatCode(() -> adapter.purgeExactKey(key)).doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("fails and rejects deletion before any deleteObject calls when object version has null versionId")
+        void shouldFailBeforeDeleteWhenObjectVersionHasNullVersionId() {
+            StorageKey key = StorageKey.of("media/screen/null-vid.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/null-vid.mp4")
+                    .versionId(null)
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("versionId for key: media/screen/null-vid.mp4");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("fails and rejects deletion before any deleteObject calls when object version has blank versionId")
+        void shouldFailBeforeDeleteWhenObjectVersionHasBlankVersionId() {
+            StorageKey key = StorageKey.of("media/screen/blank-vid.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/blank-vid.mp4")
+                    .versionId("   ")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("versionId for key: media/screen/blank-vid.mp4");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("fails and rejects deletion before any deleteObject calls when delete marker has blank versionId")
+        void shouldFailBeforeDeleteWhenDeleteMarkerHasBlankVersionId() {
+            StorageKey key = StorageKey.of("media/screen/blank-marker-vid.mp4");
+
+            DeleteMarkerEntry dm1 = DeleteMarkerEntry.builder()
+                    .key("media/screen/blank-marker-vid.mp4")
+                    .versionId("   ")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .deleteMarkers(dm1)
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("versionId for key: media/screen/blank-marker-vid.mp4");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("throws StorageException when post-purge verification finds remaining versions")
+        void shouldThrowWhenVerificationFindsRemainingVersions() {
+            StorageKey key = StorageKey.of("media/screen/locked.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/locked.mp4")
+                    .versionId("vid-locked")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            // Verification still returns v1
+            ListObjectVersionsResponse verifyPage = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1, verifyPage);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Physical purge verification failed")
+                    .hasMessageContaining("media/screen/locked.mp4");
+        }
+
+        @Test
+        @DisplayName("fails closed when truncated response is missing nextKeyMarker")
+        void shouldFailClosedWhenTruncatedResponseMissingNextKeyMarker() {
+            StorageKey key = StorageKey.of("media/screen/truncated-broken.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/truncated-broken.mp4")
+                    .versionId("vid-1")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(true)
+                    .nextKeyMarker(null)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Incomplete object version listing");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("fails closed when isTruncated is null")
+        void shouldFailClosedWhenIsTruncatedIsNull() {
+            StorageKey key = StorageKey.of("media/screen/null-truncated.mp4");
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .isTruncated((Boolean) null)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("missing isTruncated");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("detects non-advancing pagination markers")
+        void shouldDetectNonAdvancingPaginationMarkers() {
+            StorageKey key = StorageKey.of("media/screen/loop.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/loop.mp4")
+                    .versionId("vid-1")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(true)
+                    .nextKeyMarker("marker-key")
+                    .nextVersionIdMarker("marker-vid")
+                    .build();
+
+            ListObjectVersionsResponse page2 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(true)
+                    .nextKeyMarker("marker-key")
+                    .nextVersionIdMarker("marker-vid")
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1, page2);
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Non-advancing pagination markers detected");
+
+            verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("fails when deleteObject throws S3Exception (e.g. 403 Forbidden)")
+        void shouldFailWhenDeletionThrowsForbidden() {
+            StorageKey key = StorageKey.of("media/screen/forbidden.mp4");
+
+            ObjectVersion v1 = ObjectVersion.builder()
+                    .key("media/screen/forbidden.mp4")
+                    .versionId("vid-forbidden")
+                    .build();
+
+            ListObjectVersionsResponse page1 = ListObjectVersionsResponse.builder()
+                    .versions(v1)
+                    .isTruncated(false)
+                    .build();
+
+            when(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                    .thenReturn(page1);
+
+            when(s3Client.deleteObject(any(DeleteObjectRequest.class)))
+                    .thenThrow((S3Exception) S3Exception.builder().statusCode(403).message("Access Denied").build());
+
+            assertThatThrownBy(() -> adapter.purgeExactKey(key))
+                    .isInstanceOf(StorageException.class)
+                    .hasMessageContaining("Failed to physically purge version vid-forbidden");
+        }
+
+        @Test
+        @DisplayName("purgeExactKey requires non-null key")
+        void shouldRequireNonNullKeyForPurgeExactKey() {
+            assertThatThrownBy(() -> adapter.purgeExactKey(null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("StorageKey cannot be null");
         }
     }
 

@@ -47,17 +47,21 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
 import software.amazon.awssdk.services.s3.model.ListPartsRequest;
 import software.amazon.awssdk.services.s3.model.ListPartsResponse;
 import software.amazon.awssdk.services.s3.model.MultipartUpload;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
 import software.amazon.awssdk.services.s3.model.Part;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -578,6 +582,179 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         } catch (AwsServiceException | SdkClientException e) {
             throw new StorageException("Failed to delete binary content for key: " + key.value(), e);
         }
+    }
+
+    private static final int PURGE_MAX_PAGES = 100;
+
+    private record VersionTarget(String key, String versionId, boolean isDeleteMarker) {
+        VersionTarget {
+            Objects.requireNonNull(key, "VersionTarget key cannot be null");
+            if (key.isBlank()) {
+                throw new IllegalArgumentException("VersionTarget key cannot be blank");
+            }
+            Objects.requireNonNull(versionId, "VersionTarget versionId cannot be null");
+            if (versionId.isBlank()) {
+                throw new IllegalArgumentException("VersionTarget versionId cannot be blank");
+            }
+        }
+    }
+
+    @Override
+    public void purgeExactKey(StorageKey key) {
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+
+        List<VersionTarget> targets = listMatchingVersionTargets(key.value());
+        if (targets.isEmpty()) {
+            return;
+        }
+
+        validateDeletionManifest(key.value(), targets);
+
+        for (VersionTarget target : targets) {
+            deleteExactVersion(target);
+        }
+
+        List<VersionTarget> remaining = listMatchingVersionTargets(key.value());
+        if (!remaining.isEmpty()) {
+            throw new StorageException("Physical purge verification failed for key: " + key.value()
+                    + " (" + remaining.size() + " versions/markers still present after deletion)");
+        }
+    }
+
+    private void validateDeletionManifest(String expectedKey, List<VersionTarget> targets) {
+        for (VersionTarget target : targets) {
+            if (!expectedKey.equals(target.key())) {
+                throw new StorageException("Manifest validation failed: target key '" + target.key()
+                        + "' does not match expected key '" + expectedKey + "'");
+            }
+            if (target.versionId() == null || target.versionId().isBlank()) {
+                throw new StorageException("Manifest validation failed: target versionId is null or blank for key: "
+                        + target.key());
+            }
+        }
+    }
+
+    private void deleteExactVersion(VersionTarget target) {
+        if (target.versionId() == null || target.versionId().isBlank()) {
+            throw new StorageException("Cannot execute unversioned physical purge delete for key: " + target.key());
+        }
+
+        DeleteObjectRequest request = DeleteObjectRequest.builder()
+                .bucket(bucket)
+                .key(target.key())
+                .versionId(target.versionId())
+                .build();
+
+        try {
+            s3Client.deleteObject(request);
+        } catch (S3Exception e) {
+            if (isUnambiguousVersionNotFound(e)) {
+                // Idempotent success: version already absent
+                return;
+            }
+            throw new StorageException("Failed to physically purge version " + target.versionId()
+                    + " for key: " + target.key(), e);
+        } catch (AwsServiceException | SdkClientException e) {
+            throw new StorageException("Failed to physically purge version " + target.versionId()
+                    + " for key: " + target.key(), e);
+        }
+    }
+
+    private static boolean isUnambiguousVersionNotFound(S3Exception e) {
+        if (e.awsErrorDetails() == null) {
+            return false;
+        }
+        String errorCode = e.awsErrorDetails().errorCode();
+        if (errorCode == null || errorCode.isBlank()) {
+            return false;
+        }
+        if ("NoSuchBucket".equalsIgnoreCase(errorCode)) {
+            return false;
+        }
+        return "NoSuchVersion".equalsIgnoreCase(errorCode);
+    }
+
+    private List<VersionTarget> listMatchingVersionTargets(String expectedKey) {
+        List<VersionTarget> result = new ArrayList<>();
+        String keyMarker = null;
+        String versionIdMarker = null;
+        int pages = 0;
+
+        while (true) {
+            pages++;
+            if (pages > PURGE_MAX_PAGES) {
+                throw new StorageException("Exceeded maximum pagination limit (" + PURGE_MAX_PAGES
+                        + ") while listing object versions for key: " + expectedKey);
+            }
+
+            ListObjectVersionsRequest.Builder requestBuilder = ListObjectVersionsRequest.builder()
+                    .bucket(bucket)
+                    .prefix(expectedKey);
+
+            if (keyMarker != null && !keyMarker.isBlank()) {
+                requestBuilder.keyMarker(keyMarker);
+            }
+            if (versionIdMarker != null && !versionIdMarker.isBlank()) {
+                requestBuilder.versionIdMarker(versionIdMarker);
+            }
+
+            ListObjectVersionsResponse response;
+            try {
+                response = s3Client.listObjectVersions(requestBuilder.build());
+            } catch (AwsServiceException | SdkClientException e) {
+                throw new StorageException("Failed to list object versions for key: " + expectedKey, e);
+            }
+
+            if (response.hasVersions() && response.versions() != null) {
+                for (ObjectVersion version : response.versions()) {
+                    if (expectedKey.equals(version.key())) {
+                        String versionId = version.versionId();
+                        if (versionId == null || versionId.isBlank()) {
+                            throw new StorageException("Encountered object version with null or blank versionId for key: "
+                                    + expectedKey);
+                        }
+                        result.add(new VersionTarget(version.key(), versionId, false));
+                    }
+                }
+            }
+
+            if (response.hasDeleteMarkers() && response.deleteMarkers() != null) {
+                for (DeleteMarkerEntry marker : response.deleteMarkers()) {
+                    if (expectedKey.equals(marker.key())) {
+                        String versionId = marker.versionId();
+                        if (versionId == null || versionId.isBlank()) {
+                            throw new StorageException("Encountered delete marker with null or blank versionId for key: "
+                                    + expectedKey);
+                        }
+                        result.add(new VersionTarget(marker.key(), versionId, true));
+                    }
+                }
+            }
+
+            Boolean isTruncated = response.isTruncated();
+            if (isTruncated == null) {
+                throw new StorageException("Incomplete object version listing: missing isTruncated in response for key: " + expectedKey);
+            }
+
+            if (!isTruncated) {
+                break;
+            }
+
+            String nextKeyMarker = response.nextKeyMarker();
+            String nextVersionIdMarker = response.nextVersionIdMarker();
+            if (nextKeyMarker == null || nextKeyMarker.isBlank()) {
+                throw new StorageException("Incomplete object version listing: response truncated but nextKeyMarker is missing for key: " + expectedKey);
+            }
+
+            if (nextKeyMarker.equals(keyMarker) && Objects.equals(nextVersionIdMarker, versionIdMarker)) {
+                throw new StorageException("Non-advancing pagination markers detected while listing versions for key: " + expectedKey);
+            }
+
+            keyMarker = nextKeyMarker;
+            versionIdMarker = nextVersionIdMarker;
+        }
+
+        return result;
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -177,7 +177,7 @@ public class PurgeDeletedMediaAssetUseCase {
         for (MediaImageVariant variant : variants) {
             if (variant.isPhysical()) {
                 BinaryStoragePort port = storageProviderResolverPort.resolve(variant.getStorageLocation().providerId());
-                port.delete(variant.getStorageLocation().key());
+                port.purgeExactKey(variant.getStorageLocation().key());
                 if (cutoverActive) {
                     storageKeyAllocationService.tombstoneAllocationByLocation(
                             variant.getStorageLocation().providerId(),
@@ -190,7 +190,7 @@ public class PurgeDeletedMediaAssetUseCase {
         // 4b. Delete all source version physical binaries
         for (MediaAssetVersion version : versions) {
             BinaryStoragePort port = storageProviderResolverPort.resolve(version.getStorageLocation().providerId());
-            port.delete(version.getStorageLocation().key());
+            port.purgeExactKey(version.getStorageLocation().key());
             if (cutoverActive) {
                 storageKeyAllocationService.tombstoneAllocationByLocation(
                         version.getStorageLocation().providerId(),

@@ -111,4 +111,24 @@ public interface BinaryStoragePort {
     void delete(
             StorageKey key
     );
+
+    /**
+     * Authoritatively and physically purges all object versions, delete markers, and binary representations
+     * associated with the exact storage key.
+     * <p>
+     * <b>Idempotency:</b> If no objects, versions, or delete markers exist for the given key, the operation
+     * must complete cleanly without throwing an exception.
+     * <p>
+     * <b>Default Implementation:</b> For storage providers without native object versioning (e.g. local filesystem,
+     * basic object stores), delegates directly to {@link #delete(StorageKey)}.
+     *
+     * @param key the unique opaque storage key
+     * @throws StorageException     if physical purge fails due to underlying provider, permission, or retention errors
+     * @throws NullPointerException if key is null
+     */
+    default void purgeExactKey(
+            StorageKey key
+    ) {
+        delete(key);
+    }
 }

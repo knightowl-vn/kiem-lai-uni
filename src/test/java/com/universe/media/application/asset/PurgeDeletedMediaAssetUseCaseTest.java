@@ -165,7 +165,7 @@ class PurgeDeletedMediaAssetUseCaseTest {
             assertThat(result.purgedVariantsCount()).isEqualTo(0);
             assertThat(result.purgedAt()).isEqualTo(FIXED_NOW);
 
-            verify(binaryStoragePort, never()).delete(any());
+            verify(binaryStoragePort, never()).purgeExactKey(any());
             verify(purgeMediaAssetMetadataService, never()).execute(any());
         }
 
@@ -185,7 +185,7 @@ class PurgeDeletedMediaAssetUseCaseTest {
                     .hasMessageContaining("ACTIVE")
                     .hasMessageContaining("not eligible for purge");
 
-            verify(binaryStoragePort, never()).delete(any());
+            verify(binaryStoragePort, never()).purgeExactKey(any());
             verify(purgeMediaAssetMetadataService, never()).execute(any());
         }
 
@@ -208,7 +208,7 @@ class PurgeDeletedMediaAssetUseCaseTest {
                     .hasMessageContaining("ARCHIVED")
                     .hasMessageContaining("not eligible for purge");
 
-            verify(binaryStoragePort, never()).delete(any());
+            verify(binaryStoragePort, never()).purgeExactKey(any());
             verify(purgeMediaAssetMetadataService, never()).execute(any());
         }
 
@@ -224,7 +224,7 @@ class PurgeDeletedMediaAssetUseCaseTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("not eligible for purge");
 
-            verify(binaryStoragePort, never()).delete(any());
+            verify(binaryStoragePort, never()).purgeExactKey(any());
             verify(purgeMediaAssetMetadataService, never()).execute(any());
         }
     }
@@ -256,10 +256,10 @@ class PurgeDeletedMediaAssetUseCaseTest {
 
             // Verify strict ordering: variants deleted from storage first, then versions, then metadata service
             InOrder inOrder = inOrder(binaryStoragePort, purgeMediaAssetMetadataService);
-            inOrder.verify(binaryStoragePort).delete(StorageKey.of("variants/v1_w300.webp"));
-            inOrder.verify(binaryStoragePort).delete(StorageKey.of("variants/v2_w800.webp"));
-            inOrder.verify(binaryStoragePort).delete(StorageKey.of("objects/v1.png"));
-            inOrder.verify(binaryStoragePort).delete(StorageKey.of("objects/v2.png"));
+            inOrder.verify(binaryStoragePort).purgeExactKey(StorageKey.of("variants/v1_w300.webp"));
+            inOrder.verify(binaryStoragePort).purgeExactKey(StorageKey.of("variants/v2_w800.webp"));
+            inOrder.verify(binaryStoragePort).purgeExactKey(StorageKey.of("objects/v1.png"));
+            inOrder.verify(binaryStoragePort).purgeExactKey(StorageKey.of("objects/v2.png"));
             inOrder.verify(purgeMediaAssetMetadataService).execute(ASSET_ID);
         }
 
@@ -280,7 +280,7 @@ class PurgeDeletedMediaAssetUseCaseTest {
             assertThat(result.purgedVersionsCount()).isEqualTo(1);
             assertThat(result.purgedVariantsCount()).isEqualTo(0);
 
-            verify(binaryStoragePort).delete(StorageKey.of("objects/v1.png"));
+            verify(binaryStoragePort).purgeExactKey(StorageKey.of("objects/v1.png"));
             verify(purgeMediaAssetMetadataService).execute(ASSET_ID);
         }
 
@@ -298,7 +298,7 @@ class PurgeDeletedMediaAssetUseCaseTest {
             assertThat(result.purgedVersionsCount()).isEqualTo(0);
             assertThat(result.purgedVariantsCount()).isEqualTo(0);
 
-            verify(binaryStoragePort, never()).delete(any());
+            verify(binaryStoragePort, never()).purgeExactKey(any());
             verify(purgeMediaAssetMetadataService).execute(ASSET_ID);
         }
 
@@ -334,8 +334,8 @@ class PurgeDeletedMediaAssetUseCaseTest {
             assertThat(result.purgedVariantsCount()).isEqualTo(1);
 
             // Master version binary is deleted from storage, but virtual variant is skipped
-            verify(binaryStoragePort).delete(StorageKey.of("objects/v1.png"));
-            verify(binaryStoragePort, never()).delete(StorageKey.of(variantUrl));
+            verify(binaryStoragePort).purgeExactKey(StorageKey.of("objects/v1.png"));
+            verify(binaryStoragePort, never()).purgeExactKey(StorageKey.of(variantUrl));
             verify(purgeMediaAssetMetadataService).execute(ASSET_ID);
         }
     }
@@ -356,14 +356,14 @@ class PurgeDeletedMediaAssetUseCaseTest {
             when(mediaImageVariantRepositoryPort.findAllByVersionIds(List.of(VERSION_1_ID))).thenReturn(List.of(var1));
 
             doThrow(new StorageException("Disk I/O error"))
-                    .when(binaryStoragePort).delete(StorageKey.of("variants/v1_w300.webp"));
+                    .when(binaryStoragePort).purgeExactKey(StorageKey.of("variants/v1_w300.webp"));
 
             assertThatThrownBy(() -> useCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
                     .isInstanceOf(StorageException.class)
                     .hasMessageContaining("Disk I/O error");
 
             // Version storage delete and metadata purge must NEVER be called
-            verify(binaryStoragePort, never()).delete(StorageKey.of("objects/v1.png"));
+            verify(binaryStoragePort, never()).purgeExactKey(StorageKey.of("objects/v1.png"));
             verify(purgeMediaAssetMetadataService, never()).execute(any());
         }
 
@@ -378,7 +378,7 @@ class PurgeDeletedMediaAssetUseCaseTest {
             when(mediaImageVariantRepositoryPort.findAllByVersionIds(List.of(VERSION_1_ID))).thenReturn(List.of());
 
             doThrow(new StorageException("Storage unreachable"))
-                    .when(binaryStoragePort).delete(StorageKey.of("objects/v1.png"));
+                    .when(binaryStoragePort).purgeExactKey(StorageKey.of("objects/v1.png"));
 
             assertThatThrownBy(() -> useCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
                     .isInstanceOf(StorageException.class)
