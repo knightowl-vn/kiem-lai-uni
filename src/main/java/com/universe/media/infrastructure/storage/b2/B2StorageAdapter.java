@@ -1,8 +1,10 @@
 package com.universe.media.infrastructure.storage.b2;
 
+import com.universe.media.application.exceptions.StorageAmbiguousCompletionException;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.exceptions.StorageUploadNotFoundException;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
@@ -31,6 +33,8 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.core.exception.ApiCallAttemptTimeoutException;
+import software.amazon.awssdk.core.exception.ApiCallTimeoutException;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.SdkHttpClient;
@@ -72,8 +76,13 @@ import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignReque
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.net.http.HttpTimeoutException;
+import java.util.concurrent.TimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -923,10 +932,10 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
 
             return List.copyOf(result);
         } catch (NoSuchUploadException e) {
-            throw new StorageObjectNotFoundException(key, e);
+            throw new StorageUploadNotFoundException(key, uploadId, e);
         } catch (S3Exception e) {
             if (isNoSuchUpload(e)) {
-                throw new StorageObjectNotFoundException(key, e);
+                throw new StorageUploadNotFoundException(key, uploadId, e);
             }
             throw new StorageException("Failed to list multipart upload parts for key: " + key.value(), e);
         } catch (StorageException e) {
@@ -998,13 +1007,19 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
             StorageLocation location = StorageLocation.of(PROVIDER_ID, key);
             return new MultipartCompletedObject(location, response.eTag(), response.versionId());
         } catch (NoSuchUploadException e) {
-            throw new StorageObjectNotFoundException(key, e);
+            throw new StorageUploadNotFoundException(key, uploadId, e);
         } catch (S3Exception e) {
             if (isNoSuchUpload(e)) {
-                throw new StorageObjectNotFoundException(key, e);
+                throw new StorageUploadNotFoundException(key, uploadId, e);
+            }
+            if (is5xx(e) || isTimeoutOrTransportException(e)) {
+                throw new StorageAmbiguousCompletionException("Ambiguous multipart completion outcome for key: " + key.value(), e);
             }
             throw new StorageException("Failed to complete multipart upload for key: " + key.value(), e);
         } catch (AwsServiceException | SdkClientException e) {
+            if (isTimeoutOrTransportException(e)) {
+                throw new StorageAmbiguousCompletionException("Ambiguous multipart completion outcome for key: " + key.value(), e);
+            }
             throw new StorageException("Failed to complete multipart upload for key: " + key.value(), e);
         }
     }
@@ -1073,7 +1088,7 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         } catch (NoSuchKeyException e) {
             throw new StorageObjectNotFoundException(key, e);
         } catch (S3Exception e) {
-            if (e.statusCode() == 404) {
+            if (isAuthoritativeNoSuchKey(e)) {
                 throw new StorageObjectNotFoundException(key, e);
             }
             throw new StorageException("Failed to inspect metadata for key: " + key.value(), e);
@@ -1926,12 +1941,65 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         return "NoSuchUpload".equalsIgnoreCase(errorCode);
     }
 
+    private static boolean is5xx(S3Exception e) {
+        return e != null && e.statusCode() >= 500 && e.statusCode() < 600;
+    }
+
+    private static boolean isTimeoutOrTransportException(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            if (current instanceof ApiCallTimeoutException
+                    || current instanceof ApiCallAttemptTimeoutException
+                    || current instanceof SocketTimeoutException
+                    || current instanceof HttpTimeoutException
+                    || current instanceof ConnectException
+                    || current instanceof InterruptedIOException
+                    || current instanceof TimeoutException
+                    || current instanceof IOException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     private static boolean isExplicitNoSuchKey(S3Exception e) {
         if (e instanceof NoSuchKeyException) {
             return true;
         }
         String errorCode = (e.awsErrorDetails() != null) ? e.awsErrorDetails().errorCode() : null;
         return "NoSuchKey".equalsIgnoreCase(errorCode);
+    }
+
+    private static boolean isNoSuchBucket(S3Exception e) {
+        if (e == null || e.awsErrorDetails() == null) {
+            return false;
+        }
+        String errorCode = e.awsErrorDetails().errorCode();
+        return "NoSuchBucket".equalsIgnoreCase(errorCode);
+    }
+
+    private static boolean isAuthoritativeNoSuchKey(S3Exception e) {
+        if (e == null) {
+            return false;
+        }
+        if (e instanceof NoSuchKeyException) {
+            return true;
+        }
+        if (isNoSuchBucket(e)) {
+            return false;
+        }
+        if (e.statusCode() == 403) {
+            return false;
+        }
+        if (e.statusCode() == 404) {
+            String errorCode = (e.awsErrorDetails() != null) ? e.awsErrorDetails().errorCode() : null;
+            if (errorCode == null || errorCode.isBlank()) {
+                return false;
+            }
+            return "NoSuchKey".equalsIgnoreCase(errorCode);
+        }
+        return false;
     }
 
     private static String buildConsolidatedDiagnostic(

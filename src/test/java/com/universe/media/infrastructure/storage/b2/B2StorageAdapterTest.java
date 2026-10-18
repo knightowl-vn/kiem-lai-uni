@@ -1,8 +1,10 @@
 package com.universe.media.infrastructure.storage.b2;
 
+import com.universe.media.application.exceptions.StorageAmbiguousCompletionException;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.exceptions.StorageUploadNotFoundException;
 import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
 import com.universe.media.application.ports.storage.MultipartObjectMetadata;
@@ -1762,8 +1764,8 @@ class B2StorageAdapterTest {
             }
 
             @Test
-            @DisplayName("complete maps typed NoSuchUploadException to StorageObjectNotFoundException")
-            void shouldMapNoSuchUploadOnCompleteToStorageObjectNotFoundException() {
+            @DisplayName("complete maps typed NoSuchUploadException to StorageUploadNotFoundException")
+            void shouldMapNoSuchUploadOnCompleteToStorageUploadNotFoundException() {
                 StorageKey key = StorageKey.of("videos/missing.mp4");
                 List<MultipartPartETag> parts = List.of(new MultipartPartETag(1, "\"etag-1\""));
 
@@ -1771,12 +1773,12 @@ class B2StorageAdapterTest {
                         .thenThrow(NoSuchUploadException.builder().statusCode(404).message("The specified upload does not exist.").build());
 
                 assertThatThrownBy(() -> adapter.completeMultipartUpload(key, "u-invalid", parts))
-                        .isInstanceOf(StorageObjectNotFoundException.class);
+                        .isInstanceOf(StorageUploadNotFoundException.class);
             }
 
             @Test
-            @DisplayName("complete maps generic S3Exception with exact NoSuchUpload code to StorageObjectNotFoundException")
-            void shouldMapGenericS3ExceptionWithNoSuchUploadCodeOnCompleteToStorageObjectNotFoundException() {
+            @DisplayName("complete maps generic S3Exception with exact NoSuchUpload code to StorageUploadNotFoundException")
+            void shouldMapGenericS3ExceptionWithNoSuchUploadCodeOnCompleteToStorageUploadNotFoundException() {
                 StorageKey key = StorageKey.of("videos/missing-code.mp4");
                 List<MultipartPartETag> parts = List.of(new MultipartPartETag(1, "\"etag-1\""));
 
@@ -1789,7 +1791,7 @@ class B2StorageAdapterTest {
                 when(s3Client.completeMultipartUpload(any(CompleteMultipartUploadRequest.class))).thenThrow(noSuchUploadEx);
 
                 assertThatThrownBy(() -> adapter.completeMultipartUpload(key, "u-invalid", parts))
-                        .isInstanceOf(StorageObjectNotFoundException.class);
+                        .isInstanceOf(StorageUploadNotFoundException.class);
             }
 
             @Test
@@ -1813,8 +1815,8 @@ class B2StorageAdapterTest {
             }
 
             @Test
-            @DisplayName("complete maps S3 500 error to StorageException")
-            void shouldMapCompleteErrorToStorageException() {
+            @DisplayName("complete maps S3 500 error to StorageAmbiguousCompletionException")
+            void shouldMapComplete500ErrorToStorageAmbiguousCompletionException() {
                 StorageKey key = StorageKey.of("videos/err.mp4");
                 List<MultipartPartETag> parts = List.of(new MultipartPartETag(1, "\"etag-1\""));
 
@@ -1822,13 +1824,13 @@ class B2StorageAdapterTest {
                         .thenThrow((S3Exception) S3Exception.builder().statusCode(500).message("B2 complete error").build());
 
                 assertThatThrownBy(() -> adapter.completeMultipartUpload(key, "u-1", parts))
-                        .isInstanceOf(StorageException.class)
-                        .hasMessageContaining("Failed to complete multipart upload");
+                        .isInstanceOf(StorageAmbiguousCompletionException.class)
+                        .hasMessageContaining("Ambiguous multipart completion outcome for key: videos/err.mp4");
             }
 
             @Test
-            @DisplayName("complete maps HTTP 501 Not Implemented to StorageException rather than misclassifying")
-            void shouldPropagateHttp501OnCompleteAsStorageException() {
+            @DisplayName("complete maps HTTP 501 Not Implemented to StorageAmbiguousCompletionException")
+            void shouldPropagateHttp501OnCompleteAsStorageAmbiguousCompletionException() {
                 StorageKey key = StorageKey.of("videos/complete-501.mp4");
                 List<MultipartPartETag> parts = List.of(new MultipartPartETag(1, "\"etag-1\""));
 
@@ -1842,12 +1844,51 @@ class B2StorageAdapterTest {
                         .thenThrow(notImplementedEx);
 
                 assertThatThrownBy(() -> adapter.completeMultipartUpload(key, "u-complete", parts))
-                        .isInstanceOf(StorageException.class)
+                        .isInstanceOf(StorageAmbiguousCompletionException.class)
                         .isNotInstanceOf(StorageObjectNotFoundException.class)
                         .isNotInstanceOf(StorageObjectAlreadyExistsException.class)
-                        .hasMessageContaining("Failed to complete multipart upload");
+                        .hasMessageContaining("Ambiguous multipart completion outcome for key: videos/complete-501.mp4");
 
                 verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+            }
+
+            @Test
+            @DisplayName("complete maps S3 503 Service Unavailable to StorageAmbiguousCompletionException")
+            void shouldMapComplete503ErrorToStorageAmbiguousCompletionException() {
+                StorageKey key = StorageKey.of("videos/err-503.mp4");
+                List<MultipartPartETag> parts = List.of(new MultipartPartETag(1, "\"etag-1\""));
+
+                S3Exception serviceUnavailable = (S3Exception) S3Exception.builder()
+                        .statusCode(503)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("ServiceUnavailable").build())
+                        .message("Service Unavailable")
+                        .build();
+
+                when(s3Client.completeMultipartUpload(any(CompleteMultipartUploadRequest.class)))
+                        .thenThrow(serviceUnavailable);
+
+                assertThatThrownBy(() -> adapter.completeMultipartUpload(key, "u-1", parts))
+                        .isInstanceOf(StorageAmbiguousCompletionException.class)
+                        .hasMessageContaining("Ambiguous multipart completion outcome for key: videos/err-503.mp4");
+            }
+
+            @Test
+            @DisplayName("complete maps SdkClientException with timeout cause to StorageAmbiguousCompletionException")
+            void shouldMapTimeoutOnCompleteToStorageAmbiguousCompletionException() {
+                StorageKey key = StorageKey.of("videos/timeout.mp4");
+                List<MultipartPartETag> parts = List.of(new MultipartPartETag(1, "\"etag-1\""));
+
+                SdkClientException timeoutEx = SdkClientException.builder()
+                        .message("Client execution timeout")
+                        .cause(new java.net.SocketTimeoutException("Read timed out"))
+                        .build();
+
+                when(s3Client.completeMultipartUpload(any(CompleteMultipartUploadRequest.class)))
+                        .thenThrow(timeoutEx);
+
+                assertThatThrownBy(() -> adapter.completeMultipartUpload(key, "u-1", parts))
+                        .isInstanceOf(StorageAmbiguousCompletionException.class)
+                        .hasMessageContaining("Ambiguous multipart completion outcome for key: videos/timeout.mp4");
             }
 
             @Test
@@ -2168,15 +2209,105 @@ class B2StorageAdapterTest {
             }
 
             @Test
-            @DisplayName("inspectObjectMetadata maps HTTP 404 to StorageObjectNotFoundException")
-            void shouldMapHttp404ToStorageObjectNotFoundException() {
+            @DisplayName("inspectObjectMetadata maps HTTP 404 with structured NoSuchKey to StorageObjectNotFoundException")
+            void shouldMapHttp404WithNoSuchKeyToStorageObjectNotFoundException() {
                 StorageKey key = StorageKey.of("videos/missing-inspect-404.mp4");
+
+                S3Exception noSuchKeyEx = (S3Exception) S3Exception.builder()
+                        .statusCode(404)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchKey").errorMessage("The specified key does not exist").build())
+                        .build();
+
+                when(s3Client.headObject(any(HeadObjectRequest.class))).thenThrow(noSuchKeyEx);
+
+                assertThatThrownBy(() -> adapter.inspectObjectMetadata(key))
+                        .isInstanceOf(StorageObjectNotFoundException.class);
+            }
+
+            @Test
+            @DisplayName("inspectObjectMetadata maps HTTP 404 without error code to StorageException (never StorageObjectNotFoundException)")
+            void shouldMapHttp404WithoutErrorCodeToStorageException() {
+                StorageKey key = StorageKey.of("videos/missing-inspect-empty-404.mp4");
 
                 when(s3Client.headObject(any(HeadObjectRequest.class)))
                         .thenThrow((S3Exception) S3Exception.builder().statusCode(404).message("Not Found").build());
 
                 assertThatThrownBy(() -> adapter.inspectObjectMetadata(key))
-                        .isInstanceOf(StorageObjectNotFoundException.class);
+                        .isInstanceOf(StorageException.class)
+                        .isNotInstanceOf(StorageObjectNotFoundException.class)
+                        .hasMessageContaining("Failed to inspect metadata");
+            }
+
+            @Test
+            @DisplayName("inspectObjectMetadata maps NoSuchBucket to StorageException (never StorageObjectNotFoundException)")
+            void shouldMapNoSuchBucketToStorageException() {
+                StorageKey key = StorageKey.of("videos/missing-inspect-bucket.mp4");
+
+                S3Exception noSuchBucketEx = (S3Exception) S3Exception.builder()
+                        .statusCode(404)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchBucket").errorMessage("The specified bucket does not exist").build())
+                        .build();
+
+                when(s3Client.headObject(any(HeadObjectRequest.class))).thenThrow(noSuchBucketEx);
+
+                assertThatThrownBy(() -> adapter.inspectObjectMetadata(key))
+                        .isInstanceOf(StorageException.class)
+                        .isNotInstanceOf(StorageObjectNotFoundException.class)
+                        .hasMessageContaining("Failed to inspect metadata");
+            }
+
+            @Test
+            @DisplayName("inspectObjectMetadata maps HTTP 403 to StorageException (never StorageObjectNotFoundException)")
+            void shouldMapHttp403ToStorageException() {
+                StorageKey key = StorageKey.of("videos/forbidden-inspect.mp4");
+
+                S3Exception forbiddenEx = (S3Exception) S3Exception.builder()
+                        .statusCode(403)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDenied").errorMessage("Access Denied").build())
+                        .build();
+
+                when(s3Client.headObject(any(HeadObjectRequest.class))).thenThrow(forbiddenEx);
+
+                assertThatThrownBy(() -> adapter.inspectObjectMetadata(key))
+                        .isInstanceOf(StorageException.class)
+                        .isNotInstanceOf(StorageObjectNotFoundException.class)
+                        .hasMessageContaining("Failed to inspect metadata");
+            }
+
+            @Test
+            @DisplayName("inspectObjectMetadata maps unknown 404 error code to StorageException (never StorageObjectNotFoundException)")
+            void shouldMapUnknown404CodeToStorageException() {
+                StorageKey key = StorageKey.of("videos/unknown-404.mp4");
+
+                S3Exception unknown404Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(404)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("EndpointNotFound").errorMessage("Endpoint not found").build())
+                        .build();
+
+                when(s3Client.headObject(any(HeadObjectRequest.class))).thenThrow(unknown404Ex);
+
+                assertThatThrownBy(() -> adapter.inspectObjectMetadata(key))
+                        .isInstanceOf(StorageException.class)
+                        .isNotInstanceOf(StorageObjectNotFoundException.class)
+                        .hasMessageContaining("Failed to inspect metadata");
+            }
+
+            @Test
+            @DisplayName("inspectObjectMetadata maps non-NoSuchKey 404 code 'NotFound' to StorageException")
+            void shouldMapNotFoundCodeToStorageException() {
+                StorageKey key = StorageKey.of("videos/generic-notfound-404.mp4");
+
+                S3Exception notFoundEx = (S3Exception) S3Exception.builder()
+                        .statusCode(404)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("NotFound").errorMessage("Object Not Found").build())
+                        .build();
+
+                when(s3Client.headObject(any(HeadObjectRequest.class))).thenThrow(notFoundEx);
+
+                assertThatThrownBy(() -> adapter.inspectObjectMetadata(key))
+                        .isInstanceOf(StorageException.class)
+                        .isNotInstanceOf(StorageObjectNotFoundException.class)
+                        .hasMessageContaining("Failed to inspect metadata");
             }
 
             @Test

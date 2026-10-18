@@ -1,9 +1,15 @@
 package com.universe.media.application.storage;
 
 import com.universe.media.application.exceptions.DuplicateStorageLocationException;
+import com.universe.media.application.exceptions.StorageAmbiguousCompletionException;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.exceptions.StorageUploadNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.services.s3.model.S3Exception;
+
+import java.net.SocketTimeoutException;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
@@ -100,7 +106,7 @@ class MediaUploadSessionS2ccTest {
     private static final Instant NOW = Instant.parse("2026-10-10T12:00:00Z");
     private static final String PRINCIPAL = "user-creator-s2cc";
     private static final String CONSUMER = "SCREEN";
-    private static final String TARGET_TYPE = "ScreenEntry";
+    private static final String TARGET_TYPE = "SCREEN_ENTRY";
     private static final String VALID_CONTENT_HASH = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 
     @BeforeEach
@@ -188,7 +194,7 @@ class MediaUploadSessionS2ccTest {
                 expectedParts,
                 VALID_CONTENT_HASH,
                 "video.mp4",
-                "screen-tag",
+                "screen-video",
                 MediaUploadSessionStatus.COMPLETING,
                 expiresAt,
                 null,
@@ -307,8 +313,8 @@ class MediaUploadSessionS2ccTest {
             MediaAsset savedAsset = assetCaptor.getValue();
             assertThat(savedAsset.getId()).isEqualTo(result.getRegisteredAssetId());
             assertThat(savedAsset.getMediaType()).isEqualTo(MediaType.VIDEO);
-            assertThat(savedAsset.getVisibility()).isEqualTo(MediaVisibility.PUBLIC);
-            assertThat(savedAsset.getClientTag()).isEqualTo("screen-tag");
+            assertThat(savedAsset.getVisibility()).isEqualTo(MediaVisibility.PRIVATE);
+            assertThat(savedAsset.getClientTag()).isEqualTo("screen-video");
             assertThat(savedAsset.getCurrentVersionNumber()).isEqualTo(1);
 
             ArgumentCaptor<MediaAssetVersion> versionCaptor = ArgumentCaptor.forClass(MediaAssetVersion.class);
@@ -801,25 +807,13 @@ class MediaUploadSessionS2ccTest {
 
             when(multipartStoragePort.listUploadedParts(STORAGE_KEY, providerUploadId)).thenReturn(uploadedParts);
 
-            // completeMultipartUpload throws timeout
+            // completeMultipartUpload throws timeout wrapped as ambiguous completion
             when(multipartStoragePort.completeMultipartUpload(eq(STORAGE_KEY), eq(providerUploadId), any()))
-                    .thenThrow(new StorageException("Socket timeout during assembly"));
+                    .thenThrow(new StorageAmbiguousCompletionException("Socket timeout during assembly", new SocketTimeoutException("Read timed out")));
 
-            // Diagnostic probe sees object in storage with matching provenance metadata
-            MultipartObjectMetadata headMetadata = new MultipartObjectMetadata(
-                    STORAGE_KEY,
-                    declaredSize,
-                    "video/mp4",
-                    "\"complete-etag-assembled\"",
-                    Map.of(
-                            MediaUploadSessionService.METADATA_SESSION_ID, sessionId.toString(),
-                            MediaUploadSessionService.METADATA_ALLOCATION_ID, allocId.toString()
-                    ),
-                    "ver-id-timeout",
-                    B2_PROVIDER,
-                    B2_BUCKET
-            );
-            when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY)).thenReturn(headMetadata);
+            // Diagnostic probe sees object in storage is not present
+            when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY))
+                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY));
 
             // Invariant: MUST fail closed by rethrowing the StorageException; must NEVER proceed to TX-B registration
             assertThatThrownBy(() -> service.completeMultipartUpload(sessionId, PRINCIPAL, manifest))
@@ -858,7 +852,7 @@ class MediaUploadSessionS2ccTest {
             when(multipartStoragePort.listUploadedParts(STORAGE_KEY, providerUploadId)).thenReturn(uploadedParts);
 
             when(multipartStoragePort.completeMultipartUpload(eq(STORAGE_KEY), eq(providerUploadId), any()))
-                    .thenThrow(new StorageException("Assembly timeout"));
+                    .thenThrow(new StorageAmbiguousCompletionException("Assembly timeout", new SocketTimeoutException("Read timed out")));
 
             when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY))
                     .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY));
@@ -900,29 +894,16 @@ class MediaUploadSessionS2ccTest {
             when(multipartStoragePort.listUploadedParts(STORAGE_KEY, providerUploadId)).thenReturn(uploadedParts);
 
             when(multipartStoragePort.completeMultipartUpload(eq(STORAGE_KEY), eq(providerUploadId), any()))
-                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY, new RuntimeException("NoSuchUpload: upload already completed")));
+                    .thenThrow(new StorageUploadNotFoundException(STORAGE_KEY, providerUploadId));
 
-            MultipartObjectMetadata headMetadata = new MultipartObjectMetadata(
-                    STORAGE_KEY,
-                    declaredSize,
-                    "video/mp4",
-                    "\"already-completed-etag\"",
-                    Map.of(
-                            MediaUploadSessionService.METADATA_SESSION_ID, sessionId.toString(),
-                            MediaUploadSessionService.METADATA_ALLOCATION_ID, allocId.toString()
-                    ),
-                    "ver-nosuch",
-                    B2_PROVIDER,
-                    B2_BUCKET
-            );
-            when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY)).thenReturn(headMetadata);
+            // Diagnostic probe sees object in storage is not present
+            when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY))
+                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY));
 
             // Invariant: MUST fail closed and preserve COMPLETING; must NOT register asset
             assertThatThrownBy(() -> service.completeMultipartUpload(sessionId, PRINCIPAL, manifest))
-                    .isInstanceOf(StorageObjectNotFoundException.class)
-                    .hasMessageContaining(STORAGE_KEY.value())
-                    .hasCauseInstanceOf(RuntimeException.class)
-                    .hasRootCauseMessage("NoSuchUpload: upload already completed");
+                    .isInstanceOf(StorageUploadNotFoundException.class)
+                    .hasMessageContaining(STORAGE_KEY.value());
 
             verify(mediaAssetRepositoryPort, never()).save(any());
             verify(mediaAssetVersionRepositoryPort, never()).save(any());
@@ -955,23 +936,16 @@ class MediaUploadSessionS2ccTest {
 
             when(multipartStoragePort.listUploadedParts(STORAGE_KEY, providerUploadId)).thenReturn(uploadedParts);
 
+            S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                    .statusCode(503)
+                    .awsErrorDetails(AwsErrorDetails.builder().errorCode("ServiceUnavailable").errorMessage("Server busy").build())
+                    .build();
             when(multipartStoragePort.completeMultipartUpload(eq(STORAGE_KEY), eq(providerUploadId), any()))
-                    .thenThrow(new StorageException("503 Service Unavailable: Backblaze B2 temporary failure"));
+                    .thenThrow(new StorageAmbiguousCompletionException("503 Service Unavailable: Backblaze B2 temporary failure", s3Ex));
 
-            MultipartObjectMetadata headMetadata = new MultipartObjectMetadata(
-                    STORAGE_KEY,
-                    declaredSize,
-                    "video/mp4",
-                    "\"5xx-etag\"",
-                    Map.of(
-                            MediaUploadSessionService.METADATA_SESSION_ID, sessionId.toString(),
-                            MediaUploadSessionService.METADATA_ALLOCATION_ID, allocId.toString()
-                    ),
-                    "ver-5xx",
-                    B2_PROVIDER,
-                    B2_BUCKET
-            );
-            when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY)).thenReturn(headMetadata);
+            // Diagnostic probe sees object in storage is not present
+            when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY))
+                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY));
 
             assertThatThrownBy(() -> service.completeMultipartUpload(sessionId, PRINCIPAL, manifest))
                     .isInstanceOf(StorageException.class)
@@ -1085,13 +1059,13 @@ class MediaUploadSessionS2ccTest {
         }
 
         @Test
-        @DisplayName("ListParts NoSuchUpload preserves ambiguous state without premature automatic registration")
-        void listPartsNoSuchUploadPreservesAmbiguityWithoutAutomaticRegistration() {
+        @DisplayName("ListParts unrelated StorageObjectNotFoundException does not enter recovery from HEAD-only evidence")
+        void listPartsUnrelatedNotFoundDoesNotEnterRecovery() {
             UUID sessionId = UUID.randomUUID();
             UUID allocId = UUID.randomUUID();
             UUID targetId = UUID.randomUUID();
             long declaredSize = 52428800L;
-            String providerUploadId = "b2-up-list-nosuchupload";
+            String providerUploadId = "b2-up-list-unrelated-notfound";
 
             List<MultipartManifestPart> manifest = createStandard2PartManifest();
             MediaUploadSession session = createCompletingSession(sessionId, allocId, targetId, declaredSize, providerUploadId, null);
@@ -1103,29 +1077,14 @@ class MediaUploadSessionS2ccTest {
             when(storageKeyAllocationService.findById(allocId)).thenReturn(Optional.of(allocation));
             when(sessionRepositoryPort.save(any(MediaUploadSession.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            // listUploadedParts throws NoSuchUpload because upload does not exist on provider
+            // listUploadedParts throws unrelated StorageObjectNotFoundException without NoSuchUpload evidence
             when(multipartStoragePort.listUploadedParts(STORAGE_KEY, providerUploadId))
-                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY, new RuntimeException("NoSuchUpload: upload already assembled or deleted")));
-
-            MultipartObjectMetadata headMetadata = new MultipartObjectMetadata(
-                    STORAGE_KEY,
-                    declaredSize,
-                    "video/mp4",
-                    "\"already-assembled-etag\"",
-                    Map.of(
-                            MediaUploadSessionService.METADATA_SESSION_ID, sessionId.toString(),
-                            MediaUploadSessionService.METADATA_ALLOCATION_ID, allocId.toString()
-                    ),
-                    "ver-list-recovered",
-                    B2_PROVIDER,
-                    B2_BUCKET
-            );
-            when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY)).thenReturn(headMetadata);
+                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY));
 
             assertThatThrownBy(() -> service.completeMultipartUpload(sessionId, PRINCIPAL, manifest))
                     .isInstanceOf(StorageObjectNotFoundException.class);
 
-            // Invariant: no automatic registration on ambiguous NoSuchUpload
+            // Invariant: no recovery or registration on unrelated StorageObjectNotFoundException
             verify(multipartStoragePort, never()).completeMultipartUpload(any(), any(), any());
             verify(mediaAssetRepositoryPort, never()).save(any());
             verify(mediaAssetVersionRepositoryPort, never()).save(any());
@@ -1153,7 +1112,7 @@ class MediaUploadSessionS2ccTest {
             when(sessionRepositoryPort.save(any(MediaUploadSession.class))).thenAnswer(inv -> inv.getArgument(0));
 
             when(multipartStoragePort.listUploadedParts(STORAGE_KEY, providerUploadId))
-                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY, new RuntimeException("NoSuchUpload")));
+                    .thenThrow(new StorageUploadNotFoundException(STORAGE_KEY, providerUploadId));
 
             when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY))
                     .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY));
@@ -1188,7 +1147,7 @@ class MediaUploadSessionS2ccTest {
             when(sessionRepositoryPort.save(any(MediaUploadSession.class))).thenAnswer(inv -> inv.getArgument(0));
 
             when(multipartStoragePort.listUploadedParts(STORAGE_KEY, providerUploadId))
-                    .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY, new RuntimeException("NoSuchUpload")));
+                    .thenThrow(new StorageUploadNotFoundException(STORAGE_KEY, providerUploadId));
 
             MultipartObjectMetadata foreignMetadata = new MultipartObjectMetadata(
                     STORAGE_KEY,
@@ -1199,14 +1158,15 @@ class MediaUploadSessionS2ccTest {
                             MediaUploadSessionService.METADATA_SESSION_ID, UUID.randomUUID().toString(), // Foreign session ID
                             MediaUploadSessionService.METADATA_ALLOCATION_ID, allocId.toString()
                     ),
-                    "ver-foreign"
+                    "ver-foreign",
+                    B2_PROVIDER,
+                    B2_BUCKET
             );
             when(multipartStoragePort.inspectObjectMetadata(STORAGE_KEY)).thenReturn(foreignMetadata);
 
             assertThatThrownBy(() -> service.completeMultipartUpload(sessionId, PRINCIPAL, manifest))
-                    .isInstanceOf(StorageObjectNotFoundException.class)
-                    .hasMessageContaining(STORAGE_KEY.value())
-                    .hasCauseInstanceOf(RuntimeException.class);
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("session-id");
 
             verify(mediaAssetRepositoryPort, never()).save(any());
             verify(mediaAssetVersionRepositoryPort, never()).save(any());

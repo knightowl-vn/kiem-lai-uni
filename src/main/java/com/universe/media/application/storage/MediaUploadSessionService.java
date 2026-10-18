@@ -3,6 +3,7 @@ package com.universe.media.application.storage;
 import com.universe.media.application.exceptions.DuplicateStorageLocationException;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.exceptions.StorageUploadNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
@@ -36,6 +37,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import com.universe.media.application.exceptions.StorageAmbiguousCompletionException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -1087,38 +1089,59 @@ public class MediaUploadSessionService {
         // =========================================================================
         List<MultipartUploadedPart> providerParts = null;
         MultipartCompletedObject completedObject = null;
+        MultipartObjectMetadata headMetadata = null;
+        boolean providerReportedNoSuchUpload = false;
 
         try {
             providerParts = multipartStoragePort.listUploadedParts(
                     claimedSession.getStorageKey(),
                     claimedSession.getProviderUploadId()
             );
-        } catch (StorageObjectNotFoundException listNotFoundEx) {
-            // NoSuchUpload on listParts: the multipart upload ID no longer exists on provider.
-            // On B2/S3, HEAD object metadata only contains session-id, allocation-id, size, and MIME;
-            // it does NOT contain providerUploadId, manifest_hash, or cryptographic payload verification.
-            // Under the existing contract, HEAD metadata agreement cannot independently prove that
-            // the object was assembled from the accepted multipart manifest or providerUploadId.
-            // Therefore, we must NOT prematurely register an asset. We preserve the session as
-            // ambiguous for later reconciliation (S2D) by rethrowing the exception.
-            try {
-                MultipartObjectMetadata probe = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
-                log.warn("NoSuchUpload on listParts for session {}: object exists on storage (size={}, eTag={}), but assembly from providerUploadId {} / manifest {} cannot be proven. Preserving ambiguous state.",
-                        sessionId, probe.contentLength(), probe.eTag(), claimedSession.getProviderUploadId(), claimedSession.getManifestHash());
-            } catch (Exception probeEx) {
-                log.warn("NoSuchUpload on listParts for session {} and probe failed. Preserving ambiguous state.", sessionId, probeEx);
-                listNotFoundEx.addSuppressed(probeEx);
-            }
-            throw listNotFoundEx;
+        } catch (StorageUploadNotFoundException noSuchUploadEx) {
+            log.info("Provider reported NoSuchUpload for upload session {}. Entering guarded recovery check.", sessionId);
+            providerReportedNoSuchUpload = true;
         } catch (StorageException genericListException) {
-            // Generic network or storage failure listing parts without conclusive completion evidence.
-            // Preserve ambiguous state for S2D reconciliation.
-            log.warn("Failed to list uploaded parts for upload session {} due to storage failure. Preserving state for reconciliation.",
-                    sessionId, genericListException);
-            throw genericListException;
+            if (isProviderConfirmedNoSuchUpload(genericListException)) {
+                log.info("Provider reported NoSuchUpload for upload session {}. Entering guarded recovery check.", sessionId);
+                providerReportedNoSuchUpload = true;
+            } else {
+                log.warn("listUploadedParts failed with storage error for session {} (error: {}). Preserving state for reconciliation.",
+                        sessionId, genericListException.getClass().getSimpleName());
+                throw genericListException;
+            }
         }
 
-        // If completedObject was not already recovered via probe, proceed with standard validation and CompleteMultipartUpload
+        // SCENARIO A: B2 Complete Succeeded, MySQL TX-B Failed or Interrupted
+        // On retry, listUploadedParts returned provider-confirmed NoSuchUpload.
+        // Perform a guarded HEAD inspection of the exact reserved object.
+        if (providerReportedNoSuchUpload) {
+            try {
+                headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+            } catch (StorageObjectNotFoundException headNotFoundEx) {
+                log.warn("NoSuchUpload on listParts and object missing on storage for session {}. Failing closed.", sessionId);
+                throw headNotFoundEx;
+            } catch (StorageException headEx) {
+                log.warn("inspectObjectMetadata failed during Scenario A recovery for session {} (error: {}). Preserving state for reconciliation.",
+                        sessionId, headEx.getClass().getSimpleName());
+                throw headEx;
+            }
+
+            verifyCompletedObjectProvenance(
+                    claimedSession,
+                    headMetadata,
+                    null,
+                    null,
+                    headMetadata.versionId(),
+                    true
+            );
+
+            StorageLocation location = StorageLocation.of(claimedSession.getStorageProviderId(), claimedSession.getStorageKey());
+            completedObject = new MultipartCompletedObject(location, headMetadata.eTag(), headMetadata.versionId());
+            log.info("Successfully recovered completed object from storage for session {} via Scenario A (NoSuchUpload on listParts).",
+                    sessionId);
+        }
+
+        // SCENARIO C (Normal Completion) or SCENARIO B (Ambiguous Remote Completion Probe)
         if (completedObject == null) {
             if (providerParts == null || providerParts.isEmpty()) {
                 throw new IllegalStateException("Provider returned no parts for upload session: " + sessionId);
@@ -1154,46 +1177,68 @@ public class MediaUploadSessionService {
                         claimedSession.getProviderUploadId(),
                         partsToComplete
                 );
-            } catch (StorageException remoteCompleteException) {
-                // Ambiguous completion failure: socket timeout, 5xx, or NoSuchUpload.
-                // Under the currently approved contract, HEAD-only evidence does not prove that
-                // the object resulted from the accepted providerUploadId and canonical manifest.
-                // Therefore, do NOT automatically register based solely on HEAD metadata.
-                // Preserve COMPLETING and allocation evidence for later reconciliation (S2D).
-                // Perform an optional diagnostic HEAD probe for logging/evidence preservation,
-                // but never authorize TX-B registration without an acknowledged completion response.
+            } catch (StorageUploadNotFoundException | StorageAmbiguousCompletionException ambiguousEx) {
+                // SCENARIO B: Ambiguous completion failure: upload already assembled or provider 5xx / timeout.
+                log.warn("CompleteMultipartUpload threw ambiguous completion error {} for session {}: probing storage to determine if object was assembled.",
+                        ambiguousEx.getClass().getSimpleName(), sessionId);
                 try {
-                    MultipartObjectMetadata probe = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
-                    log.warn("CompleteMultipartUpload threw {} for session {}: diagnostic probe detected object on storage (size={}, eTag={}, versionId={}), but assembly cannot be definitively proven without acknowledged completion response. Preserving COMPLETING state for reconciliation.",
-                            remoteCompleteException.getClass().getSimpleName(), sessionId, probe.contentLength(), probe.eTag(), probe.versionId());
+                    headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
                 } catch (Exception probeException) {
-                    log.warn("CompleteMultipartUpload failed and diagnostic probe also failed for session {}. Preserving state for reconciliation.",
-                            sessionId, probeException);
-                    remoteCompleteException.addSuppressed(probeException);
+                    log.warn("CompleteMultipartUpload probe failed for session {} (error: {}). Preserving state for reconciliation.",
+                            sessionId, probeException.getClass().getSimpleName());
+                    ambiguousEx.addSuppressed(probeException);
+                    throw ambiguousEx;
                 }
-                throw remoteCompleteException;
+
+                // Object was found on storage. Verify provenance strictly before proceeding to registration.
+                try {
+                    verifyCompletedObjectProvenance(
+                            claimedSession,
+                            headMetadata,
+                            null,
+                            null,
+                            headMetadata.versionId(),
+                            true
+                    );
+                    StorageLocation location = StorageLocation.of(claimedSession.getStorageProviderId(), claimedSession.getStorageKey());
+                    completedObject = new MultipartCompletedObject(location, headMetadata.eTag(), headMetadata.versionId());
+                    log.info("Successfully recovered completed object from storage for session {} via Scenario B (probe after completion exception).",
+                            sessionId);
+                } catch (Exception provenanceException) {
+                    log.warn("CompleteMultipartUpload recovered object failed provenance verification for session {} (error: {}). Failing closed.",
+                            sessionId, provenanceException.getClass().getSimpleName());
+                    ambiguousEx.addSuppressed(provenanceException);
+                    throw ambiguousEx;
+                }
+            } catch (StorageException deterministicEx) {
+                // Deterministic error (400, 403, etc.) or unknown storage exception: fail closed immediately without probing storage
+                log.warn("CompleteMultipartUpload failed with deterministic storage error for session {} (error: {}). Failing closed without storage probe.",
+                        sessionId, deterministicEx.getClass().getSimpleName());
+                throw deterministicEx;
             }
         }
 
         // =========================================================================
         // Provenance Verification — Outside MySQL Transaction
         // =========================================================================
-        MultipartObjectMetadata headMetadata;
-        try {
-            headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
-        } catch (RuntimeException headException) {
-            log.warn("inspectObjectMetadata failed after completion for session {}. Preserving state for reconciliation.",
-                    sessionId, headException);
-            throw headException;
-        }
+        if (headMetadata == null) {
+            try {
+                headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+            } catch (RuntimeException headException) {
+                log.warn("inspectObjectMetadata failed after completion for session {} (error: {}). Preserving state for reconciliation.",
+                        sessionId, headException.getClass().getSimpleName());
+                throw headException;
+            }
 
-        verifyCompletedObjectProvenance(
-                claimedSession,
-                headMetadata,
-                completedObject.location(),
-                completedObject.eTag(),
-                completedObject.versionId()
-        );
+            verifyCompletedObjectProvenance(
+                    claimedSession,
+                    headMetadata,
+                    completedObject.location(),
+                    completedObject.eTag(),
+                    completedObject.versionId(),
+                    false
+            );
+        }
 
         // =========================================================================
         // TX-B — MySQL: Atomically register MediaAsset & MediaAssetVersion, commit allocation, mark COMPLETED
@@ -1201,8 +1246,8 @@ public class MediaUploadSessionService {
         try {
             return txTemplate.execute(status -> executeTxBRegistration(sessionId, requestingPrincipalId, claimToken));
         } catch (RuntimeException txBException) {
-            log.error("TX-B persistence failed after successful provider completion for session {}. Preserving state for reconciliation.",
-                    sessionId, txBException);
+            log.error("TX-B persistence failed after successful provider completion for session {} (error: {}). Preserving state for reconciliation.",
+                    sessionId, txBException.getClass().getSimpleName());
             throw txBException;
         }
     }
@@ -1342,7 +1387,8 @@ public class MediaUploadSessionService {
             MultipartObjectMetadata headMetadata,
             StorageLocation completedLocation,
             String expectedETag,
-            String expectedVersionId
+            String expectedVersionId,
+            boolean isRecovery
     ) {
         Objects.requireNonNull(headMetadata, "MultipartObjectMetadata cannot be null.");
 
@@ -1362,20 +1408,44 @@ public class MediaUploadSessionService {
             }
         }
 
-        // Provider identity check (where available from adapter)
-        if (headMetadata.providerId() != null && !session.getStorageProviderId().equals(headMetadata.providerId())) {
-            throw new IllegalStateException(
-                    String.format("Completed object provider mismatch: expected %s, got %s",
-                            session.getStorageProviderId(), headMetadata.providerId())
-            );
+        // Provider identity check (where available from adapter; mandatory for recovery)
+        if (isRecovery) {
+            if (headMetadata.providerId() == null || headMetadata.providerId().value().isBlank()) {
+                throw new IllegalStateException("Completed object providerId missing on storage metadata during recovery.");
+            }
+            if (!session.getStorageProviderId().equals(headMetadata.providerId())) {
+                throw new IllegalStateException(
+                        String.format("Completed object provider mismatch: expected %s, got %s",
+                                session.getStorageProviderId(), headMetadata.providerId())
+                );
+            }
+        } else {
+            if (headMetadata.providerId() != null && !session.getStorageProviderId().equals(headMetadata.providerId())) {
+                throw new IllegalStateException(
+                        String.format("Completed object provider mismatch: expected %s, got %s",
+                                session.getStorageProviderId(), headMetadata.providerId())
+                );
+            }
         }
 
-        // Bucket name check (where available from adapter)
-        if (headMetadata.bucketName() != null && !session.getStorageBucketName().equals(headMetadata.bucketName())) {
-            throw new IllegalStateException(
-                    String.format("Completed object bucket mismatch: expected %s, got %s",
-                            session.getStorageBucketName(), headMetadata.bucketName())
-            );
+        // Bucket name check (where available from adapter; mandatory for recovery)
+        if (isRecovery) {
+            if (headMetadata.bucketName() == null || headMetadata.bucketName().isBlank()) {
+                throw new IllegalStateException("Completed object bucketName missing on storage metadata during recovery.");
+            }
+            if (!session.getStorageBucketName().equals(headMetadata.bucketName())) {
+                throw new IllegalStateException(
+                        String.format("Completed object bucket mismatch: expected %s, got %s",
+                                session.getStorageBucketName(), headMetadata.bucketName())
+                );
+            }
+        } else {
+            if (headMetadata.bucketName() != null && !session.getStorageBucketName().equals(headMetadata.bucketName())) {
+                throw new IllegalStateException(
+                        String.format("Completed object bucket mismatch: expected %s, got %s",
+                                session.getStorageBucketName(), headMetadata.bucketName())
+                );
+            }
         }
 
         // Exact storage key check
@@ -1419,10 +1489,28 @@ public class MediaUploadSessionService {
             );
         }
 
+        // ETag check: present and non-blank after normalization
+        if (headMetadata.eTag() == null || headMetadata.eTag().trim().isBlank()) {
+            throw new IllegalStateException("Completed object ETag is null or blank on storage metadata.");
+        }
+        String normHead;
+        try {
+            normHead = MultipartManifestCanonicalizer.normalizeETag(headMetadata.eTag());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("Completed object ETag is invalid on storage metadata: " + e.getMessage(), e);
+        }
+        if (normHead == null || normHead.isBlank()) {
+            throw new IllegalStateException("Completed object ETag is null or blank on storage metadata.");
+        }
+
         // ETag check against provider completion result to protect against concurrent overwrite races
         if (expectedETag != null && !expectedETag.isBlank()) {
-            String normHead = MultipartManifestCanonicalizer.normalizeETag(headMetadata.eTag());
-            String normExpected = MultipartManifestCanonicalizer.normalizeETag(expectedETag);
+            String normExpected;
+            try {
+                normExpected = MultipartManifestCanonicalizer.normalizeETag(expectedETag);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException("Expected completion ETag is invalid: " + e.getMessage(), e);
+            }
             if (!normHead.equals(normExpected)) {
                 throw new IllegalStateException(
                         String.format("Completed object ETag mismatch (potential concurrent overwrite): expected %s, got %s",
@@ -1447,6 +1535,20 @@ public class MediaUploadSessionService {
                 );
             }
         }
+    }
+
+    private static boolean isProviderConfirmedNoSuchUpload(Throwable ex) {
+        if (ex == null) {
+            return false;
+        }
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof StorageUploadNotFoundException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static String getMetadataValue(Map<String, String> metadata, String keyName) {
