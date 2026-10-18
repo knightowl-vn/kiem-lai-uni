@@ -35,10 +35,23 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaAssetStreamDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaVersionDTO;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -269,7 +282,7 @@ public class AdminScreenEntryVideoController {
         if ("COMPLETED".equals(session.status())
                 && session.registeredAssetId() != null
                 && session.registeredAssetId().equals(entry.videoMediaAssetId())) {
-            String playbackUrl = "/media/assets/" + session.registeredAssetId() + "/content";
+            String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
             String respStatus = intent.isReplacement() ? "REPLACED" : "COMPLETED";
             return ResponseEntity.ok(new CompleteVideoUploadResponse(
                     session.registeredAssetId(),
@@ -341,7 +354,7 @@ public class AdminScreenEntryVideoController {
             throw new IllegalStateException("Hoàn tất upload session không trả về registeredAssetId hợp lệ: " + sessionId);
         }
 
-        String playbackUrl = "/media/assets/" + registeredAssetId + "/content";
+        String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
 
         // STEP 5: Screen entry persistence (with locked-state check inside use-case)
         if (intent.isReplacement()) {
@@ -473,7 +486,7 @@ public class AdminScreenEntryVideoController {
 
         if (entry.videoMediaAssetId() != null) {
             if (entry.videoMediaAssetId().equals(videoMediaAssetId)) {
-                String playbackUrl = "/media/assets/" + videoMediaAssetId + "/content";
+                String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
                 return ResponseEntity.ok(new CompleteVideoUploadResponse(
                         videoMediaAssetId,
                         playbackUrl,
@@ -509,7 +522,7 @@ public class AdminScreenEntryVideoController {
                     expectedCurrentVideoMediaAssetId
             );
 
-            String playbackUrl = "/media/assets/" + videoMediaAssetId + "/content";
+            String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
             return ResponseEntity.ok(new CompleteVideoUploadResponse(
                     videoMediaAssetId,
                     playbackUrl,
@@ -524,7 +537,7 @@ public class AdminScreenEntryVideoController {
 
         attachScreenEntryVideoUseCase.execute(titleId, entryId, videoMediaAssetId);
 
-        String playbackUrl = "/media/assets/" + videoMediaAssetId + "/content";
+        String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
         return ResponseEntity.ok(new CompleteVideoUploadResponse(
                 videoMediaAssetId,
                 playbackUrl,
@@ -574,6 +587,279 @@ public class AdminScreenEntryVideoController {
                 "entryId", detached.id(),
                 "message", "Đã gỡ bỏ video khỏi Screen Entry thành công. Video gốc vẫn được bảo toàn an toàn trên hệ thống Media."
         ));
+    }
+
+    /**
+     * Authorized admin streaming endpoint for attached ScreenEntry video binaries.
+     * Supports both HTTP GET (full / 206 Partial Content) and HTTP HEAD metadata requests.
+     */
+    @RequestMapping(
+            value = "/content",
+            method = {RequestMethod.GET, RequestMethod.HEAD}
+    )
+    public ResponseEntity<StreamingResponseBody> streamVideoContent(
+            @PathVariable UUID titleId,
+            @PathVariable UUID entryId,
+            HttpServletRequest request
+    ) {
+        getScreenTitleDetailUseCase.execute(titleId);
+        ScreenEntryDTO entry = getScreenEntryDetailUseCase.execute(titleId, entryId);
+
+        UUID videoAssetId = entry.videoMediaAssetId();
+        if (videoAssetId == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        Optional<MediaAssetDetailDTO> detailOpt = mediaContract.getAssetDetail(videoAssetId);
+        if (detailOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        MediaAssetDetailDTO detail = detailOpt.get();
+        if (detail.status() != MediaAssetStatusDTO.ACTIVE || detail.mediaType() != MediaTypeDTO.VIDEO) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        MediaVersionDTO currentVersion = detail.currentVersion();
+        if (currentVersion == null || currentVersion.sizeBytes() <= 0) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        long totalSize = currentVersion.sizeBytes();
+        String mimeType = (currentVersion.mimeType() != null && !currentVersion.mimeType().isBlank())
+                ? currentVersion.mimeType()
+                : "video/mp4";
+        String eTag = "\"" + currentVersion.id() + "\"";
+        String cacheControl = "private, no-cache, no-store, must-revalidate";
+
+        if (RequestMethod.HEAD.name().equalsIgnoreCase(request.getMethod())) {
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, mimeType)
+                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(totalSize))
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CACHE_CONTROL, cacheControl)
+                    .header(HttpHeaders.ETAG, eTag)
+                    .build();
+        }
+
+        String rangeHeader = request.getHeader(HttpHeaders.RANGE);
+        if (rangeHeader == null || rangeHeader.isBlank()) {
+            StreamingResponseBody responseBody = createStreamingResponseBody(
+                    entryId,
+                    videoAssetId,
+                    () -> mediaContract.openStream(videoAssetId)
+            );
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, mimeType)
+                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(totalSize))
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CACHE_CONTROL, cacheControl)
+                    .header(HttpHeaders.ETAG, eTag)
+                    .body(responseBody);
+        }
+
+        RangeResolution range = resolveRange(rangeHeader, totalSize);
+        if (range.status() == RangeStatus.UNSATISFIABLE) {
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header(HttpHeaders.CONTENT_RANGE, "bytes */" + totalSize)
+                    .header(HttpHeaders.CACHE_CONTROL, cacheControl)
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .build();
+        }
+
+        if (range.status() == RangeStatus.PARTIAL) {
+            long length = range.length();
+            StreamingResponseBody responseBody = createStreamingResponseBody(
+                    entryId,
+                    videoAssetId,
+                    () -> mediaContract.openRangeStream(videoAssetId, range.startInclusive(), length)
+            );
+            return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                    .header(HttpHeaders.CONTENT_TYPE, mimeType)
+                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(length))
+                    .header(HttpHeaders.CONTENT_RANGE, "bytes " + range.startInclusive() + "-" + range.endInclusive() + "/" + totalSize)
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CACHE_CONTROL, cacheControl)
+                    .header(HttpHeaders.ETAG, eTag)
+                    .body(responseBody);
+        }
+
+        StreamingResponseBody responseBody = createStreamingResponseBody(
+                entryId,
+                videoAssetId,
+                () -> mediaContract.openStream(videoAssetId)
+        );
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, mimeType)
+                .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(totalSize))
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                .header(HttpHeaders.CACHE_CONTROL, cacheControl)
+                .header(HttpHeaders.ETAG, eTag)
+                .body(responseBody);
+    }
+
+    private static final int STREAM_BUFFER_SIZE = 8192;
+
+    @FunctionalInterface
+    private interface StreamSupplier {
+        MediaAssetStreamDTO open() throws Exception;
+    }
+
+    private static boolean isClientDisconnect(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            String className = current.getClass().getName();
+            String msg = (current.getMessage() != null) ? current.getMessage().toLowerCase() : "";
+            if (className.endsWith("ClientAbortException")
+                    || msg.contains("broken pipe")
+                    || msg.contains("connection reset")
+                    || msg.contains("connection was aborted")
+                    || msg.contains("an established connection was aborted")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private StreamingResponseBody createStreamingResponseBody(
+            UUID entryId,
+            UUID videoAssetId,
+            StreamSupplier streamSupplier
+    ) {
+        return outputStream -> {
+            try (MediaAssetStreamDTO streamDto = streamSupplier.open()) {
+                if (streamDto == null || streamDto.contentStream() == null) {
+                    return;
+                }
+                InputStream in = streamDto.contentStream();
+                byte[] buffer = new byte[STREAM_BUFFER_SIZE];
+                int bytesRead;
+                while (true) {
+                    try {
+                        bytesRead = in.read(buffer);
+                    } catch (IOException e) {
+                        log.error("Storage stream read failure for entry {} (asset {}): {}",
+                                entryId, videoAssetId, e.getMessage());
+                        throw e;
+                    }
+
+                    if (bytesRead == -1) {
+                        break;
+                    }
+
+                    try {
+                        outputStream.write(buffer, 0, bytesRead);
+                    } catch (IOException e) {
+                        if (isClientDisconnect(e)) {
+                            log.debug("Client disconnected while writing video stream for entry {}: {}",
+                                    entryId, e.getMessage());
+                            return;
+                        }
+                        log.warn("Downstream client write failure for entry {} (asset {}): {}",
+                                entryId, videoAssetId, e.getMessage());
+                        throw e;
+                    }
+                }
+            } catch (IOException ioEx) {
+                throw ioEx;
+            } catch (RuntimeException runtimeEx) {
+                log.error("Streaming runtime error for entry {} (asset {}): {}",
+                        entryId, videoAssetId, runtimeEx.getMessage());
+                throw runtimeEx;
+            } catch (Exception ex) {
+                log.error("Streaming error for entry {} (asset {}): {}",
+                        entryId, videoAssetId, ex.getMessage());
+                throw new IOException("Lỗi khi mở hoặc truyền dữ liệu video cho asset " + videoAssetId, ex);
+            }
+        };
+    }
+
+    private enum RangeStatus {
+        IGNORED,
+        PARTIAL,
+        UNSATISFIABLE
+    }
+
+    private record RangeResolution(
+            RangeStatus status,
+            long startInclusive,
+            long endInclusive
+    ) {
+        private static RangeResolution ignored() {
+            return new RangeResolution(RangeStatus.IGNORED, 0, 0);
+        }
+
+        private static RangeResolution partial(long startInclusive, long endInclusive) {
+            return new RangeResolution(RangeStatus.PARTIAL, startInclusive, endInclusive);
+        }
+
+        private static RangeResolution unsatisfiable() {
+            return new RangeResolution(RangeStatus.UNSATISFIABLE, 0, 0);
+        }
+
+        private long length() {
+            return endInclusive - startInclusive + 1;
+        }
+    }
+
+    private static RangeResolution resolveRange(String value, long fullSize) {
+        if (value == null || value.isBlank() || fullSize < 0) {
+            return RangeResolution.ignored();
+        }
+        int equalsIndex = value.indexOf('=');
+        if (equalsIndex < 0) {
+            return RangeResolution.ignored();
+        }
+        String unit = value.substring(0, equalsIndex).trim();
+        if (!"bytes".equalsIgnoreCase(unit)) {
+            return RangeResolution.ignored();
+        }
+
+        String rangeSpec = value.substring(equalsIndex + 1).trim();
+        if (rangeSpec.indexOf(',') >= 0) {
+            return RangeResolution.ignored();
+        }
+        if (fullSize == 0) {
+            return RangeResolution.unsatisfiable();
+        }
+
+        int hyphenIndex = rangeSpec.indexOf('-');
+        if (hyphenIndex < 0 || hyphenIndex != rangeSpec.lastIndexOf('-')) {
+            return RangeResolution.unsatisfiable();
+        }
+
+        String startPart = rangeSpec.substring(0, hyphenIndex).trim();
+        String endPart = rangeSpec.substring(hyphenIndex + 1).trim();
+        try {
+            if (startPart.isEmpty()) {
+                long suffixLength = Long.parseLong(endPart);
+                if (suffixLength <= 0) {
+                    return RangeResolution.unsatisfiable();
+                }
+                long selectedLength = Math.min(suffixLength, fullSize);
+                return RangeResolution.partial(fullSize - selectedLength, fullSize - 1);
+            }
+
+            long startInclusive = Long.parseLong(startPart);
+            if (startInclusive < 0 || startInclusive >= fullSize) {
+                return RangeResolution.unsatisfiable();
+            }
+
+            long endInclusive = endPart.isEmpty()
+                    ? fullSize - 1
+                    : Long.parseLong(endPart);
+            if (endInclusive < startInclusive) {
+                return RangeResolution.unsatisfiable();
+            }
+            return RangeResolution.partial(startInclusive, Math.min(endInclusive, fullSize - 1));
+        } catch (NumberFormatException e) {
+            return RangeResolution.unsatisfiable();
+        }
+    }
+
+    @ExceptionHandler(MediaAssetNotFoundException.class)
+    public ResponseEntity<Void> handleMediaAssetNotFound(MediaAssetNotFoundException ex) {
+        log.warn("Media asset not found during video streaming: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
     @ExceptionHandler(AccessDeniedException.class)

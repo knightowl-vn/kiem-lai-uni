@@ -20,6 +20,14 @@ import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.entry.admin.dto.CompleteVideoUploadSessionRequest;
 import com.universe.screen.entry.admin.dto.InitiateVideoUploadSessionRequest;
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaAssetStreamDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaVersionDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
+import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
+import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,23 +37,41 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
@@ -71,6 +97,7 @@ class AdminScreenEntryVideoControllerTest {
 
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
+    private AdminScreenEntryVideoController controller;
 
     private final UUID titleId = UUID.randomUUID();
     private final UUID entryId = UUID.randomUUID();
@@ -80,7 +107,7 @@ class AdminScreenEntryVideoControllerTest {
 
     @BeforeEach
     void setUp() {
-        AdminScreenEntryVideoController controller = new AdminScreenEntryVideoController(
+        controller = new AdminScreenEntryVideoController(
                 getScreenTitleDetailUseCase,
                 getScreenEntryDetailUseCase,
                 attachScreenEntryVideoUseCase,
@@ -279,7 +306,7 @@ class AdminScreenEntryVideoControllerTest {
                         .principal(new TestingAuthenticationToken("admin", "pass")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
-                .andExpect(jsonPath("$.playbackUrl").value("/media/assets/" + assetId + "/content"))
+                .andExpect(jsonPath("$.playbackUrl").value("/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content"))
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         verify(attachScreenEntryVideoUseCase).execute(titleId, entryId, assetId);
@@ -465,7 +492,7 @@ class AdminScreenEntryVideoControllerTest {
                         .principal(new TestingAuthenticationToken("admin", "pass")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
-                .andExpect(jsonPath("$.playbackUrl").value("/media/assets/" + assetId + "/content"))
+                .andExpect(jsonPath("$.playbackUrl").value("/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content"))
                 .andExpect(jsonPath("$.status").value("ATTACHED"));
 
         verify(attachScreenEntryVideoUseCase).execute(titleId, entryId, assetId);
@@ -1132,6 +1159,519 @@ class AdminScreenEntryVideoControllerTest {
                 .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
                 .andExpect(jsonPath("$.message").value("Yêu cầu không hợp lệ hoặc đã xảy ra lỗi trong quá trình xử lý video."))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("AKIAIOSFODNN7EXAMPLE"))));
+    }
+
+    @Test
+    @DisplayName("GET /content: streams video successfully when entry is DRAFT")
+    void shouldStreamVideoWhenEntryIsDraft() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", new ByteArrayInputStream("video-data".getBytes())
+        ));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andExpect(header().string("Content-Type", "video/mp4"))
+                .andExpect(header().string("Content-Length", "5000000"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andExpect(header().string("Cache-Control", "private, no-cache, no-store, must-revalidate"))
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes("video-data".getBytes()));
+    }
+
+    @Test
+    @DisplayName("GET /content: streams video successfully when entry is PUBLISHED")
+    void shouldStreamVideoWhenEntryIsPublished() throws Exception {
+        stubTitleAndEntryWithStatus(assetId, ScreenPublicationStatus.PUBLISHED);
+        stubActiveVideoMediaAsset(5000000L);
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", new ByteArrayInputStream("video-data".getBytes())
+        ));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andExpect(header().string("Content-Type", "video/mp4"))
+                .andExpect(header().string("Content-Length", "5000000"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes("video-data".getBytes()));
+    }
+
+    @Test
+    @DisplayName("GET /content: streams video successfully when entry is ARCHIVED")
+    void shouldStreamVideoWhenEntryIsArchived() throws Exception {
+        stubTitleAndEntryWithStatus(assetId, ScreenPublicationStatus.ARCHIVED);
+        stubActiveVideoMediaAsset(5000000L);
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", new ByteArrayInputStream("video-data".getBytes())
+        ));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andExpect(header().string("Content-Type", "video/mp4"))
+                .andExpect(header().string("Content-Length", "5000000"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes("video-data".getBytes()));
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 404 when entry has no video attached")
+    void shouldReturn404WhenNoVideoAttached() throws Exception {
+        stubTitleAndEntry(null);
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 404 when entry is not found or does not belong to title")
+    void shouldReturn404WhenEntryNotFound() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(new ScreenTitleDTO(
+                titleId, "title-slug", "Title", null, null, ScreenStructure.FEATURE,
+                ScreenPresentation.LIVE_ACTION, null, null, ScreenPublicationStatus.PUBLISHED,
+                null, now, now
+        ));
+        when(getScreenEntryDetailUseCase.execute(titleId, entryId))
+                .thenThrow(new ScreenEntryNotFoundException(entryId));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 404 when title is not found")
+    void shouldReturn404WhenTitleNotFound() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(titleId))
+                .thenThrow(new ScreenTitleNotFoundException(titleId));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 404 when MediaAsset is not found")
+    void shouldReturn404WhenMediaAssetNotFound() throws Exception {
+        stubTitleAndEntry(assetId);
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 404 when MediaAsset status is DELETED")
+    void shouldReturn404WhenMediaAssetIsDeleted() throws Exception {
+        stubTitleAndEntry(assetId);
+        MediaVersionDTO version = new MediaVersionDTO(
+                UUID.randomUUID(), assetId, 1, null, "video/mp4", 5000000L, "video.mp4", now
+        );
+        MediaAssetDetailDTO detail = new MediaAssetDetailDTO(
+                assetId, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.DELETED, 1, now, now, version
+        );
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.of(detail));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 404 when MediaAsset mediaType is not VIDEO")
+    void shouldReturn404WhenMediaAssetIsNotVideo() throws Exception {
+        stubTitleAndEntry(assetId);
+        MediaVersionDTO version = new MediaVersionDTO(
+                UUID.randomUUID(), assetId, 1, null, "image/jpeg", 500000L, "cover.jpg", now
+        );
+        MediaAssetDetailDTO detail = new MediaAssetDetailDTO(
+                assetId, MediaTypeDTO.IMAGE, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE, 1, now, now, version
+        );
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.of(detail));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 206 Partial Content for valid byte range")
+    void shouldReturn206ForValidByteRange() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        byte[] expectedBytes = new byte[1024];
+        when(mediaContract.openRangeStream(assetId, 0L, 1024L)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 1024L, "hash", new ByteArrayInputStream(expectedBytes)
+        ));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId)
+                        .header("Range", "bytes=0-1023"))
+                .andExpect(status().isPartialContent())
+                .andExpect(request().asyncStarted())
+                .andExpect(header().string("Content-Range", "bytes 0-1023/5000000"))
+                .andExpect(header().string("Content-Length", "1024"))
+                .andExpect(header().string("Content-Type", "video/mp4"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isPartialContent())
+                .andExpect(content().bytes(expectedBytes));
+    }
+
+    @Test
+    @DisplayName("GET /content: returns 416 Range Not Satisfiable for unsatisfiable range")
+    void shouldReturn416ForUnsatisfiableByteRange() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId)
+                        .header("Range", "bytes=99999999-"))
+                .andExpect(status().isRequestedRangeNotSatisfiable())
+                .andExpect(header().string("Content-Range", "bytes */5000000"))
+                .andExpect(header().string("Accept-Ranges", "bytes"));
+    }
+
+    @Test
+    @DisplayName("HEAD /content: returns 200 OK with metadata headers and no body")
+    void shouldReturn200ForHeadRequestWithMetadataHeaders() throws Exception {
+        stubTitleAndEntry(assetId);
+        UUID versionId = stubActiveVideoMediaAsset(5000000L);
+
+        mockMvc.perform(head("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "video/mp4"))
+                .andExpect(header().string("Content-Length", "5000000"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andExpect(header().string("Cache-Control", "private, no-cache, no-store, must-revalidate"))
+                .andExpect(header().string("ETag", "\"" + versionId + "\""));
+
+        verify(mediaContract, never()).openStream(any());
+        verify(mediaContract, never()).openRangeStream(any(), any(long.class), any(long.class));
+    }
+
+    @Test
+    @DisplayName("GET /content: propagates storage open failure during async streaming without swallowing")
+    void shouldPropagateStorageOpenFailureDuringAsyncStreaming() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        when(mediaContract.openStream(assetId)).thenThrow(new RuntimeException("B2 storage open failed"));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        assertThatThrownBy(() -> mockMvc.perform(asyncDispatch(result)))
+                .hasCauseInstanceOf(RuntimeException.class)
+                .hasRootCauseMessage("B2 storage open failed");
+    }
+
+    @Test
+    @DisplayName("GET /content: storage InputStream throwing IOException('Broken pipe') MUST propagate as failure, not success")
+    void shouldPropagateStorageInputStreamBrokenPipeFailure() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream brokenPipeStream = new InputStream() {
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                throw new IOException("Broken pipe");
+            }
+            @Override
+            public int read() throws IOException {
+                throw new IOException("Broken pipe");
+            }
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", brokenPipeStream
+        ));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, request);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        // Upstream storage read failure MUST propagate and must NOT be treated as client disconnect
+        assertThatThrownBy(() -> body.writeTo(new ByteArrayOutputStream()))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("Broken pipe");
+
+        // MediaAssetStreamDTO ensures input stream is closed exactly once
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("GET /content: storage InputStream throwing IOException('Connection reset') MUST propagate as failure")
+    void shouldPropagateStorageInputStreamConnectionResetFailure() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream connectionResetStream = new InputStream() {
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                throw new IOException("Connection reset by peer");
+            }
+            @Override
+            public int read() throws IOException {
+                throw new IOException("Connection reset by peer");
+            }
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", connectionResetStream
+        ));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, request);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        assertThatThrownBy(() -> body.writeTo(new ByteArrayOutputStream()))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("Connection reset by peer");
+
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("GET /content: storage InputStream throwing ordinary read exception propagates failure and closes resource")
+    void shouldPropagateStorageInputStreamOrdinaryReadFailure() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream failingStream = new InputStream() {
+            private int count = 0;
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                if (++count > 2) {
+                    throw new IOException("Mid-stream B2 connection drop");
+                }
+                return Math.min(len, 100);
+            }
+            @Override
+            public int read() throws IOException {
+                throw new IOException("Mid-stream B2 connection drop");
+            }
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", failingStream
+        ));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        assertThatThrownBy(() -> mockMvc.perform(asyncDispatch(result)))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("Mid-stream B2 connection drop");
+
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("StreamingResponseBody: downstream client disconnect on OutputStream handled gracefully and resource closed once")
+    void shouldHandleDownstreamClientDisconnectGracefullyAndCloseResource() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream goodStream = new ByteArrayInputStream("valid-video-bytes".getBytes()) {
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", goodStream
+        ));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, request);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        OutputStream brokenClientOutputStream = new OutputStream() {
+            @Override
+            public void write(int b) throws IOException {
+                throw new IOException("Broken pipe");
+            }
+            @Override
+            public void write(byte[] b, int off, int len) throws IOException {
+                throw new IOException("Broken pipe");
+            }
+        };
+
+        // When downstream OutputStream throws client disconnect, it is logged and handled cleanly without rethrowing
+        body.writeTo(brokenClientOutputStream);
+
+        // Resource closed exactly once
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("StreamingResponseBody: downstream unexpected OutputStream failure propagates without leaking diagnostics")
+    void shouldPropagateDownstreamUnexpectedOutputStreamFailure() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream goodStream = new ByteArrayInputStream("valid-video-bytes".getBytes()) {
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", goodStream
+        ));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, request);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        OutputStream failingOutputStream = new OutputStream() {
+            @Override
+            public void write(int b) throws IOException {
+                throw new IOException("Disk quota exceeded");
+            }
+            @Override
+            public void write(byte[] b, int off, int len) throws IOException {
+                throw new IOException("Disk quota exceeded");
+            }
+        };
+
+        assertThatThrownBy(() -> body.writeTo(failingOutputStream))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("Disk quota exceeded");
+
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("StreamingResponseBody: resource is closed exactly once after successful streaming")
+    void shouldCloseResourceExactlyOnceOnSuccess() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream goodStream = new ByteArrayInputStream("test-video-payload".getBytes()) {
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", goodStream
+        ));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes("test-video-payload".getBytes()));
+
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("GET /content (Range): propagates partial range stream read failure and closes resource")
+    void shouldPropagatePartialRangeStreamReadFailureAndCloseResource() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream failingRangeStream = new InputStream() {
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                throw new IOException("Storage read timeout during range");
+            }
+            @Override
+            public int read() throws IOException {
+                throw new IOException("Storage read timeout during range");
+            }
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openRangeStream(assetId, 0L, 1024L)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 1024L, "hash", failingRangeStream
+        ));
+
+        MvcResult result = mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", titleId, entryId)
+                        .header("Range", "bytes=0-1023"))
+                .andExpect(status().isPartialContent())
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        assertThatThrownBy(() -> mockMvc.perform(asyncDispatch(result)))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("Storage read timeout during range");
+
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    private UUID stubActiveVideoMediaAsset(long sizeBytes) {
+        UUID versionId = UUID.randomUUID();
+        MediaVersionDTO version = new MediaVersionDTO(
+                versionId, assetId, 1, null, "video/mp4", sizeBytes, "video.mp4", now
+        );
+        MediaAssetDetailDTO detail = new MediaAssetDetailDTO(
+                assetId, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE, 1, now, now, version
+        );
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.of(detail));
+        return versionId;
+    }
+
+    private void stubTitleAndEntryWithStatus(UUID currentVideoId, ScreenPublicationStatus status) {
+        ScreenTitleDTO title = new ScreenTitleDTO(
+                titleId, "title-slug", "Title", null, null, ScreenStructure.FEATURE,
+                ScreenPresentation.LIVE_ACTION, null, null, ScreenPublicationStatus.PUBLISHED,
+                null, now, now
+        );
+        ScreenEntryDTO entry = new ScreenEntryDTO(
+                entryId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                currentVideoId, null, 1200L, status, null, now, now
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(title);
+        when(getScreenEntryDetailUseCase.execute(titleId, entryId)).thenReturn(entry);
     }
 
     private void stubTitleAndEntry(UUID currentVideoId) {

@@ -9,6 +9,7 @@ import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
+import com.universe.media.contracts.dto.MediaAssetStreamDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
@@ -29,7 +30,7 @@ import java.util.UUID;
  * Exposes core digital asset operations to consumer modules (e.g. Novel, Wiki, Identity, Narration)
  * without leaking Media Application internals, persistence, or vendor storage abstractions.
  */
-public interface MediaContract {
+public interface MediaContract extends MediaStreamingContract {
 
     /**
      * Uploads a new media asset binary and registers its initial metadata.
@@ -280,5 +281,15 @@ public interface MediaContract {
             UUID sessionId
     ) {
         throw new UnsupportedOperationException("getUploadSession is not supported by this MediaContract implementation.");
+    }
+
+    @Override
+    default MediaAssetStreamDTO openStream(UUID assetId) {
+        throw new UnsupportedOperationException("openStream is not supported by this MediaContract implementation.");
+    }
+
+    @Override
+    default MediaAssetStreamDTO openRangeStream(UUID assetId, long startInclusive, long length) {
+        throw new UnsupportedOperationException("openRangeStream is not supported by this MediaContract implementation.");
     }
 }

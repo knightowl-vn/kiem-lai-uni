@@ -34,6 +34,7 @@ import com.universe.media.application.asset.UploadMediaAssetVersionResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.ports.MediaAssetCandidate;
+import com.universe.media.application.asset.StreamMediaAssetUseCase;
 import com.universe.media.application.variant.GenerateMediaImageVariantCommand;
 import com.universe.media.application.variant.GenerateMediaImageVariantUseCase;
 import com.universe.media.application.storage.MediaUploadSessionService;
@@ -48,6 +49,7 @@ import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaAssetStreamDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
@@ -98,6 +100,7 @@ public class MediaFacade implements MediaContract {
     private final FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase;
     private final UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase;
     private final MediaUploadSessionService mediaUploadSessionService;
+    private final StreamMediaAssetUseCase streamMediaAssetUseCase;
 
     @Autowired
     public MediaFacade(
@@ -115,7 +118,8 @@ public class MediaFacade implements MediaContract {
             AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase,
             FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
             UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase,
-            @Autowired(required = false) MediaUploadSessionService mediaUploadSessionService
+            @Autowired(required = false) MediaUploadSessionService mediaUploadSessionService,
+            @Autowired(required = false) StreamMediaAssetUseCase streamMediaAssetUseCase
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -174,6 +178,7 @@ public class MediaFacade implements MediaContract {
                 "UploadMediaAssetVersionConditionalUseCase cannot be null."
         );
         this.mediaUploadSessionService = mediaUploadSessionService;
+        this.streamMediaAssetUseCase = streamMediaAssetUseCase;
     }
 
     public MediaFacade(
@@ -207,6 +212,7 @@ public class MediaFacade implements MediaContract {
                 assignMediaAssetClientTagUseCase,
                 findActiveMediaAssetsByClientTagKeysetUseCase,
                 uploadMediaAssetVersionConditionalUseCase,
+                null,
                 null
         );
     }
@@ -655,6 +661,24 @@ public class MediaFacade implements MediaContract {
     private void ensureUploadSessionServiceAvailable() {
         if (mediaUploadSessionService == null) {
             throw new IllegalStateException("MediaUploadSessionService is not configured or available.");
+        }
+    }
+
+    @Override
+    public MediaAssetStreamDTO openStream(UUID assetId) {
+        ensureStreamMediaAssetUseCaseAvailable();
+        return streamMediaAssetUseCase.openStream(assetId);
+    }
+
+    @Override
+    public MediaAssetStreamDTO openRangeStream(UUID assetId, long startInclusive, long length) {
+        ensureStreamMediaAssetUseCaseAvailable();
+        return streamMediaAssetUseCase.openRangeStream(assetId, startInclusive, length);
+    }
+
+    private void ensureStreamMediaAssetUseCaseAvailable() {
+        if (streamMediaAssetUseCase == null) {
+            throw new IllegalStateException("StreamMediaAssetUseCase is not configured or available.");
         }
     }
 }

@@ -224,13 +224,13 @@
 
                     <div style="margin-bottom: 16px;">
                         <video controls preload="metadata" style="max-width: 100%; width: 720px; border-radius: 8px; background: #000; box-shadow: 0 2px 8px rgba(0,0,0,0.15);"
-                               th:src="@{/media/assets/{id}/content(id=${entry.videoMediaAssetId})}">
+                               th:src="@{/admin/screen/titles/{titleId}/entries/{entryId}/video/content(titleId=${title.id}, entryId=${entry.id})}">
                             Trình duyệt của bạn không hỗ trợ phát video HTML5.
                         </video>
                     </div>
 
                     <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
-                        <a th:href="@{/media/assets/{id}/content(id=${entry.videoMediaAssetId})}" target="_blank"
+                        <a th:href="@{/admin/screen/titles/{titleId}/entries/{entryId}/video/content(titleId=${title.id}, entryId=${entry.id})}" target="_blank"
                            class="admin-secondary-button" style="text-decoration: none; padding: 8px 16px; font-size: 13px; display: inline-block;">
                             Mở luồng video trực tiếp ↗
                         </a>

@@ -1495,10 +1495,11 @@ public class MediaUploadSessionService {
         }
 
         UUID assetId = UUID.randomUUID();
+        MediaVisibility initialVisibility = resolveInitialVisibility(session);
         MediaAsset asset = MediaAsset.registerInitial(
                 assetId,
                 session.getMediaType(),
-                MediaVisibility.PUBLIC,
+                initialVisibility,
                 session.getClientTag(),
                 now
         );
@@ -1614,6 +1615,73 @@ public class MediaUploadSessionService {
         }
 
         return session;
+    }
+
+    static boolean isValidScreenClientTag(String clientTag) {
+        if (clientTag == null || clientTag.isBlank()) {
+            return false;
+        }
+        if ("screen-video".equals(clientTag)) {
+            return true;
+        }
+        if (clientTag.startsWith("screen-replace:")) {
+            String rawUuid = clientTag.substring("screen-replace:".length()).trim();
+            if (rawUuid.length() != 36) {
+                return false;
+            }
+            try {
+                UUID parsed = UUID.fromString(rawUuid);
+                return parsed.toString().equalsIgnoreCase(rawUuid);
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    static MediaVisibility resolveInitialVisibility(MediaUploadSession session) {
+        String consumerContext = session.getConsumerContext();
+        String targetEntityType = session.getTargetEntityType();
+        String clientTag = session.getClientTag();
+
+        boolean isScreenContext = "screen".equalsIgnoreCase(consumerContext);
+        boolean hasValidScreenTag = isValidScreenClientTag(clientTag);
+
+        if (isScreenContext) {
+            if (!"SCREEN_ENTRY".equalsIgnoreCase(targetEntityType)) {
+                throw new IllegalStateException(
+                        String.format("Unsupported or ambiguous Screen target entity type '%s' for session %s.",
+                                targetEntityType, session.getId())
+                );
+            }
+            if (session.getTargetEntityId() == null) {
+                throw new IllegalStateException(
+                        String.format("Screen upload session %s has null targetEntityId.", session.getId())
+                );
+            }
+            if (!hasValidScreenTag) {
+                throw new IllegalStateException(
+                        String.format("Unsupported or malformed Screen client tag '%s' for session %s.",
+                                clientTag, session.getId())
+                );
+            }
+            if (session.getMediaType() != MediaType.VIDEO) {
+                throw new IllegalStateException(
+                        String.format("Unsupported Screen media type '%s' for session %s. Only VIDEO is permitted.",
+                                session.getMediaType(), session.getId())
+                );
+            }
+            return MediaVisibility.PRIVATE;
+        }
+
+        if (hasValidScreenTag || (clientTag != null && clientTag.toLowerCase().startsWith("screen-"))) {
+            throw new IllegalStateException(
+                    String.format("Ambiguous Screen client tag '%s' detected for non-screen consumer context '%s' on session %s.",
+                            clientTag, consumerContext, session.getId())
+            );
+        }
+
+        return MediaVisibility.PUBLIC;
     }
 
     // =============================================================================================

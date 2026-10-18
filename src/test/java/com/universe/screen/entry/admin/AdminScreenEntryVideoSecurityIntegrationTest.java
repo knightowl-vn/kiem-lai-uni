@@ -15,9 +15,16 @@ import com.universe.identity.infrastructure.security.SafeReturnToValidator;
 import com.universe.media.contracts.dto.AllocateUploadSessionRequestDTO;
 import com.universe.media.contracts.dto.ClaimCompletionIntentRequestDTO;
 import com.universe.media.contracts.dto.CompleteMultipartUploadRequestDTO;
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaAssetStreamDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
+import com.universe.media.contracts.dto.MediaVersionDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.MultipartManifestPartDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import java.io.ByteArrayInputStream;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
@@ -61,6 +68,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
@@ -75,6 +83,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AdminScreenEntryVideoSecurityIntegrationTest {
 
     private static final String ADMIN_EMAIL = "admin@universe.local";
+    private static final String SUPER_ADMIN_EMAIL = "superadmin@universe.local";
     private static final String USER_EMAIL = "user@universe.local";
     private static final UUID TITLE_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID ENTRY_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -157,6 +166,15 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
         adminEntity.setStatus("ACTIVE");
         adminEntity.setRole(UserRole.ADMIN);
         when(springDataUserJpaRepository.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(adminEntity));
+
+        UserJpaEntity superAdminEntity = new UserJpaEntity();
+        superAdminEntity.setId(UUID.randomUUID().toString());
+        superAdminEntity.setEmail(SUPER_ADMIN_EMAIL);
+        superAdminEntity.setDisplayName("Super Admin User");
+        superAdminEntity.setPublicHandle("super_admin_user");
+        superAdminEntity.setStatus("ACTIVE");
+        superAdminEntity.setRole(UserRole.SUPER_ADMIN);
+        when(springDataUserJpaRepository.findByEmail(SUPER_ADMIN_EMAIL)).thenReturn(Optional.of(superAdminEntity));
 
         UserJpaEntity userEntity = new UserJpaEntity();
         userEntity.setId(UUID.randomUUID().toString());
@@ -312,7 +330,7 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.videoMediaAssetId").value(ASSET_ID.toString()))
-                .andExpect(jsonPath("$.playbackUrl").value("/media/assets/" + ASSET_ID + "/content"));
+                .andExpect(jsonPath("$.playbackUrl").value("/admin/screen/titles/" + TITLE_ID + "/entries/" + ENTRY_ID + "/video/content"));
 
         verify(attachScreenEntryVideoUseCase).execute(TITLE_ID, ENTRY_ID, ASSET_ID);
     }
@@ -443,5 +461,80 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DETACHED"));
 
         verify(detachScreenEntryVideoUseCase).execute(TITLE_ID, ENTRY_ID, ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("Security: Anonymous user cannot stream video (redirects to /login)")
+    void anonymousUser_cannotStreamVideo() throws Exception {
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", TITLE_ID, ENTRY_ID))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @DisplayName("Security: Regular USER role cannot stream video (redirects to /access-denied)")
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    void regularUser_cannotStreamVideo() throws Exception {
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", TITLE_ID, ENTRY_ID))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @DisplayName("Security: ADMIN role can stream video successfully")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void adminUser_canStreamVideo() throws Exception {
+        ScreenEntryDTO attachedEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                ASSET_ID, null, 1200L, ScreenPublicationStatus.DRAFT, null, now, now
+        );
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(attachedEntry);
+
+        MediaVersionDTO version = new MediaVersionDTO(
+                UUID.randomUUID(), ASSET_ID, 1, null, "video/mp4", 5000000L, "video.mp4", now
+        );
+        MediaAssetDetailDTO detail = new MediaAssetDetailDTO(
+                ASSET_ID, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE, 1, now, now, version
+        );
+        when(mediaContract.getAssetDetail(ASSET_ID)).thenReturn(Optional.of(detail));
+        when(mediaContract.openStream(ASSET_ID)).thenReturn(new MediaAssetStreamDTO(
+                ASSET_ID, 1, "video/mp4", 5000000L, "hash", new ByteArrayInputStream("video-bytes".getBytes())
+        ));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "video/mp4"))
+                .andExpect(header().string("Content-Length", "5000000"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andExpect(header().string("Cache-Control", "private, no-cache, no-store, must-revalidate"));
+    }
+
+    @Test
+    @DisplayName("Security: SUPER_ADMIN role can stream video successfully")
+    @WithMockUser(username = SUPER_ADMIN_EMAIL, roles = {"SUPER_ADMIN"})
+    void superAdminUser_canStreamVideo() throws Exception {
+        ScreenEntryDTO attachedEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                ASSET_ID, null, 1200L, ScreenPublicationStatus.DRAFT, null, now, now
+        );
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(attachedEntry);
+
+        MediaVersionDTO version = new MediaVersionDTO(
+                UUID.randomUUID(), ASSET_ID, 1, null, "video/mp4", 5000000L, "video.mp4", now
+        );
+        MediaAssetDetailDTO detail = new MediaAssetDetailDTO(
+                ASSET_ID, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE, 1, now, now, version
+        );
+        when(mediaContract.getAssetDetail(ASSET_ID)).thenReturn(Optional.of(detail));
+        when(mediaContract.openStream(ASSET_ID)).thenReturn(new MediaAssetStreamDTO(
+                ASSET_ID, 1, "video/mp4", 5000000L, "hash", new ByteArrayInputStream("video-bytes".getBytes())
+        ));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "video/mp4"))
+                .andExpect(header().string("Content-Length", "5000000"))
+                .andExpect(header().string("Accept-Ranges", "bytes"))
+                .andExpect(header().string("Cache-Control", "private, no-cache, no-store, must-revalidate"));
     }
 }
