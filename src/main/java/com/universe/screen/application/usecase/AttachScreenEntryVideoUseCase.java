@@ -46,9 +46,14 @@ public class AttachScreenEntryVideoUseCase {
             throw new ScreenTitleNotFoundException(titleId);
         }
 
-        ScreenEntry entry = entryRepository.findById(entryId)
+        // Step 1: Atomically lock and validate candidate video media asset
+        mediaValidationPort.lockAndValidateVideoMediaAsset(videoMediaAssetId);
+
+        // Step 2: Acquire pessimistic row-level lock on ScreenEntry
+        ScreenEntry entry = entryRepository.findByIdForUpdate(entryId)
                 .orElseThrow(() -> new ScreenEntryNotFoundException(entryId));
 
+        // Step 3: Validate entry state and intent
         if (!entry.getTitleId().equals(titleId)) {
             throw new ScreenEntryNotFoundException(entryId);
         }
@@ -63,9 +68,7 @@ public class AttachScreenEntryVideoUseCase {
             throw new ScreenEntryVideoAlreadyAttachedException(entryId, entry.getVideoMediaAssetId());
         }
 
-        // Validate that media asset exists, is not deleted, and is VIDEO
-        mediaValidationPort.validateVideoMediaAsset(videoMediaAssetId);
-
+        // Step 4: Mutate and save ScreenEntry
         Instant now = clockPort.now();
         entry.updateMedia(videoMediaAssetId, entry.getThumbnailMediaAssetId(), now);
 

@@ -29,4 +29,16 @@ public interface ScreenMediaValidationPort {
      * @param mediaAssetId the scalar UUID of the media asset to validate
      */
     void validateVideoMediaAsset(UUID mediaAssetId);
+
+    /**
+     * Atomically locks and validates that the specified media asset exists, is ACTIVE, and is a valid video asset.
+     *
+     * <p>Acquires an InnoDB exclusive row-level lock (FOR UPDATE) within the current transaction boundary.
+     * The lock remains held until the calling transaction commits or rolls back.
+     *
+     * <p>If {@code mediaAssetId} is null, validation succeeds as a no-op.
+     *
+     * @param mediaAssetId the scalar UUID of the media asset to lock and validate
+     */
+    void lockAndValidateVideoMediaAsset(UUID mediaAssetId);
 }

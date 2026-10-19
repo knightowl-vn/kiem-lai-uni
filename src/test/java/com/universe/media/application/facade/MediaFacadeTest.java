@@ -10,6 +10,7 @@ import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQ
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.LockAndValidateActiveMediaAssetUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataQuery;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.MediaAssetDetailResult;
@@ -129,6 +130,9 @@ class MediaFacadeTest {
 
     @Mock
     private UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase;
+
+    @Mock
+    private LockAndValidateActiveMediaAssetUseCase lockAndValidateActiveMediaAssetUseCase;
 
     private MediaFacade facade;
 
@@ -762,5 +766,61 @@ class MediaFacadeTest {
                 .hasMessageContaining("Client tag cannot be null.");
 
         verifyNoInteractions(assignMediaAssetClientTagUseCase);
+    }
+
+    @Test
+    @DisplayName("lockAndValidateActiveAsset delegates to LockAndValidateActiveMediaAssetUseCase and maps result")
+    void shouldDelegateToLockAndValidateActiveMediaAssetUseCase() {
+        MediaFacade facadeWithLock = new MediaFacade(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                lockAndValidateActiveMediaAssetUseCase
+        );
+
+        MediaVersionItemResult versionItem = new MediaVersionItemResult(
+                VERSION_ID, ASSET_ID, 1, "provider", "key", "https://cdn.example.com/video.mp4",
+                VALID_HASH, "video/mp4", 1024L, "video.mp4", T1
+        );
+        MediaAssetDetailResult result = new MediaAssetDetailResult(
+                ASSET_ID, MediaType.VIDEO, MediaVisibility.PRIVATE, MediaAssetStatus.ACTIVE,
+                1, T1, T2, versionItem
+        );
+        when(lockAndValidateActiveMediaAssetUseCase.execute(ASSET_ID, MediaType.VIDEO)).thenReturn(result);
+
+        MediaAssetDetailDTO dto = facadeWithLock.lockAndValidateActiveAsset(ASSET_ID, MediaTypeDTO.VIDEO);
+
+        assertThat(dto).isNotNull();
+        assertThat(dto.id()).isEqualTo(ASSET_ID);
+        assertThat(dto.mediaType()).isEqualTo(MediaTypeDTO.VIDEO);
+        assertThat(dto.status()).isEqualTo(MediaAssetStatusDTO.ACTIVE);
+        verify(lockAndValidateActiveMediaAssetUseCase).execute(ASSET_ID, MediaType.VIDEO);
+    }
+
+    @Test
+    @DisplayName("lockAndValidateActiveAsset throws IllegalStateException when use case is not configured")
+    void shouldThrowWhenLockAndValidateUseCaseNotConfigured() {
+        assertThatThrownBy(() -> facade.lockAndValidateActiveAsset(ASSET_ID, MediaTypeDTO.VIDEO))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("LockAndValidateActiveMediaAssetUseCase is not configured");
+    }
+
+    @Test
+    @DisplayName("lockAndValidateActiveAsset fails fast on null assetId")
+    void shouldFailFastOnNullAssetIdInLockAndValidate() {
+        assertThatThrownBy(() -> facade.lockAndValidateActiveAsset(null, MediaTypeDTO.VIDEO))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Asset ID cannot be null.");
     }
 }

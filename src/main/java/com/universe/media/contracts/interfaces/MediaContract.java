@@ -14,6 +14,7 @@ import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
@@ -281,6 +282,24 @@ public interface MediaContract extends MediaStreamingContract {
             UUID sessionId
     ) {
         throw new UnsupportedOperationException("getUploadSession is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Atomically locks and validates an active media asset for update within an existing transaction.
+     *
+     * <p>Requires an active transaction (MANDATORY). Acquires an exclusive row lock (FOR UPDATE)
+     * on the MediaAsset row, validates that the asset exists, is ACTIVE, and matches the expected
+     * media type (if specified). The row lock remains held until the calling transaction completes.
+     *
+     * @param assetId ID of the media asset to lock and validate
+     * @param expectedType expected media type, or null to skip type check
+     * @return asset detail DTO
+     */
+    default MediaAssetDetailDTO lockAndValidateActiveAsset(
+            UUID assetId,
+            MediaTypeDTO expectedType
+    ) {
+        throw new UnsupportedOperationException("lockAndValidateActiveAsset is not supported by this MediaContract implementation.");
     }
 
     @Override

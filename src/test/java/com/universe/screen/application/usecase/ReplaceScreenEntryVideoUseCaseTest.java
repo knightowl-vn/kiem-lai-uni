@@ -83,7 +83,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         assertThat(result.videoMediaAssetId()).isEqualTo(newVideoId);
         assertThat(result.updatedAt()).isEqualTo(now);
 
-        verify(mediaValidationPort).validateVideoMediaAsset(newVideoId);
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
         verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository).save(entry);
     }
@@ -107,7 +107,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         assertThat(result.publishedAt()).isEqualTo(publishedAt);
         assertThat(result.updatedAt()).isEqualTo(now);
 
-        verify(mediaValidationPort).validateVideoMediaAsset(newVideoId);
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
         verify(entryRepository).save(entry);
     }
 
@@ -124,8 +124,9 @@ class ReplaceScreenEntryVideoUseCaseTest {
         assertThat(result).isNotNull();
         assertThat(result.videoMediaAssetId()).isEqualTo(newVideoId);
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
     }
 
     @Test
@@ -138,7 +139,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
 
         verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
+        verify(mediaValidationPort, never()).lockAndValidateVideoMediaAsset(any());
     }
 
     @Test
@@ -150,8 +151,9 @@ class ReplaceScreenEntryVideoUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, newVideoId, oldVideoId))
                 .isInstanceOf(ScreenEntryNotFoundException.class);
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
     }
 
     @Test
@@ -166,8 +168,9 @@ class ReplaceScreenEntryVideoUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, newVideoId, oldVideoId))
                 .isInstanceOf(ScreenEntryNotFoundException.class);
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
     }
 
     @Test
@@ -182,8 +185,9 @@ class ReplaceScreenEntryVideoUseCaseTest {
                 .isInstanceOf(ScreenEntryVideoNotAttachedException.class)
                 .hasMessageContaining("chưa gắn video");
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
     }
 
     @Test
@@ -199,8 +203,9 @@ class ReplaceScreenEntryVideoUseCaseTest {
                 .isInstanceOf(ScreenEntryVideoConflictException.class)
                 .hasMessageContaining("Xung đột");
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
     }
 
     @Test
@@ -212,23 +217,22 @@ class ReplaceScreenEntryVideoUseCaseTest {
 
         verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
+        verify(mediaValidationPort, never()).lockAndValidateVideoMediaAsset(any());
     }
 
     @Test
     @DisplayName("Replace: fails if media validation rejects candidate video asset")
     void shouldFailWhenMediaValidationRejects() {
-        ScreenEntry entry = createEntry(entryId, titleId, oldVideoId);
-
         when(titleRepository.existsById(titleId)).thenReturn(true);
-        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
         doThrow(new IllegalArgumentException("Invalid media asset type"))
-                .when(mediaValidationPort).validateVideoMediaAsset(newVideoId);
+                .when(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, newVideoId, oldVideoId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Invalid media asset type");
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(newVideoId);
+        verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).save(any());
     }
 

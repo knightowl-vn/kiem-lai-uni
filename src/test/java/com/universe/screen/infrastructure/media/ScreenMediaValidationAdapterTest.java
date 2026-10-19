@@ -1,5 +1,6 @@
 package com.universe.screen.infrastructure.media;
 
+import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -161,6 +162,80 @@ class ScreenMediaValidationAdapterTest {
                 .hasMessageContaining(assetId.toString())
                 .hasMessageContaining(nonVideoType.name());
     }
+
+    @Test
+    @DisplayName("Lock & Validate: null video asset ID is treated as valid optional no-op")
+    void shouldAcceptNullVideoAssetIdInLockAndValidateWithoutCallingMediaContract() {
+        assertThatCode(() -> adapter.lockAndValidateVideoMediaAsset(null))
+                .doesNotThrowAnyException();
+
+        verify(mediaContract, never()).lockAndValidateActiveAsset(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(mediaContract, never()).getAssetDetail(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("Lock & Validate: active VIDEO asset passes validation with expectedType=null")
+    void shouldAcceptActiveVideoAssetInLockAndValidate() {
+        MediaAssetDetailDTO detail = createDetail(assetId, MediaTypeDTO.VIDEO, MediaAssetStatusDTO.ACTIVE);
+        when(mediaContract.lockAndValidateActiveAsset(assetId, null)).thenReturn(detail);
+
+        assertThatCode(() -> adapter.lockAndValidateVideoMediaAsset(assetId))
+                .doesNotThrowAnyException();
+
+        verify(mediaContract).lockAndValidateActiveAsset(assetId, null);
+        verify(mediaContract, never()).getAssetDetail(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("Lock & Validate: missing video asset throws ScreenMediaAssetNotFoundException")
+    void shouldRejectMissingVideoAssetInLockAndValidate() {
+        when(mediaContract.lockAndValidateActiveAsset(assetId, null))
+                .thenThrow(new MediaAssetNotFoundException(assetId));
+
+        assertThatThrownBy(() -> adapter.lockAndValidateVideoMediaAsset(assetId))
+                .isInstanceOf(ScreenMediaAssetNotFoundException.class)
+                .hasMessageContaining(assetId.toString());
+
+        verify(mediaContract, never()).getAssetDetail(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("Lock & Validate: deleted video asset throws ScreenMediaAssetNotFoundException")
+    void shouldRejectDeletedVideoAssetInLockAndValidate() {
+        MediaAssetDetailDTO detail = createDetail(assetId, MediaTypeDTO.VIDEO, MediaAssetStatusDTO.DELETED);
+        when(mediaContract.lockAndValidateActiveAsset(assetId, null)).thenReturn(detail);
+
+        assertThatThrownBy(() -> adapter.lockAndValidateVideoMediaAsset(assetId))
+                .isInstanceOf(ScreenMediaAssetNotFoundException.class)
+                .hasMessageContaining(assetId.toString());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MediaTypeDTO.class, names = {"IMAGE", "AUDIO", "DOCUMENT"})
+    @DisplayName("Lock & Validate: non-VIDEO media types throw InvalidScreenMediaAssetTypeException with actual type")
+    void shouldRejectNonVideoMediaTypesInLockAndValidate(MediaTypeDTO nonVideoType) {
+        MediaAssetDetailDTO detail = createDetail(assetId, nonVideoType, MediaAssetStatusDTO.ACTIVE);
+        when(mediaContract.lockAndValidateActiveAsset(assetId, null)).thenReturn(detail);
+
+        assertThatThrownBy(() -> adapter.lockAndValidateVideoMediaAsset(assetId))
+                .isInstanceOf(InvalidScreenMediaAssetTypeException.class)
+                .hasMessageContaining(assetId.toString())
+                .hasMessageContaining(nonVideoType.name())
+                .hasMessageContaining("VIDEO");
+    }
+
+    @Test
+    @DisplayName("Lock & Validate: unexpected IllegalArgumentException is not swallowed and rethrown")
+    void shouldPropagateUnexpectedIllegalArgumentExceptionInLockAndValidate() {
+        when(mediaContract.lockAndValidateActiveAsset(assetId, null))
+                .thenThrow(new IllegalArgumentException("Unexpected argument failure"));
+
+        assertThatThrownBy(() -> adapter.lockAndValidateVideoMediaAsset(assetId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unexpected argument failure");
+    }
+
+
 
     private MediaAssetDetailDTO createDetail(UUID id, MediaTypeDTO type, MediaAssetStatusDTO status) {
         Instant now = Instant.parse("2026-10-06T10:00:00Z");

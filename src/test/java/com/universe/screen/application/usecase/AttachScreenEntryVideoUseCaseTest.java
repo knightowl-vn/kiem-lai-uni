@@ -67,7 +67,7 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, null);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
-        when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
         when(clockPort.now()).thenReturn(now);
         when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -77,7 +77,8 @@ class AttachScreenEntryVideoUseCaseTest {
         assertThat(result.videoMediaAssetId()).isEqualTo(videoAssetId);
         assertThat(result.updatedAt()).isEqualTo(now);
 
-        verify(mediaValidationPort).validateVideoMediaAsset(videoAssetId);
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository).save(entry);
     }
 
@@ -89,19 +90,22 @@ class AttachScreenEntryVideoUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
                 .isInstanceOf(ScreenTitleNotFoundException.class);
 
+        verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
+        verify(mediaValidationPort, never()).lockAndValidateVideoMediaAsset(any());
     }
 
     @Test
     @DisplayName("Attach: fails when entry does not exist")
     void shouldFailWhenEntryNotFound() {
         when(titleRepository.existsById(titleId)).thenReturn(true);
-        when(entryRepository.findById(entryId)).thenReturn(Optional.empty());
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
                 .isInstanceOf(ScreenEntryNotFoundException.class);
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
     }
 
@@ -112,11 +116,13 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, otherTitleId, null);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
-        when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
                 .isInstanceOf(ScreenEntryNotFoundException.class);
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
     }
 
@@ -126,15 +132,16 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, videoAssetId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
-        when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         ScreenEntryDTO result = useCase.execute(titleId, entryId, videoAssetId);
 
         assertThat(result).isNotNull();
         assertThat(result.videoMediaAssetId()).isEqualTo(videoAssetId);
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
     }
 
     @Test
@@ -144,28 +151,28 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, existingVideoId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
-        when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
                 .isInstanceOf(ScreenEntryVideoAlreadyAttachedException.class);
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
+        verify(entryRepository).findByIdForUpdate(entryId);
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).validateVideoMediaAsset(any());
     }
 
     @Test
     @DisplayName("Attach: fails if media validation port rejects the video asset")
     void shouldFailIfMediaValidationRejects() {
-        ScreenEntry entry = createEntry(entryId, titleId, null);
-
         when(titleRepository.existsById(titleId)).thenReturn(true);
-        when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
-        doThrow(new IllegalArgumentException("Invalid media")).when(mediaValidationPort).validateVideoMediaAsset(videoAssetId);
+        doThrow(new IllegalArgumentException("Invalid media")).when(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Invalid media");
 
+        verify(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
+        verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).save(any());
     }
 

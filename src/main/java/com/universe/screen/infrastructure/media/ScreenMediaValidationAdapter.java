@@ -1,5 +1,6 @@
 package com.universe.screen.infrastructure.media;
 
+import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -56,6 +57,28 @@ public class ScreenMediaValidationAdapter implements ScreenMediaValidationPort {
 
         MediaAssetDetailDTO detail = detailOpt.get();
         if (detail.status() == MediaAssetStatusDTO.DELETED) {
+            throw new ScreenMediaAssetNotFoundException(mediaAssetId);
+        }
+
+        if (detail.mediaType() != MediaTypeDTO.VIDEO) {
+            throw new InvalidScreenMediaAssetTypeException(mediaAssetId, "VIDEO", String.valueOf(detail.mediaType()));
+        }
+    }
+
+    @Override
+    public void lockAndValidateVideoMediaAsset(UUID mediaAssetId) {
+        if (mediaAssetId == null) {
+            return;
+        }
+
+        MediaAssetDetailDTO detail;
+        try {
+            detail = mediaContract.lockAndValidateActiveAsset(mediaAssetId, null);
+        } catch (MediaAssetNotFoundException e) {
+            throw new ScreenMediaAssetNotFoundException(mediaAssetId);
+        }
+
+        if (detail == null || detail.status() == MediaAssetStatusDTO.DELETED) {
             throw new ScreenMediaAssetNotFoundException(mediaAssetId);
         }
 
