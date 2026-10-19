@@ -9,6 +9,7 @@ import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
+import com.universe.media.contracts.dto.MediaAssetInspectionDTO;
 import com.universe.media.contracts.dto.MediaAssetStreamDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
@@ -300,6 +301,24 @@ public interface MediaContract extends MediaStreamingContract {
             MediaTypeDTO expectedType
     ) {
         throw new UnsupportedOperationException("lockAndValidateActiveAsset is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Atomically locks and inspects a media asset for update within an existing transaction.
+     *
+     * <p>Requires an active transaction (MANDATORY). Acquires an exclusive row lock (FOR UPDATE)
+     * on the MediaAsset row, validates that the asset exists and matches the expected
+     * media type (if specified), and returns its authoritative status (ACTIVE, DELETED, ARCHIVED).
+     *
+     * @param assetId ID of the media asset to lock and inspect
+     * @param expectedType expected media type, or null to skip type check
+     * @return asset inspection DTO
+     */
+    default MediaAssetInspectionDTO lockAndInspectAsset(
+            UUID assetId,
+            MediaTypeDTO expectedType
+    ) {
+        throw new UnsupportedOperationException("lockAndInspectAsset is not supported by this MediaContract implementation.");
     }
 
     @Override

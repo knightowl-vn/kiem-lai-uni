@@ -1,18 +1,32 @@
 package com.universe.screen.infrastructure.persistence;
 
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import org.hibernate.exception.ConstraintViolationException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +35,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -219,5 +235,113 @@ class ScreenEntryPersistenceAdapterTest {
 
         assertThat(adapter.existsById(entryId)).isTrue();
         assertThat(adapter.existsByTitleIdAndSlug(titleId, "  ep-1  ")).isTrue();
+    }
+
+    @Test
+    @DisplayName("PersistenceAdapter: findEntryIdsByVideoMediaAssetIdForUpdate delegates to repository with string UUID and maps to List<UUID>")
+    void shouldDelegateFindEntryIdsByVideoMediaAssetIdForUpdate() {
+        UUID videoAssetId = UUID.randomUUID();
+        UUID entryId1 = UUID.randomUUID();
+        UUID entryId2 = UUID.randomUUID();
+
+        when(repository.findEntryIdsByVideoMediaAssetIdForUpdate(videoAssetId.toString()))
+                .thenReturn(List.of(entryId1.toString(), entryId2.toString()));
+
+        List<UUID> result = adapter.findEntryIdsByVideoMediaAssetIdForUpdate(videoAssetId);
+
+        assertThat(result).containsExactly(entryId1, entryId2);
+        verify(repository).findEntryIdsByVideoMediaAssetIdForUpdate(videoAssetId.toString());
+    }
+
+    @Test
+    @DisplayName("PersistenceAdapter: findEntryIdsByVideoMediaAssetIdForUpdate returns empty list for valid UUID with zero matching references")
+    void shouldReturnEmptyListWhenValidAssetHasZeroReferences() {
+        UUID unattachedAssetId = UUID.randomUUID();
+        when(repository.findEntryIdsByVideoMediaAssetIdForUpdate(unattachedAssetId.toString()))
+                .thenReturn(List.of());
+
+        List<UUID> result = adapter.findEntryIdsByVideoMediaAssetIdForUpdate(unattachedAssetId);
+
+        assertThat(result).isEmpty();
+        verify(repository).findEntryIdsByVideoMediaAssetIdForUpdate(unattachedAssetId.toString());
+    }
+
+    @Test
+    @DisplayName("PersistenceAdapter: findEntryIdsByVideoMediaAssetIdForUpdate fails fast with NullPointerException when assetId is null")
+    void shouldFailFastWhenVideoMediaAssetIdIsNull() {
+        assertThatThrownBy(() -> adapter.findEntryIdsByVideoMediaAssetIdForUpdate(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Video media asset ID cannot be null");
+
+        verifyNoInteractions(repository);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    private PlatformTransactionManager createTestTransactionManager() {
+        return new AbstractPlatformTransactionManager() {
+            @Override
+            protected Object doGetTransaction() {
+                return new Object();
+            }
+
+            @Override
+            protected boolean isExistingTransaction(Object transaction) {
+                return TransactionSynchronizationManager.isActualTransactionActive();
+            }
+
+            @Override
+            protected void doBegin(Object transaction, TransactionDefinition definition) {
+                TransactionSynchronizationManager.setActualTransactionActive(true);
+            }
+
+            @Override
+            protected void doCommit(DefaultTransactionStatus status) {
+                TransactionSynchronizationManager.setActualTransactionActive(false);
+            }
+
+            @Override
+            protected void doRollback(DefaultTransactionStatus status) {
+                TransactionSynchronizationManager.setActualTransactionActive(false);
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("Transaction Contract: findEntryIdsByVideoMediaAssetIdForUpdate requires Propagation.MANDATORY")
+    void shouldRequireMandatoryTransactionPropagation() throws NoSuchMethodException {
+        Method method = ScreenEntryPersistenceAdapter.class
+                .getMethod("findEntryIdsByVideoMediaAssetIdForUpdate", UUID.class);
+        Transactional annotation = method.getAnnotation(Transactional.class);
+        assertThat(annotation).isNotNull();
+        assertThat(annotation.propagation()).isEqualTo(Propagation.MANDATORY);
+    }
+
+    @Test
+    @DisplayName("Transaction Proxy: invoking findEntryIdsByVideoMediaAssetIdForUpdate outside transaction throws IllegalTransactionStateException")
+    void shouldThrowIllegalTransactionStateExceptionWhenInvokedOutsideTransactionThroughProxy() {
+        AnnotationTransactionAttributeSource tas = new AnnotationTransactionAttributeSource();
+        PlatformTransactionManager txManager = createTestTransactionManager();
+        TransactionInterceptor interceptor = new TransactionInterceptor(txManager, tas);
+
+        ProxyFactory proxyFactory = new ProxyFactory(adapter);
+        proxyFactory.addAdvice(interceptor);
+        ScreenEntryRepositoryPort proxiedAdapter = (ScreenEntryRepositoryPort) proxyFactory.getProxy();
+
+        UUID videoAssetId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> proxiedAdapter.findEntryIdsByVideoMediaAssetIdForUpdate(videoAssetId))
+                .isInstanceOf(IllegalTransactionStateException.class)
+                .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
+
+        verifyNoInteractions(repository);
     }
 }

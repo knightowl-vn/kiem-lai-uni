@@ -5,6 +5,7 @@ import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
@@ -168,5 +169,15 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
             return false;
         }
         return repository.existsByTitleIdAndSlug(titleId.toString(), slug.trim().toLowerCase(Locale.ROOT));
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<UUID> findEntryIdsByVideoMediaAssetIdForUpdate(UUID videoMediaAssetId) {
+        Objects.requireNonNull(videoMediaAssetId, "Video media asset ID cannot be null.");
+        return repository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId.toString())
+                .stream()
+                .map(UUID::fromString)
+                .toList();
     }
 }

@@ -51,4 +51,15 @@ public interface ScreenEntryRepositoryPort {
     boolean existsById(UUID id);
 
     boolean existsByTitleIdAndSlug(UUID titleId, String slug);
+
+    /**
+     * Inspects entry IDs referencing a given video MediaAsset ID using a physical locking current-read.
+     *
+     * <p>Executes {@code SELECT id FROM screen_entries WHERE video_media_asset_id = ? FOR UPDATE}
+     * ensuring latest committed data visibility under MySQL REPEATABLE READ.
+     *
+     * @param videoMediaAssetId UUID of the video media asset
+     * @return list of ScreenEntry UUIDs currently referencing the asset
+     */
+    List<UUID> findEntryIdsByVideoMediaAssetIdForUpdate(UUID videoMediaAssetId);
 }

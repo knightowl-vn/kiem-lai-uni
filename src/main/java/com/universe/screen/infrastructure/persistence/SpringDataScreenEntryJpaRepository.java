@@ -40,4 +40,7 @@ public interface SpringDataScreenEntryJpaRepository extends JpaRepository<Screen
     List<ScreenEntryJpaEntity> findPublishedEpisodesByTitleId(@Param("titleId") String titleId);
 
     boolean existsByTitleIdAndSlug(String titleId, String slug);
+
+    @Query(value = "SELECT id FROM screen_entries WHERE video_media_asset_id = :videoMediaAssetId FOR UPDATE", nativeQuery = true)
+    List<String> findEntryIdsByVideoMediaAssetIdForUpdate(@Param("videoMediaAssetId") String videoMediaAssetId);
 }

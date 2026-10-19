@@ -13,10 +13,12 @@ import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQ
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.LockAndInspectMediaAssetUseCase;
 import com.universe.media.application.asset.LockAndValidateActiveMediaAssetUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataQuery;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.MediaAssetDetailResult;
+import com.universe.media.application.asset.MediaAssetInspectionResult;
 import com.universe.media.application.asset.MediaAssetCurrentMetadataResult;
 import com.universe.media.application.asset.MediaAssetVersionContentResult;
 import com.universe.media.application.asset.MediaAssetVersionSnapshotResult;
@@ -49,6 +51,7 @@ import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
+import com.universe.media.contracts.dto.MediaAssetInspectionDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaAssetStreamDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
@@ -103,6 +106,7 @@ public class MediaFacade implements MediaContract {
     private final MediaUploadSessionService mediaUploadSessionService;
     private final StreamMediaAssetUseCase streamMediaAssetUseCase;
     private final LockAndValidateActiveMediaAssetUseCase lockAndValidateActiveMediaAssetUseCase;
+    private final LockAndInspectMediaAssetUseCase lockAndInspectMediaAssetUseCase;
 
     @Autowired
     public MediaFacade(
@@ -121,6 +125,7 @@ public class MediaFacade implements MediaContract {
             FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
             UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase,
             LockAndValidateActiveMediaAssetUseCase lockAndValidateActiveMediaAssetUseCase,
+            LockAndInspectMediaAssetUseCase lockAndInspectMediaAssetUseCase,
             @Autowired(required = false) MediaUploadSessionService mediaUploadSessionService,
             @Autowired(required = false) StreamMediaAssetUseCase streamMediaAssetUseCase
     ) {
@@ -183,6 +188,94 @@ public class MediaFacade implements MediaContract {
         this.mediaUploadSessionService = mediaUploadSessionService;
         this.streamMediaAssetUseCase = streamMediaAssetUseCase;
         this.lockAndValidateActiveMediaAssetUseCase = lockAndValidateActiveMediaAssetUseCase;
+        this.lockAndInspectMediaAssetUseCase = Objects.requireNonNull(
+                lockAndInspectMediaAssetUseCase,
+                "LockAndInspectMediaAssetUseCase cannot be null."
+        );
+    }
+
+    // Constructor for testing when optional use cases may be omitted
+    private MediaFacade(
+            GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
+            GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase,
+            ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase,
+            ArchiveMediaAssetUseCase archiveMediaAssetUseCase,
+            RestoreMediaAssetUseCase restoreMediaAssetUseCase,
+            DeleteMediaAssetUseCase deleteMediaAssetUseCase,
+            UploadMediaAssetUseCase uploadMediaAssetUseCase,
+            UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase,
+            GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase,
+            GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase,
+            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase,
+            AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase,
+            FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
+            UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase,
+            LockAndValidateActiveMediaAssetUseCase lockAndValidateActiveMediaAssetUseCase,
+            LockAndInspectMediaAssetUseCase lockAndInspectMediaAssetUseCase,
+            MediaUploadSessionService mediaUploadSessionService,
+            StreamMediaAssetUseCase streamMediaAssetUseCase,
+            Void marker
+    ) {
+        this.getMediaAssetDetailUseCase = Objects.requireNonNull(
+                getMediaAssetDetailUseCase,
+                "GetMediaAssetDetailUseCase cannot be null."
+        );
+        this.getMediaAssetCurrentMetadataUseCase = Objects.requireNonNull(
+                getMediaAssetCurrentMetadataUseCase,
+                "GetMediaAssetCurrentMetadataUseCase cannot be null."
+        );
+        this.changeMediaVisibilityUseCase = Objects.requireNonNull(
+                changeMediaVisibilityUseCase,
+                "ChangeMediaVisibilityUseCase cannot be null."
+        );
+        this.archiveMediaAssetUseCase = Objects.requireNonNull(
+                archiveMediaAssetUseCase,
+                "ArchiveMediaAssetUseCase cannot be null."
+        );
+        this.restoreMediaAssetUseCase = Objects.requireNonNull(
+                restoreMediaAssetUseCase,
+                "RestoreMediaAssetUseCase cannot be null."
+        );
+        this.deleteMediaAssetUseCase = Objects.requireNonNull(
+                deleteMediaAssetUseCase,
+                "DeleteMediaAssetUseCase cannot be null."
+        );
+        this.uploadMediaAssetUseCase = Objects.requireNonNull(
+                uploadMediaAssetUseCase,
+                "UploadMediaAssetUseCase cannot be null."
+        );
+        this.uploadMediaAssetVersionUseCase = Objects.requireNonNull(
+                uploadMediaAssetVersionUseCase,
+                "UploadMediaAssetVersionUseCase cannot be null."
+        );
+        this.generateMediaImageVariantUseCase = Objects.requireNonNull(
+                generateMediaImageVariantUseCase,
+                "GenerateMediaImageVariantUseCase cannot be null."
+        );
+        this.getCurrentMediaAssetVersionSnapshotUseCase = Objects.requireNonNull(
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                "GetCurrentMediaAssetVersionSnapshotUseCase cannot be null."
+        );
+        this.openMediaAssetVersionContentUseCase = Objects.requireNonNull(
+                openMediaAssetVersionContentUseCase,
+                "OpenMediaAssetVersionContentUseCase cannot be null."
+        );
+        this.assignMediaAssetClientTagUseCase = Objects.requireNonNull(
+                assignMediaAssetClientTagUseCase,
+                "AssignMediaAssetClientTagUseCase cannot be null."
+        );
+        this.findActiveMediaAssetsByClientTagKeysetUseCase = Objects.requireNonNull(
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                "FindActiveMediaAssetsByClientTagKeysetUseCase cannot be null."
+        );
+        this.uploadMediaAssetVersionConditionalUseCase = Objects.requireNonNull(
+                uploadMediaAssetVersionConditionalUseCase,
+                "UploadMediaAssetVersionConditionalUseCase cannot be null."
+        );
+        this.mediaUploadSessionService = mediaUploadSessionService;
+        this.streamMediaAssetUseCase = streamMediaAssetUseCase;
+        this.lockAndValidateActiveMediaAssetUseCase = lockAndValidateActiveMediaAssetUseCase;
+        this.lockAndInspectMediaAssetUseCase = lockAndInspectMediaAssetUseCase;
     }
 
     public MediaFacade(
@@ -216,6 +309,8 @@ public class MediaFacade implements MediaContract {
                 assignMediaAssetClientTagUseCase,
                 findActiveMediaAssetsByClientTagKeysetUseCase,
                 uploadMediaAssetVersionConditionalUseCase,
+                null,
+                null,
                 null,
                 null,
                 null
@@ -255,6 +350,49 @@ public class MediaFacade implements MediaContract {
                 findActiveMediaAssetsByClientTagKeysetUseCase,
                 uploadMediaAssetVersionConditionalUseCase,
                 lockAndValidateActiveMediaAssetUseCase,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    public MediaFacade(
+            GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
+            GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase,
+            ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase,
+            ArchiveMediaAssetUseCase archiveMediaAssetUseCase,
+            RestoreMediaAssetUseCase restoreMediaAssetUseCase,
+            DeleteMediaAssetUseCase deleteMediaAssetUseCase,
+            UploadMediaAssetUseCase uploadMediaAssetUseCase,
+            UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase,
+            GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase,
+            GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase,
+            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase,
+            AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase,
+            FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
+            UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase,
+            LockAndValidateActiveMediaAssetUseCase lockAndValidateActiveMediaAssetUseCase,
+            LockAndInspectMediaAssetUseCase lockAndInspectMediaAssetUseCase
+    ) {
+        this(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                lockAndValidateActiveMediaAssetUseCase,
+                lockAndInspectMediaAssetUseCase,
+                null,
                 null,
                 null
         );
@@ -738,5 +876,23 @@ public class MediaFacade implements MediaContract {
         if (lockAndValidateActiveMediaAssetUseCase == null) {
             throw new IllegalStateException("LockAndValidateActiveMediaAssetUseCase is not configured or available.");
         }
+    }
+
+    @Override
+    public MediaAssetInspectionDTO lockAndInspectAsset(UUID assetId, MediaTypeDTO expectedType) {
+        Objects.requireNonNull(assetId, "Asset ID cannot be null.");
+        MediaType domainExpectedType = toDomainMediaType(expectedType);
+        MediaAssetInspectionResult result = lockAndInspectMediaAssetUseCase.execute(assetId, domainExpectedType);
+        return toMediaAssetInspectionDTO(result);
+    }
+
+    private MediaAssetInspectionDTO toMediaAssetInspectionDTO(MediaAssetInspectionResult result) {
+        return new MediaAssetInspectionDTO(
+                result.id(),
+                toMediaTypeDTO(result.mediaType()),
+                toMediaVisibilityDTO(result.visibility()),
+                toMediaAssetStatusDTO(result.status()),
+                result.currentVersionNumber()
+        );
     }
 }

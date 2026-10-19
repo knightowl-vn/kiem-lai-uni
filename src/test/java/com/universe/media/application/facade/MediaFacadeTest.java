@@ -10,10 +10,12 @@ import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQ
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.LockAndInspectMediaAssetUseCase;
 import com.universe.media.application.asset.LockAndValidateActiveMediaAssetUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataQuery;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.MediaAssetDetailResult;
+import com.universe.media.application.asset.MediaAssetInspectionResult;
 import com.universe.media.application.asset.MediaAssetCurrentMetadataResult;
 import com.universe.media.application.asset.MediaAssetVersionContentResult;
 import com.universe.media.application.asset.MediaAssetVersionSnapshotResult;
@@ -35,6 +37,7 @@ import com.universe.media.application.exceptions.MediaAssetVersionNotFoundExcept
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
+import com.universe.media.contracts.dto.MediaAssetInspectionDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
@@ -133,6 +136,9 @@ class MediaFacadeTest {
 
     @Mock
     private LockAndValidateActiveMediaAssetUseCase lockAndValidateActiveMediaAssetUseCase;
+
+    @Mock
+    private LockAndInspectMediaAssetUseCase lockAndInspectMediaAssetUseCase;
 
     private MediaFacade facade;
 
@@ -820,6 +826,70 @@ class MediaFacadeTest {
     @DisplayName("lockAndValidateActiveAsset fails fast on null assetId")
     void shouldFailFastOnNullAssetIdInLockAndValidate() {
         assertThatThrownBy(() -> facade.lockAndValidateActiveAsset(null, MediaTypeDTO.VIDEO))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Asset ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("lockAndInspectAsset delegates to LockAndInspectMediaAssetUseCase and maps result")
+    void shouldDelegateToLockAndInspectMediaAssetUseCase() {
+        MediaFacade facadeWithInspect = new MediaFacade(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                lockAndValidateActiveMediaAssetUseCase,
+                lockAndInspectMediaAssetUseCase
+        );
+
+        MediaAssetInspectionResult result = new MediaAssetInspectionResult(
+                ASSET_ID, MediaType.VIDEO, MediaVisibility.PRIVATE, MediaAssetStatus.DELETED, 2
+        );
+        when(lockAndInspectMediaAssetUseCase.execute(ASSET_ID, MediaType.VIDEO)).thenReturn(result);
+
+        MediaAssetInspectionDTO dto = facadeWithInspect.lockAndInspectAsset(ASSET_ID, MediaTypeDTO.VIDEO);
+
+        assertThat(dto).isNotNull();
+        assertThat(dto.id()).isEqualTo(ASSET_ID);
+        assertThat(dto.mediaType()).isEqualTo(MediaTypeDTO.VIDEO);
+        assertThat(dto.status()).isEqualTo(MediaAssetStatusDTO.DELETED);
+        assertThat(dto.currentVersionNumber()).isEqualTo(2);
+        verify(lockAndInspectMediaAssetUseCase).execute(ASSET_ID, MediaType.VIDEO);
+    }
+
+    @Test
+    @DisplayName("lockAndInspectAsset fails fast on null assetId")
+    void shouldFailFastOnNullAssetIdInLockAndInspect() {
+        MediaFacade facadeWithInspect = new MediaFacade(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                lockAndValidateActiveMediaAssetUseCase,
+                lockAndInspectMediaAssetUseCase
+        );
+
+        assertThatThrownBy(() -> facadeWithInspect.lockAndInspectAsset(null, MediaTypeDTO.VIDEO))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Asset ID cannot be null.");
     }
