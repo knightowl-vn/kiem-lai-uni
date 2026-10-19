@@ -5,20 +5,32 @@ import com.universe.media.contracts.dto.ClaimCompletionIntentRequestDTO;
 import com.universe.media.contracts.dto.CompleteMultipartUploadRequestDTO;
 import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadCommand;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult;
 import com.universe.screen.application.dto.ScreenEntryDTO;
+import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntryVideoAlreadyAttachedException;
 import com.universe.screen.application.exceptions.ScreenEntryVideoConflictException;
 import com.universe.screen.application.exceptions.ScreenEntryVideoNotAttachedException;
+import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
+import com.universe.screen.application.exceptions.ScreenUploadSessionNotFoundException;
+import com.universe.screen.application.exceptions.ScreenVideoAlreadyReferencedException;
+import com.universe.screen.application.exceptions.ScreenVideoDiscardAccessDeniedException;
+import com.universe.screen.application.exceptions.ScreenVideoDiscardValidationException;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
+import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
 import com.universe.screen.entry.admin.dto.CompleteVideoUploadResponse;
 import com.universe.screen.entry.admin.dto.CompleteVideoUploadSessionRequest;
+import com.universe.screen.entry.admin.dto.DiscardVideoUploadResponse;
+import com.universe.screen.entry.admin.dto.DiscardVideoUploadSessionRequest;
 import com.universe.screen.entry.admin.dto.InitiateVideoUploadSessionRequest;
+import com.universe.screen.entry.admin.dto.ScreenVideoErrorResponse;
 import com.universe.screen.entry.admin.dto.VideoPartUploadUrlView;
 import com.universe.screen.entry.admin.dto.VideoUploadSessionView;
 import com.universe.shared.exceptions.BaseApplicationException;
@@ -36,6 +48,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
@@ -46,6 +59,11 @@ import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -124,6 +142,7 @@ public class AdminScreenEntryVideoController {
     private final DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase;
     private final ReplaceScreenEntryVideoUseCase replaceScreenEntryVideoUseCase;
     private final MediaContract mediaContract;
+    private final DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase;
 
     public AdminScreenEntryVideoController(
             GetScreenTitleDetailUseCase getScreenTitleDetailUseCase,
@@ -131,7 +150,8 @@ public class AdminScreenEntryVideoController {
             AttachScreenEntryVideoUseCase attachScreenEntryVideoUseCase,
             DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase,
             ReplaceScreenEntryVideoUseCase replaceScreenEntryVideoUseCase,
-            MediaContract mediaContract
+            MediaContract mediaContract,
+            DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase
     ) {
         this.getScreenTitleDetailUseCase = Objects.requireNonNull(getScreenTitleDetailUseCase, "GetScreenTitleDetailUseCase cannot be null.");
         this.getScreenEntryDetailUseCase = Objects.requireNonNull(getScreenEntryDetailUseCase, "GetScreenEntryDetailUseCase cannot be null.");
@@ -139,6 +159,7 @@ public class AdminScreenEntryVideoController {
         this.detachScreenEntryVideoUseCase = Objects.requireNonNull(detachScreenEntryVideoUseCase, "DetachScreenEntryVideoUseCase cannot be null.");
         this.replaceScreenEntryVideoUseCase = Objects.requireNonNull(replaceScreenEntryVideoUseCase, "ReplaceScreenEntryVideoUseCase cannot be null.");
         this.mediaContract = Objects.requireNonNull(mediaContract, "MediaContract cannot be null.");
+        this.discardScreenEntryVideoUploadUseCase = Objects.requireNonNull(discardScreenEntryVideoUploadUseCase, "DiscardScreenEntryVideoUploadUseCase cannot be null.");
     }
 
     /**
@@ -415,6 +436,48 @@ public class AdminScreenEntryVideoController {
                 "sessionId", aborted.sessionId(),
                 "status", aborted.status(),
                 "message", "Phiên tải lên đã được hủy an toàn trên hệ thống."
+        ));
+    }
+
+    /**
+     * Guarded discard endpoint for unattached, completed Screen video uploads.
+     * Enforces session initiator ownership, session-to-target immutable bindings,
+     * exclusive row locks on MediaAsset and ScreenEntry, current-read reference fencing,
+     * and delegates soft-delete or returns authorized ALREADY_DISCARDED.
+     */
+    @PostMapping(
+            value = "/upload-session/{sessionId}/discard",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<DiscardVideoUploadResponse> discardUploadSession(
+            @PathVariable UUID titleId,
+            @PathVariable UUID entryId,
+            @PathVariable UUID sessionId,
+            @RequestBody(required = false) DiscardVideoUploadSessionRequest request,
+            Authentication authentication
+    ) {
+        if (request == null || request.videoMediaAssetId() == null) {
+            throw new AdminScreenVideoValidationException("videoMediaAssetId không được để trống khi thực hiện hủy video đã upload.");
+        }
+        String authenticatedActor = resolvePrincipalId(authentication);
+        UUID videoMediaAssetId = request.videoMediaAssetId();
+
+        DiscardScreenEntryVideoUploadCommand command = new DiscardScreenEntryVideoUploadCommand(
+                titleId,
+                entryId,
+                sessionId,
+                videoMediaAssetId,
+                authenticatedActor
+        );
+
+        DiscardScreenEntryVideoUploadResult result = discardScreenEntryVideoUploadUseCase.execute(command);
+
+        return ResponseEntity.ok(new DiscardVideoUploadResponse(
+                sessionId,
+                result.videoMediaAssetId(),
+                result.outcome().name(),
+                result.message()
         ));
     }
 
@@ -868,44 +931,142 @@ public class AdminScreenEntryVideoController {
     }
 
     @ExceptionHandler(ScreenEntryVideoConflictException.class)
-    public ResponseEntity<Map<String, String>> handleConflict(ScreenEntryVideoConflictException ex) {
+    public ResponseEntity<ScreenVideoErrorResponse> handleConflict(ScreenEntryVideoConflictException ex) {
         log.warn("Conflict in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                "error", ex.getErrorCode(),
-                "message", ex.getMessage()
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                ex.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(ScreenVideoAlreadyReferencedException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleAlreadyReferenced(ScreenVideoAlreadyReferencedException ex) {
+        log.warn("Reference conflict in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                ex.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(ScreenVideoDiscardAccessDeniedException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleDiscardAccessDenied(ScreenVideoDiscardAccessDeniedException ex) {
+        log.warn("Access denied in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                ex.getMessage()
         ));
     }
 
     @ExceptionHandler(BaseApplicationException.class)
-    public ResponseEntity<Map<String, String>> handleBaseApplicationException(BaseApplicationException ex) {
-        log.warn("Application exception in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
-        HttpStatus status = (ex instanceof ScreenEntryNotFoundException || ex instanceof ScreenTitleNotFoundException)
-                ? HttpStatus.NOT_FOUND
-                : HttpStatus.BAD_REQUEST;
-        return ResponseEntity.status(status).body(Map.of(
-                "error", ex.getErrorCode(),
-                "message", ex.getMessage()
+    public ResponseEntity<ScreenVideoErrorResponse> handleBaseApplicationException(BaseApplicationException ex) {
+        if (ex instanceof ScreenEntryNotFoundException
+                || ex instanceof ScreenTitleNotFoundException
+                || ex instanceof ScreenUploadSessionNotFoundException
+                || ex instanceof ScreenMediaAssetNotFoundException) {
+            log.warn("Not found in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage()
+            ));
+        }
+
+        if (ex instanceof ScreenVideoAlreadyReferencedException || ex instanceof ScreenEntryVideoConflictException) {
+            log.warn("Conflict in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage()
+            ));
+        }
+
+        if (ex instanceof ScreenVideoDiscardAccessDeniedException) {
+            log.warn("Access denied in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage()
+            ));
+        }
+
+        if (ex instanceof ScreenVideoDiscardValidationException
+                || ex instanceof InvalidScreenMediaAssetTypeException
+                || ex instanceof ScreenEntryVideoAlreadyAttachedException
+                || ex instanceof ScreenEntryVideoNotAttachedException) {
+            log.warn("Business validation error in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage()
+            ));
+        }
+
+        log.error("Unknown application exception in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ScreenVideoErrorResponse(
+                "INTERNAL_SERVER_ERROR",
+                "Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."
         ));
     }
 
     @ExceptionHandler(AdminScreenVideoValidationException.class)
-    public ResponseEntity<Map<String, String>> handleValidation(AdminScreenVideoValidationException ex) {
+    public ResponseEntity<ScreenVideoErrorResponse> handleValidation(AdminScreenVideoValidationException ex) {
         log.warn("Validation error in Screen Video Controller: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                "error", "BAD_REQUEST",
-                "message", ex.getMessage()
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                "BAD_REQUEST",
+                ex.getMessage()
         ));
     }
 
-    @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class, RuntimeException.class})
-    public ResponseEntity<Map<String, String>> handleUnexpected(RuntimeException ex) {
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Malformed or unreadable HTTP message in Screen Video Controller: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                "BAD_REQUEST",
+                "Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON."
+        ));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleMethodArgumentTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        log.warn("Method argument type mismatch in Screen Video Controller: property={}", ex.getName());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                "BAD_REQUEST",
+                "Tham số đường dẫn hoặc tham số truy vấn không đúng định dạng."
+        ));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleHttpMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
+        log.warn("Unsupported media type in Screen Video Controller: {}", ex.getContentType());
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(new ScreenVideoErrorResponse(
+                "UNSUPPORTED_MEDIA_TYPE",
+                "Content-Type không được hỗ trợ. Yêu cầu application/json."
+        ));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleHttpRequestMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        log.warn("HTTP method not supported in Screen Video Controller: {}", ex.getMethod());
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(new ScreenVideoErrorResponse(
+                "METHOD_NOT_ALLOWED",
+                "Phương thức HTTP không được hỗ trợ cho đường dẫn này."
+        ));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleMissingServletRequestParameter(MissingServletRequestParameterException ex) {
+        log.warn("Missing servlet request parameter in Screen Video Controller: {}", ex.getParameterName());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                "BAD_REQUEST",
+                "Thiếu tham số yêu cầu bắt buộc: " + ex.getParameterName()
+        ));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleUnexpected(Exception ex) {
         if (ex instanceof AccessDeniedException) {
             throw (AccessDeniedException) ex;
         }
         log.error("Unexpected error in Screen Video Controller: {}", ex.getMessage(), ex);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                "error", "BAD_REQUEST",
-                "message", "Yêu cầu không hợp lệ hoặc đã xảy ra lỗi trong quá trình xử lý video."
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ScreenVideoErrorResponse(
+                "INTERNAL_SERVER_ERROR",
+                "Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."
         ));
     }
 

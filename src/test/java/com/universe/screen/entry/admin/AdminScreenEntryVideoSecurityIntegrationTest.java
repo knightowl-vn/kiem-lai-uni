@@ -27,8 +27,21 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import java.io.ByteArrayInputStream;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadCommand;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult.DiscardOutcome;
+import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
+import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
+import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
+import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
+import com.universe.screen.application.exceptions.ScreenUploadSessionNotFoundException;
+import com.universe.screen.application.exceptions.ScreenVideoAlreadyReferencedException;
+import com.universe.screen.application.exceptions.ScreenVideoDiscardAccessDeniedException;
+import com.universe.screen.application.exceptions.ScreenVideoDiscardValidationException;
+import com.universe.shared.exceptions.BaseApplicationException;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
+import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
@@ -37,11 +50,13 @@ import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.entry.admin.dto.CompleteVideoUploadSessionRequest;
+import com.universe.screen.entry.admin.dto.DiscardVideoUploadSessionRequest;
 import com.universe.screen.entry.admin.dto.InitiateVideoUploadSessionRequest;
 import com.universe.shared.security.AuthenticatedEmailResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -61,8 +76,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -149,6 +167,9 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
 
     @MockBean
     private MediaContract mediaContract;
+
+    @MockBean
+    private DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase;
 
     private ScreenTitleDTO sampleTitle;
     private ScreenEntryDTO sampleEntry;
@@ -536,5 +557,543 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
                 .andExpect(header().string("Content-Length", "5000000"))
                 .andExpect(header().string("Accept-Ranges", "bytes"))
                 .andExpect(header().string("Cache-Control", "private, no-cache, no-store, must-revalidate"));
+    }
+
+    // =========================================================================
+    // S2-B2-C2-A GUARDED VIDEO DISCARD HTTP & SECURITY TESTS (A - M)
+    // =========================================================================
+
+    @Test
+    @DisplayName("A. Unauthenticated user cannot discard (redirects to login)")
+    void unauthenticatedUser_cannotDiscardVideoUploadSession() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(ASSET_ID);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("B. Authenticated non-admin cannot discard (redirects to /access-denied)")
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    void regularUser_cannotDiscardVideoUploadSession() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(ASSET_ID);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("C. ADMIN with valid CSRF can reach guarded discard")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void adminUser_withValidCsrf_canReachGuardedDiscard() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(ASSET_ID);
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        ASSET_ID,
+                        DiscardOutcome.DISCARDED,
+                        "Completed video upload asset [" + ASSET_ID + "] successfully discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(SESSION_ID.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(ASSET_ID.toString()))
+                .andExpect(jsonPath("$.status").value("DISCARDED"))
+                .andExpect(jsonPath("$.message").value("Completed video upload asset [" + ASSET_ID + "] successfully discarded."));
+
+        ArgumentCaptor<DiscardScreenEntryVideoUploadCommand> captor = ArgumentCaptor.forClass(DiscardScreenEntryVideoUploadCommand.class);
+        verify(discardScreenEntryVideoUploadUseCase).execute(captor.capture());
+        DiscardScreenEntryVideoUploadCommand captured = captor.getValue();
+        assertThat(captured.titleId()).isEqualTo(TITLE_ID);
+        assertThat(captured.entryId()).isEqualTo(ENTRY_ID);
+        assertThat(captured.sessionId()).isEqualTo(SESSION_ID);
+        assertThat(captured.videoMediaAssetId()).isEqualTo(ASSET_ID);
+        assertThat(captured.authenticatedActor()).isEqualTo(ADMIN_EMAIL);
+    }
+
+    @Test
+    @DisplayName("D1. SUPER_ADMIN with valid CSRF can reach guarded discard when owner")
+    @WithMockUser(username = SUPER_ADMIN_EMAIL, roles = {"SUPER_ADMIN"})
+    void superAdminUser_withValidCsrf_canReachGuardedDiscard_whenInitiator() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(ASSET_ID);
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        ASSET_ID,
+                        DiscardOutcome.DISCARDED,
+                        "Completed video upload asset [" + ASSET_ID + "] successfully discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(SESSION_ID.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(ASSET_ID.toString()))
+                .andExpect(jsonPath("$.status").value("DISCARDED"));
+
+        ArgumentCaptor<DiscardScreenEntryVideoUploadCommand> captor = ArgumentCaptor.forClass(DiscardScreenEntryVideoUploadCommand.class);
+        verify(discardScreenEntryVideoUploadUseCase).execute(captor.capture());
+        assertThat(captor.getValue().authenticatedActor()).isEqualTo(SUPER_ADMIN_EMAIL);
+    }
+
+    @Test
+    @DisplayName("D2. SUPER_ADMIN with valid CSRF is denied when not session owner (no ownership override)")
+    @WithMockUser(username = SUPER_ADMIN_EMAIL, roles = {"SUPER_ADMIN"})
+    void superAdminUser_withValidCsrf_isDenied_whenNotInitiator_noOwnershipOverride() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(ASSET_ID);
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenVideoDiscardAccessDeniedException("Authenticated actor is not authorized to discard this video upload session."));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("SCREEN_VIDEO_DISCARD_ACCESS_DENIED"))
+                .andExpect(jsonPath("$.message").value("Authenticated actor is not authorized to discard this video upload session."));
+    }
+
+    @Test
+    @DisplayName("E1. ADMIN without CSRF cannot mutate (redirects to /access-denied)")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void adminUser_withoutCsrf_cannotDiscard() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(ASSET_ID);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("E2. SUPER_ADMIN without CSRF cannot mutate (redirects to /access-denied)")
+    @WithMockUser(username = SUPER_ADMIN_EMAIL, roles = {"SUPER_ADMIN"})
+    void superAdminUser_withoutCsrf_cannotDiscard() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(ASSET_ID);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("F. Client cannot spoof authenticatedActor or initiatorPrincipalId")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void client_cannotSpoofAuthenticatedActorOrInitiatorPrincipalId() throws Exception {
+        String spoofedPayload = "{\"videoMediaAssetId\":\"" + ASSET_ID + "\",\"authenticatedActor\":\"spoofed-actor\",\"initiatorPrincipalId\":\"spoofed-initiator\"}";
+
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(ASSET_ID, DiscardOutcome.DISCARDED, "Discarded."));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .param("authenticatedActor", "spoofed-param-actor")
+                        .param("initiatorPrincipalId", "spoofed-param-initiator")
+                        .header("X-Authenticated-Actor", "spoofed-header-actor")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(spoofedPayload))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<DiscardScreenEntryVideoUploadCommand> captor = ArgumentCaptor.forClass(DiscardScreenEntryVideoUploadCommand.class);
+        verify(discardScreenEntryVideoUploadUseCase).execute(captor.capture());
+        DiscardScreenEntryVideoUploadCommand captured = captor.getValue();
+        assertThat(captured.authenticatedActor()).isEqualTo(ADMIN_EMAIL);
+        assertThat(captured.authenticatedActor()).doesNotContain("spoofed");
+    }
+
+    @Test
+    @DisplayName("G. Cross-owner access returns safe denial with no metadata disclosure")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void crossOwnerAccess_returnsSafeDenial_withNoMetadataDisclosure() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenVideoDiscardAccessDeniedException("Authenticated actor is not authorized to discard this video upload session."));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("SCREEN_VIDEO_DISCARD_ACCESS_DENIED"))
+                .andExpect(jsonPath("$.message").value("Authenticated actor is not authorized to discard this video upload session."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("original-initiator"))))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(ADMIN_EMAIL))));
+    }
+
+    @Test
+    @DisplayName("H. Referenced-video exception never exposes referencing IDs in JSON")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void referencedVideoConflict_neverExposesReferencingIdsInJson() throws Exception {
+        UUID referencingEntry1 = UUID.randomUUID();
+        UUID referencingEntry2 = UUID.randomUUID();
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenVideoAlreadyReferencedException(ASSET_ID, List.of(referencingEntry1, referencingEntry2)));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("SCREEN_VIDEO_ALREADY_REFERENCED"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(ASSET_ID.toString())))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(referencingEntry1.toString()))))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(referencingEntry2.toString()))));
+    }
+
+    @Test
+    @DisplayName("I. Valid ACTIVE discard response returns DISCARDED")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void validActiveDiscard_returnsDiscardedOutcomeResponse() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        ASSET_ID,
+                        DiscardOutcome.DISCARDED,
+                        "Completed video upload asset [" + ASSET_ID + "] successfully discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(SESSION_ID.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(ASSET_ID.toString()))
+                .andExpect(jsonPath("$.status").value("DISCARDED"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("successfully discarded")));
+    }
+
+    @Test
+    @DisplayName("J. Authorized DELETED idempotent response returns ALREADY_DISCARDED")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void authorizedDeletedAsset_returnsAlreadyDiscardedOutcomeResponse() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        ASSET_ID,
+                        DiscardOutcome.ALREADY_DISCARDED,
+                        "Completed video upload asset [" + ASSET_ID + "] was already discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(SESSION_ID.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(ASSET_ID.toString()))
+                .andExpect(jsonPath("$.status").value("ALREADY_DISCARDED"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("already discarded")));
+    }
+
+    @Test
+    @DisplayName("K1. Validation/not-found mapping: ScreenUploadSessionNotFoundException maps to 404")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_mapsScreenUploadSessionNotFoundException_to404() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenUploadSessionNotFoundException(SESSION_ID));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("SCREEN_UPLOAD_SESSION_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(SESSION_ID.toString())));
+    }
+
+    @Test
+    @DisplayName("K2. Validation/not-found mapping: ScreenTitleNotFoundException maps to 404")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_mapsScreenTitleNotFoundException_to404() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenTitleNotFoundException(TITLE_ID));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("SCREEN_TITLE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("K3. Validation/not-found mapping: ScreenEntryNotFoundException maps to 404")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_mapsScreenEntryNotFoundException_to404() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenEntryNotFoundException(ENTRY_ID));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("SCREEN_ENTRY_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("K4. Validation/not-found mapping: ScreenMediaAssetNotFoundException maps to 404")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_mapsScreenMediaAssetNotFoundException_to404() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenMediaAssetNotFoundException(ASSET_ID));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("SCREEN_MEDIA_ASSET_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("K5. Validation/conflict mapping: ScreenVideoDiscardValidationException maps to 400")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_mapsScreenVideoDiscardValidationException_to400() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenVideoDiscardValidationException("UPLOAD_SESSION_NOT_COMPLETED", "Session not completed."));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("UPLOAD_SESSION_NOT_COMPLETED"))
+                .andExpect(jsonPath("$.message").value("[UPLOAD_SESSION_NOT_COMPLETED] Session not completed."));
+    }
+
+    @Test
+    @DisplayName("K6. Validation/conflict mapping: InvalidScreenMediaAssetTypeException maps to 400")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_mapsInvalidScreenMediaAssetTypeException_to400() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new InvalidScreenMediaAssetTypeException(ASSET_ID, "VIDEO", "IMAGE"));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("INVALID_SCREEN_MEDIA_ASSET_TYPE"));
+    }
+
+    @Test
+    @DisplayName("K7. Missing videoMediaAssetId in JSON request maps to 400 Bad Request")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_rejectsMissingVideoMediaAssetId_with400BadRequest() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("videoMediaAssetId không được để trống khi thực hiện hủy video đã upload."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("K8. Null videoMediaAssetId in JSON request maps to 400 Bad Request")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_rejectsNullVideoMediaAssetId_with400BadRequest() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\":null}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("videoMediaAssetId không được để trống khi thực hiện hủy video đã upload."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("K9. Malformed JSON maps to 400 Bad Request with sanitized message")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_rejectsMalformedJson_with400BadRequest() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("K10. Invalid body UUID format maps to 400 Bad Request with sanitized message")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_rejectsInvalidBodyUuid_with400BadRequest() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\":\"not-a-valid-uuid\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("K11. Invalid path UUID format maps to 400 Bad Request with sanitized message")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_rejectsInvalidPathUuid_with400BadRequest() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        "invalid-uuid", ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Tham số đường dẫn hoặc tham số truy vấn không đúng định dạng."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("K12. Unsupported content-type (non-JSON) maps to 415 Unsupported Media Type")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_rejectsUnsupportedMediaType_with415() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("videoMediaAssetId=" + ASSET_ID))
+                .andExpect(status().isUnsupportedMediaType());
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("K13. Unsupported HTTP GET method maps to 405 Method Not Allowed")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void discard_rejectsGetMethod_with405() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf()))
+                .andExpect(status().isMethodNotAllowed());
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("L1. Unexpected IllegalArgumentException produces sanitized 500 without leaking secrets")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void unexpectedIllegalArgumentException_producesSanitized500WithoutLeakingSecrets() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new IllegalArgumentException("INTERNAL_LEAK: db_pass=topsecret123 b2_key=k999 host=192.168.1.50"));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("topsecret123"))))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("k999"))));
+    }
+
+    @Test
+    @DisplayName("L2. Unknown BaseApplicationException produces sanitized 500 without leaking secrets")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void unknownBaseApplicationException_producesSanitized500WithoutLeakingSecrets() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new BaseApplicationException("UNKNOWN_SCREEN_BUG", "INTERNAL_LEAK: root_pwd=superadmin999") {});
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("superadmin999"))));
+    }
+
+    @Test
+    @DisplayName("L3. Unexpected IllegalStateException produces sanitized 500 without leaking internal messages")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void unexpectedIllegalStateException_producesSanitized500() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new IllegalStateException("CRITICAL_INTERNAL_DB_FAILURE: pass=secret-db-pass"));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret-db-pass"))));
+    }
+
+    @Test
+    @DisplayName("M. Controller delegates exactly once and does not perform media deletion itself")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void controllerDelegatesExactlyOnce_andDoesNotPerformMediaDeletionItself() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(ASSET_ID, DiscardOutcome.DISCARDED, "Discarded."));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        TITLE_ID, ENTRY_ID, SESSION_ID)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(ASSET_ID))))
+                .andExpect(status().isOk());
+
+        verify(discardScreenEntryVideoUploadUseCase, times(1)).execute(any(DiscardScreenEntryVideoUploadCommand.class));
+        verify(mediaContract, never()).delete(any());
+        verify(mediaContract, never()).abortUploadSession(any(), any());
     }
 }

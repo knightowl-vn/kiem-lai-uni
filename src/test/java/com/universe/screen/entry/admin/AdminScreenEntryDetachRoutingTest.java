@@ -19,6 +19,7 @@ import com.universe.screen.application.usecase.ArchiveScreenEntryUseCase;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.CreateScreenEntryUseCase;
 import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
+import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
 import com.universe.screen.application.usecase.PublishScreenEntryUseCase;
@@ -161,6 +162,9 @@ class AdminScreenEntryDetachRoutingTest {
 
     @MockBean
     private MediaContract mediaContract;
+
+    @MockBean
+    private DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase;
 
     // Shared Detach Use Case Mock
     @MockBean

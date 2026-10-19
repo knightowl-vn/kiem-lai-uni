@@ -7,10 +7,17 @@ import com.universe.media.contracts.dto.CompleteMultipartUploadRequestDTO;
 import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
 import com.universe.media.contracts.dto.MultipartManifestPartDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadCommand;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult.DiscardOutcome;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
+import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
+import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
+import com.universe.shared.exceptions.BaseApplicationException;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
+import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
@@ -19,6 +26,7 @@ import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.entry.admin.dto.CompleteVideoUploadSessionRequest;
+import com.universe.screen.entry.admin.dto.DiscardVideoUploadSessionRequest;
 import com.universe.screen.entry.admin.dto.InitiateVideoUploadSessionRequest;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
@@ -26,8 +34,6 @@ import com.universe.media.contracts.dto.MediaAssetStreamDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
-import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
-import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -95,6 +101,9 @@ class AdminScreenEntryVideoControllerTest {
     @Mock
     private MediaContract mediaContract;
 
+    @Mock
+    private DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase;
+
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
     private AdminScreenEntryVideoController controller;
@@ -113,7 +122,8 @@ class AdminScreenEntryVideoControllerTest {
                 attachScreenEntryVideoUseCase,
                 detachScreenEntryVideoUseCase,
                 replaceScreenEntryVideoUseCase,
-                mediaContract
+                mediaContract,
+                discardScreenEntryVideoUploadUseCase
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
         objectMapper = new ObjectMapper();
@@ -1131,9 +1141,9 @@ class AdminScreenEntryVideoControllerTest {
         mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/parts/{partNumber}/url",
                         titleId, entryId, sessionId, 1)
                         .principal(new TestingAuthenticationToken("admin", "pass")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
-                .andExpect(jsonPath("$.message").value("Yêu cầu không hợp lệ hoặc đã xảy ra lỗi trong quá trình xử lý video."))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("superSecretPassword"))));
     }
 
@@ -1155,9 +1165,9 @@ class AdminScreenEntryVideoControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req))
                         .principal(new TestingAuthenticationToken("admin", "pass")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
-                .andExpect(jsonPath("$.message").value("Yêu cầu không hợp lệ hoặc đã xảy ra lỗi trong quá trình xử lý video."))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("AKIAIOSFODNN7EXAMPLE"))));
     }
 
@@ -1646,6 +1656,240 @@ class AdminScreenEntryVideoControllerTest {
                 .hasMessageContaining("Storage read timeout during range");
 
         assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    // =========================================================================
+    // DISCARD UPLOAD SESSION TESTS
+    // =========================================================================
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: successfully discards active video upload session")
+    void shouldSuccessfullyDiscardVideoUploadSession() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(assetId);
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        assetId,
+                        DiscardOutcome.DISCARDED,
+                        "Completed video upload asset [" + assetId + "] successfully discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
+                .andExpect(jsonPath("$.status").value("DISCARDED"))
+                .andExpect(jsonPath("$.message").value("Completed video upload asset [" + assetId + "] successfully discarded."));
+
+        verify(discardScreenEntryVideoUploadUseCase).execute(eq(new DiscardScreenEntryVideoUploadCommand(
+                titleId,
+                entryId,
+                sessionId,
+                assetId,
+                "admin"
+        )));
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: returns ALREADY_DISCARDED for already deleted asset")
+    void shouldReturnAlreadyDiscardedWhenSessionIsAlreadyDiscarded() throws Exception {
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(assetId);
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        assetId,
+                        DiscardOutcome.ALREADY_DISCARDED,
+                        "Completed video upload asset [" + assetId + "] was already discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
+                .andExpect(jsonPath("$.status").value("ALREADY_DISCARDED"))
+                .andExpect(jsonPath("$.message").value("Completed video upload asset [" + assetId + "] was already discarded."));
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: rejects query-only request with form content-type as 415")
+    void shouldRejectQueryOnlyRequestWithoutJsonBody() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("videoMediaAssetId", assetId.toString())
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isUnsupportedMediaType());
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: rejects when videoMediaAssetId is missing in JSON body")
+    void shouldRejectWhenVideoMediaAssetIdMissingInJsonBody() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("videoMediaAssetId không được để trống khi thực hiện hủy video đã upload."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: rejects when videoMediaAssetId is null in JSON body")
+    void shouldRejectWhenVideoMediaAssetIdIsNullInJsonBody() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\":null}")
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("videoMediaAssetId không được để trống khi thực hiện hủy video đã upload."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: sanitizes unexpected IllegalArgumentException into HTTP 500 without leaking secrets")
+    void shouldSanitizeUnexpectedIllegalArgumentExceptionInDiscard() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new IllegalArgumentException("INTERNAL_LEAK: db_pass=super_secret_123 on host=10.0.0.1"));
+
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(assetId);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("super_secret_123"))));
+    }
+
+    @Test
+    @DisplayName("POST /attach: sanitizes unexpected IllegalArgumentException into HTTP 500 without leaking secrets")
+    void shouldSanitizeUnexpectedIllegalArgumentExceptionInAttach() throws Exception {
+        stubTitleAndEntry(null);
+        MediaUploadSessionResponseDTO completedSession = new MediaUploadSessionResponseDTO(
+                sessionId, "COMPLETED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                26214400L, 26214400L, 1, "video.mp4", "screen-video", assetId, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.getUploadSession(sessionId)).thenReturn(Optional.of(completedSession));
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("SECRET_STORAGE_KEY: b2-secret-abc"))
+                .when(attachScreenEntryVideoUseCase).execute(titleId, entryId, assetId);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/attach", titleId, entryId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "sessionId", sessionId.toString(),
+                                "videoMediaAssetId", assetId.toString()
+                        )))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("b2-secret-abc"))));
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: sanitizes unknown BaseApplicationException into HTTP 500 without leaking message")
+    void shouldSanitizeUnknownBaseApplicationException() throws Exception {
+        when(discardScreenEntryVideoUploadUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new BaseApplicationException("UNKNOWN_INTERNAL_ERROR", "INTERNAL_SECRET_LEAK: api_key=topsecret") {});
+
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(assetId);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("topsecret"))));
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: rejects malformed JSON with HTTP 400 Bad Request")
+    void shouldReturnBadRequestForMalformedJson() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\":")
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: rejects invalid body UUID format with HTTP 400 Bad Request")
+    void shouldReturnBadRequestForInvalidUuidInBody() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\":\"not-a-valid-uuid\"}")
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng JSON."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: rejects invalid path UUID format with HTTP 400 Bad Request")
+    void shouldReturnBadRequestForInvalidPathUuid() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        "not-a-uuid", entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DiscardVideoUploadSessionRequest(assetId)))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Tham số đường dẫn hoặc tham số truy vấn không đúng định dạng."));
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/discard: rejects unsupported content type with HTTP 415")
+    void shouldReturnUnsupportedMediaTypeWhenContentTypeIsNotJson() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("text-payload")
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isUnsupportedMediaType());
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("GET /upload-session/{sessionId}/discard: rejects GET method with HTTP 405 Method Not Allowed")
+    void shouldReturnMethodNotAllowedForGetOnDiscardRoute() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, sessionId)
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isMethodNotAllowed());
+
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
     }
 
     private UUID stubActiveVideoMediaAsset(long sizeBytes) {
