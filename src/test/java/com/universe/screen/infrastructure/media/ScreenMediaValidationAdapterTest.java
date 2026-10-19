@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
@@ -235,7 +236,137 @@ class ScreenMediaValidationAdapterTest {
                 .hasMessage("Unexpected argument failure");
     }
 
+    // =========================================================================
+    // getUploadSession Tests
+    // =========================================================================
 
+    @Test
+    @DisplayName("getUploadSession: returns empty Optional when sessionId is null")
+    void shouldReturnEmptyOptionalWhenSessionIdIsNull() {
+        Optional<com.universe.screen.application.dto.ScreenUploadSessionInfoDTO> result = adapter.getUploadSession(null);
+        assertThat(result).isEmpty();
+        verify(mediaContract, never()).getUploadSession(any());
+    }
+
+    @Test
+    @DisplayName("getUploadSession: returns empty Optional when session is not found in Media")
+    void shouldReturnEmptyOptionalWhenSessionNotFound() {
+        UUID sId = UUID.randomUUID();
+        when(mediaContract.getUploadSession(sId)).thenReturn(Optional.empty());
+
+        Optional<com.universe.screen.application.dto.ScreenUploadSessionInfoDTO> result = adapter.getUploadSession(sId);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getUploadSession: successfully maps MediaUploadSessionResponseDTO to ScreenUploadSessionInfoDTO")
+    void shouldMapUploadSessionResponseToScreenDTO() {
+        UUID sId = UUID.randomUUID();
+        UUID eId = UUID.randomUUID();
+        UUID aId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        com.universe.media.contracts.dto.MediaUploadSessionResponseDTO mediaSession = new com.universe.media.contracts.dto.MediaUploadSessionResponseDTO(
+                sId, "COMPLETED", "user-1", "screen", "SCREEN_ENTRY", eId,
+                1000000L, 26214400L, 1, "video.mp4", "screen-video", aId, now, now.plusSeconds(3600)
+        );
+        when(mediaContract.getUploadSession(sId)).thenReturn(Optional.of(mediaSession));
+
+        Optional<com.universe.screen.application.dto.ScreenUploadSessionInfoDTO> result = adapter.getUploadSession(sId);
+        assertThat(result).isPresent();
+        com.universe.screen.application.dto.ScreenUploadSessionInfoDTO dto = result.get();
+        assertThat(dto.sessionId()).isEqualTo(sId);
+        assertThat(dto.status()).isEqualTo("COMPLETED");
+        assertThat(dto.initiatorPrincipalId()).isEqualTo("user-1");
+        assertThat(dto.consumerContext()).isEqualTo("screen");
+        assertThat(dto.targetEntityType()).isEqualTo("SCREEN_ENTRY");
+        assertThat(dto.targetEntityId()).isEqualTo(eId);
+        assertThat(dto.registeredAssetId()).isEqualTo(aId);
+    }
+
+    // =========================================================================
+    // lockAndInspectVideoMediaAsset Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("lockAndInspectVideoMediaAsset: rejects null asset ID")
+    void shouldRejectNullAssetIdInLockAndInspect() {
+        assertThatThrownBy(() -> adapter.lockAndInspectVideoMediaAsset(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Video media asset ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("lockAndInspectVideoMediaAsset: missing asset throws ScreenMediaAssetNotFoundException")
+    void shouldThrowNotFoundWhenAssetMissingInLockAndInspect() {
+        when(mediaContract.lockAndInspectAsset(assetId, null))
+                .thenThrow(new MediaAssetNotFoundException(assetId));
+
+        assertThatThrownBy(() -> adapter.lockAndInspectVideoMediaAsset(assetId))
+                .isInstanceOf(ScreenMediaAssetNotFoundException.class)
+                .hasMessageContaining(assetId.toString());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = MediaTypeDTO.class, names = {"IMAGE", "AUDIO", "DOCUMENT"})
+    @DisplayName("lockAndInspectVideoMediaAsset: non-video asset throws InvalidScreenMediaAssetTypeException")
+    void shouldThrowInvalidTypeWhenAssetNotVideoInLockAndInspect(MediaTypeDTO nonVideoType) {
+        com.universe.media.contracts.dto.MediaAssetInspectionDTO inspection = new com.universe.media.contracts.dto.MediaAssetInspectionDTO(
+                assetId, nonVideoType, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE, 1
+        );
+        when(mediaContract.lockAndInspectAsset(assetId, null)).thenReturn(inspection);
+
+        assertThatThrownBy(() -> adapter.lockAndInspectVideoMediaAsset(assetId))
+                .isInstanceOf(InvalidScreenMediaAssetTypeException.class)
+                .hasMessageContaining(assetId.toString())
+                .hasMessageContaining("VIDEO")
+                .hasMessageContaining(nonVideoType.name());
+    }
+
+    @Test
+    @DisplayName("lockAndInspectVideoMediaAsset: unexpected IllegalArgumentException is not swallowed and rethrown")
+    void shouldPropagateUnexpectedIllegalArgumentExceptionInLockAndInspect() {
+        when(mediaContract.lockAndInspectAsset(assetId, null))
+                .thenThrow(new IllegalArgumentException("Unexpected inspection failure"));
+
+        assertThatThrownBy(() -> adapter.lockAndInspectVideoMediaAsset(assetId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unexpected inspection failure");
+    }
+
+    @Test
+    @DisplayName("lockAndInspectVideoMediaAsset: successfully maps inspection result")
+    void shouldMapInspectionResultToScreenDTO() {
+        com.universe.media.contracts.dto.MediaAssetInspectionDTO inspection = new com.universe.media.contracts.dto.MediaAssetInspectionDTO(
+                assetId, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE, 1
+        );
+        when(mediaContract.lockAndInspectAsset(assetId, null)).thenReturn(inspection);
+
+        com.universe.screen.application.dto.ScreenMediaAssetInspectionDTO result = adapter.lockAndInspectVideoMediaAsset(assetId);
+        assertThat(result).isNotNull();
+        assertThat(result.assetId()).isEqualTo(assetId);
+        assertThat(result.mediaType()).isEqualTo("VIDEO");
+        assertThat(result.status()).isEqualTo("ACTIVE");
+    }
+
+    // =========================================================================
+    // deleteMediaAsset Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("deleteMediaAsset: rejects null asset ID")
+    void shouldRejectNullAssetIdInDelete() {
+        assertThatThrownBy(() -> adapter.deleteMediaAsset(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Media asset ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("deleteMediaAsset: delegates directly to mediaContract.delete")
+    void shouldDelegateDeleteToMediaContract() {
+        adapter.deleteMediaAsset(assetId);
+        verify(mediaContract).delete(assetId);
+    }
 
     private MediaAssetDetailDTO createDetail(UUID id, MediaTypeDTO type, MediaAssetStatusDTO status) {
         Instant now = Instant.parse("2026-10-06T10:00:00Z");

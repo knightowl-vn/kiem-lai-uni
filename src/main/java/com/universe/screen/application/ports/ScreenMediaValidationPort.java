@@ -1,5 +1,9 @@
 package com.universe.screen.application.ports;
 
+import com.universe.screen.application.dto.ScreenMediaAssetInspectionDTO;
+import com.universe.screen.application.dto.ScreenUploadSessionInfoDTO;
+
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -41,4 +45,28 @@ public interface ScreenMediaValidationPort {
      * @param mediaAssetId the scalar UUID of the media asset to lock and validate
      */
     void lockAndValidateVideoMediaAsset(UUID mediaAssetId);
+
+    /**
+     * Retrieves upload session information for a video upload session.
+     *
+     * @param sessionId scalar UUID of the upload session
+     * @return Optional containing session info if found, empty otherwise
+     */
+    Optional<ScreenUploadSessionInfoDTO> getUploadSession(UUID sessionId);
+
+    /**
+     * Atomically locks and inspects a video MediaAsset under pessimistic row lock.
+     * Requires an active ambient transaction.
+     *
+     * @param videoMediaAssetId scalar UUID of the video media asset to inspect
+     * @return inspection result containing authoritative lifecycle status
+     */
+    ScreenMediaAssetInspectionDTO lockAndInspectVideoMediaAsset(UUID videoMediaAssetId);
+
+    /**
+     * Soft-deletes a media asset within the active transaction boundary.
+     *
+     * @param mediaAssetId scalar UUID of the media asset to soft-delete
+     */
+    void deleteMediaAsset(UUID mediaAssetId);
 }
