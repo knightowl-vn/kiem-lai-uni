@@ -1430,11 +1430,11 @@ class ScreenGuardedDiscardConcurrencyIntegrationTest {
                 new DiscardScreenEntryVideoUploadCommand(titleId, entryId, sessionId, wrongAssetId, DEFAULT_ACTOR)
         )).isInstanceOf(ScreenVideoDiscardValidationException.class);
 
-        // 4. Non-existent title ID -> Title not found error
+        // 4. Mismatched title ID -> Entry not found in target title error
         UUID wrongTitleId = UUID.randomUUID();
         assertThatThrownBy(() -> discardUseCase.execute(
                 new DiscardScreenEntryVideoUploadCommand(wrongTitleId, entryId, sessionId, asset.assetId(), DEFAULT_ACTOR)
-        )).isInstanceOf(ScreenTitleNotFoundException.class);
+        )).isInstanceOf(ScreenEntryNotFoundException.class);
 
         // Verify zero mutations occurred in database
         assertDatabaseState(asset.assetId(), "ACTIVE", entryId, null, sessionId, "COMPLETED");
