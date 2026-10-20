@@ -57,10 +57,8 @@ public class DiscardScreenEntryVideoUploadUseCase {
     public DiscardScreenEntryVideoUploadResult execute(DiscardScreenEntryVideoUploadCommand command) {
         Objects.requireNonNull(command, "DiscardScreenEntryVideoUploadCommand cannot be null.");
 
-        UUID titleId = Objects.requireNonNull(command.titleId(), "Title ID cannot be null.");
-        UUID entryId = Objects.requireNonNull(command.entryId(), "Entry ID cannot be null.");
         UUID sessionId = Objects.requireNonNull(command.sessionId(), "Session ID cannot be null.");
-        UUID videoMediaAssetId = Objects.requireNonNull(command.videoMediaAssetId(), "Video Media Asset ID cannot be null.");
+        UUID titleId = command.titleId(); // nullable for session-rooted discard
 
         String authenticatedActor = command.authenticatedActor();
         if (authenticatedActor == null || authenticatedActor.isBlank()) {
@@ -104,19 +102,23 @@ public class DiscardScreenEntryVideoUploadUseCase {
             );
         }
 
-        if (!entryId.equals(session.targetEntityId())) {
+        UUID sessionTargetEntryId = session.targetEntityId();
+        if (sessionTargetEntryId == null || (command.entryId() != null && !command.entryId().equals(sessionTargetEntryId))) {
             throw new ScreenVideoDiscardValidationException(
                     "TARGET_ENTRY_ID_MISMATCH",
-                    "Upload session target entry ID [" + session.targetEntityId() + "] does not match requested entry ID [" + entryId + "]."
+                    "Upload session target entry ID [" + sessionTargetEntryId + "] does not match requested entry ID [" + command.entryId() + "]."
             );
         }
+        UUID entryId = sessionTargetEntryId;
 
-        if (session.registeredAssetId() == null || !videoMediaAssetId.equals(session.registeredAssetId())) {
+        UUID sessionRegisteredAssetId = session.registeredAssetId();
+        if (sessionRegisteredAssetId == null || (command.videoMediaAssetId() != null && !command.videoMediaAssetId().equals(sessionRegisteredAssetId))) {
             throw new ScreenVideoDiscardValidationException(
                     "REGISTERED_ASSET_ID_MISMATCH",
-                    "Upload session registered asset ID [" + session.registeredAssetId() + "] does not match requested video asset ID [" + videoMediaAssetId + "]."
+                    "Upload session registered asset ID [" + sessionRegisteredAssetId + "] does not match requested video asset ID [" + command.videoMediaAssetId() + "]."
             );
         }
+        UUID videoMediaAssetId = sessionRegisteredAssetId;
 
         // STEP 4: FIRST LOCK IN SEQUENCE: Acquire MediaAsset exclusive pessimistic lock via S2-B1 lockAndInspectAsset
         ScreenMediaAssetInspectionDTO assetInspection = mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId);
@@ -141,7 +143,7 @@ public class DiscardScreenEntryVideoUploadUseCase {
         Optional<ScreenEntry> lockedEntryOpt = entryRepository.findByIdForUpdate(entryId);
         if (lockedEntryOpt.isPresent()) {
             ScreenEntry lockedEntry = lockedEntryOpt.get();
-            if (!titleId.equals(lockedEntry.getTitleId())) {
+            if (titleId != null && !titleId.equals(lockedEntry.getTitleId())) {
                 throw new ScreenEntryNotFoundException(entryId);
             }
         }

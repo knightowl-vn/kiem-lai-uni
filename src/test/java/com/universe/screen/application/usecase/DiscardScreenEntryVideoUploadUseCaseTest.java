@@ -734,4 +734,120 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
         Transactional annotation = DiscardScreenEntryVideoUploadUseCase.class.getAnnotation(Transactional.class);
         assertThat(annotation).isNotNull();
     }
+
+    // =========================================================================
+    // 8. S3-3B2 SESSION-ROOTED DISCARD BEHAVIOR
+    // =========================================================================
+
+    @Test
+    @DisplayName("Session-Rooted Discard: successfully discards unreferenced active video when target entry is missing")
+    void sessionRooted_shouldDiscardWhenTargetEntryIsMissing() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
+                .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId)).thenReturn(List.of());
+
+        DiscardScreenEntryVideoUploadCommand cmd = DiscardScreenEntryVideoUploadCommand.forSession(sessionId, actor);
+        DiscardScreenEntryVideoUploadResult result = useCase.execute(cmd);
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(result.videoMediaAssetId()).isEqualTo(videoMediaAssetId);
+
+        InOrder inOrder = inOrder(mediaValidationPort, entryRepository);
+        inOrder.verify(mediaValidationPort).getUploadSession(sessionId);
+        inOrder.verify(mediaValidationPort).lockAndInspectVideoMediaAsset(videoMediaAssetId);
+        inOrder.verify(entryRepository).findByIdForUpdate(entryId);
+        inOrder.verify(entryRepository).findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId);
+        inOrder.verify(mediaValidationPort).deleteMediaAsset(videoMediaAssetId);
+    }
+
+    @Test
+    @DisplayName("Session-Rooted Discard: successfully discards unreferenced active video when target entry is present")
+    void sessionRooted_shouldDiscardWhenTargetEntryIsPresent() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
+                .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId)).thenReturn(List.of());
+
+        DiscardScreenEntryVideoUploadCommand cmd = DiscardScreenEntryVideoUploadCommand.forSession(sessionId, videoMediaAssetId, actor);
+        DiscardScreenEntryVideoUploadResult result = useCase.execute(cmd);
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(result.videoMediaAssetId()).isEqualTo(videoMediaAssetId);
+
+        InOrder inOrder = inOrder(mediaValidationPort, entryRepository);
+        inOrder.verify(mediaValidationPort).getUploadSession(sessionId);
+        inOrder.verify(mediaValidationPort).lockAndInspectVideoMediaAsset(videoMediaAssetId);
+        inOrder.verify(entryRepository).findByIdForUpdate(entryId);
+        inOrder.verify(entryRepository).findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId);
+        inOrder.verify(mediaValidationPort).deleteMediaAsset(videoMediaAssetId);
+    }
+
+    @Test
+    @DisplayName("Session-Rooted Discard: returns ALREADY_DISCARDED when unreferenced asset is already DELETED")
+    void sessionRooted_shouldReturnAlreadyDiscardedWhenAssetIsDeleted() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
+                .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "DELETED"));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId)).thenReturn(List.of());
+
+        DiscardScreenEntryVideoUploadCommand cmd = DiscardScreenEntryVideoUploadCommand.forSession(sessionId, actor);
+        DiscardScreenEntryVideoUploadResult result = useCase.execute(cmd);
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.ALREADY_DISCARDED);
+        assertThat(result.videoMediaAssetId()).isEqualTo(videoMediaAssetId);
+        verify(mediaValidationPort, never()).deleteMediaAsset(any());
+    }
+
+    @Test
+    @DisplayName("Session-Rooted Discard: rejects with 409 conflict when video is referenced by any entry")
+    void sessionRooted_shouldRejectWhenVideoIsReferenced() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
+                .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
+        UUID referencingEntryId = UUID.randomUUID();
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId)).thenReturn(List.of(referencingEntryId));
+
+        DiscardScreenEntryVideoUploadCommand cmd = DiscardScreenEntryVideoUploadCommand.forSession(sessionId, actor);
+
+        assertThatThrownBy(() -> useCase.execute(cmd))
+                .isInstanceOf(ScreenVideoAlreadyReferencedException.class)
+                .hasMessageContaining(videoMediaAssetId.toString());
+
+        verify(mediaValidationPort, never()).deleteMediaAsset(any());
+    }
+
+    @Test
+    @DisplayName("Session-Rooted Discard: rejects when client-provided videoMediaAssetId mismatches session registered asset")
+    void sessionRooted_shouldRejectWhenAssetIdMismatches() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        UUID mismatchedAssetId = UUID.randomUUID();
+
+        DiscardScreenEntryVideoUploadCommand cmd = DiscardScreenEntryVideoUploadCommand.forSession(sessionId, mismatchedAssetId, actor);
+
+        assertThatThrownBy(() -> useCase.execute(cmd))
+                .isInstanceOf(ScreenVideoDiscardValidationException.class)
+                .hasMessageContaining("REGISTERED_ASSET_ID_MISMATCH");
+
+        verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
+        verify(entryRepository, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    @DisplayName("Session-Rooted Discard: rejects when non-owner actor attempts discard (fail-closed)")
+    void sessionRooted_shouldRejectWhenNonOwnerAttemptsDiscard() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+
+        DiscardScreenEntryVideoUploadCommand cmd = DiscardScreenEntryVideoUploadCommand.forSession(sessionId, "impostor@universe.local");
+
+        assertThatThrownBy(() -> useCase.execute(cmd))
+                .isInstanceOf(ScreenVideoDiscardAccessDeniedException.class);
+
+        verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
+        verify(entryRepository, never()).findByIdForUpdate(any());
+    }
 }

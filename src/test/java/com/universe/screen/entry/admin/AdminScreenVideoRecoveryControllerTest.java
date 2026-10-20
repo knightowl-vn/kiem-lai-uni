@@ -2,11 +2,21 @@ package com.universe.screen.entry.admin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadCommand;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult.DiscardOutcome;
 import com.universe.screen.application.dto.FindRecoverableScreenVideoUploadsQuery;
 import com.universe.screen.application.dto.RecoverableVideoUploadPageDTO;
 import com.universe.screen.application.dto.RecoverableVideoUploadView;
 import com.universe.screen.application.dto.RecoveryClassification;
+import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
+import com.universe.screen.application.exceptions.ScreenUploadSessionNotFoundException;
+import com.universe.screen.application.exceptions.ScreenVideoAlreadyReferencedException;
+import com.universe.screen.application.exceptions.ScreenVideoDiscardAccessDeniedException;
+import com.universe.screen.application.exceptions.ScreenVideoDiscardValidationException;
+import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.FindRecoverableScreenVideoUploadsUseCase;
+import com.universe.screen.entry.admin.dto.DiscardVideoUploadSessionRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,9 +38,11 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -41,8 +53,12 @@ class AdminScreenVideoRecoveryControllerTest {
     @Mock
     private FindRecoverableScreenVideoUploadsUseCase useCase;
 
+    @Mock
+    private DiscardScreenEntryVideoUploadUseCase discardUseCase;
+
     private AdminScreenVideoRecoveryController controller;
     private MockMvc mockMvc;
+    private ObjectMapper objectMapper;
 
     private final UUID sessionId = UUID.randomUUID();
     private final UUID assetId = UUID.randomUUID();
@@ -52,14 +68,18 @@ class AdminScreenVideoRecoveryControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AdminScreenVideoRecoveryController(useCase);
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.findAndRegisterModules();
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        controller = new AdminScreenVideoRecoveryController(useCase, discardUseCase);
+        objectMapper = new ObjectMapper();
+        objectMapper.findAndRegisterModules();
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .build();
     }
+
+    // =========================================================================
+    // GET /admin/screen/video-uploads/recoverable TESTS
+    // =========================================================================
 
     @Test
     @DisplayName("GET /admin/screen/video-uploads/recoverable: returns 200 with default pagination and serialized fields")
@@ -173,6 +193,220 @@ class AdminScreenVideoRecoveryControllerTest {
         TestingAuthenticationToken blankPrincipal = new TestingAuthenticationToken("   ", null);
 
         assertThatThrownBy(() -> controller.getRecoverableUploads(entryId, 0, 20, blankPrincipal))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Yêu cầu xác thực tài khoản hợp lệ.");
+    }
+
+    // =========================================================================
+    // POST /admin/screen/video-uploads/{sessionId}/discard TESTS (S3-3B2)
+    // =========================================================================
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 200 with DISCARDED status when request body includes videoMediaAssetId")
+    void shouldDiscardUploadSessionWithRequestBody() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        assetId,
+                        DiscardOutcome.DISCARDED,
+                        "Completed video upload asset [" + assetId + "] successfully discarded."
+                ));
+
+        DiscardVideoUploadSessionRequest req = new DiscardVideoUploadSessionRequest(assetId);
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
+                .andExpect(jsonPath("$.status").value("DISCARDED"))
+                .andExpect(jsonPath("$.message").value("Completed video upload asset [" + assetId + "] successfully discarded."));
+
+        ArgumentCaptor<DiscardScreenEntryVideoUploadCommand> captor =
+                ArgumentCaptor.forClass(DiscardScreenEntryVideoUploadCommand.class);
+        verify(discardUseCase).execute(captor.capture());
+
+        DiscardScreenEntryVideoUploadCommand cmd = captor.getValue();
+        assertThat(cmd.sessionId()).isEqualTo(sessionId);
+        assertThat(cmd.videoMediaAssetId()).isEqualTo(assetId);
+        assertThat(cmd.titleId()).isNull();
+        assertThat(cmd.entryId()).isNull();
+        assertThat(cmd.authenticatedActor()).isEqualTo("admin-user-1");
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 200 with DISCARDED status without request body")
+    void shouldDiscardUploadSessionWithoutRequestBody() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        assetId,
+                        DiscardOutcome.DISCARDED,
+                        "Completed video upload asset [" + assetId + "] successfully discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
+                .andExpect(jsonPath("$.status").value("DISCARDED"));
+
+        ArgumentCaptor<DiscardScreenEntryVideoUploadCommand> captor =
+                ArgumentCaptor.forClass(DiscardScreenEntryVideoUploadCommand.class);
+        verify(discardUseCase).execute(captor.capture());
+
+        DiscardScreenEntryVideoUploadCommand cmd = captor.getValue();
+        assertThat(cmd.sessionId()).isEqualTo(sessionId);
+        assertThat(cmd.videoMediaAssetId()).isNull();
+        assertThat(cmd.titleId()).isNull();
+        assertThat(cmd.entryId()).isNull();
+        assertThat(cmd.authenticatedActor()).isEqualTo("admin-user-1");
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 200 with ALREADY_DISCARDED status")
+    void shouldReturnAlreadyDiscardedStatus() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenReturn(new DiscardScreenEntryVideoUploadResult(
+                        assetId,
+                        DiscardOutcome.ALREADY_DISCARDED,
+                        "Completed video upload asset [" + assetId + "] was already discarded."
+                ));
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
+                .andExpect(jsonPath("$.status").value("ALREADY_DISCARDED"));
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 403 Forbidden on ScreenVideoDiscardAccessDeniedException")
+    void shouldReturn403WhenActorIsNotAuthorized() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("impostor-admin", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenVideoDiscardAccessDeniedException(
+                        "Authenticated actor is not authorized to discard this video upload session."
+                ));
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("SCREEN_VIDEO_DISCARD_ACCESS_DENIED"))
+                .andExpect(jsonPath("$.message").value("Authenticated actor is not authorized to discard this video upload session."));
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 409 Conflict on ScreenVideoAlreadyReferencedException")
+    void shouldReturn409WhenVideoIsAlreadyReferenced() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenVideoAlreadyReferencedException(assetId, List.of(entryId)));
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("SCREEN_VIDEO_ALREADY_REFERENCED"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(assetId.toString())));
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 404 Not Found on ScreenUploadSessionNotFoundException")
+    void shouldReturn404WhenUploadSessionNotFound() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenUploadSessionNotFoundException(sessionId));
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("SCREEN_UPLOAD_SESSION_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 400 Bad Request on ScreenVideoDiscardValidationException")
+    void shouldReturn400OnValidationException() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new ScreenVideoDiscardValidationException(
+                        "REGISTERED_ASSET_ID_MISMATCH",
+                        "Upload session registered asset ID does not match."
+                ));
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("REGISTERED_ASSET_ID_MISMATCH"));
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 400 Bad Request on InvalidScreenMediaAssetTypeException")
+    void shouldReturn400OnInvalidMediaType() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        when(discardUseCase.execute(any(DiscardScreenEntryVideoUploadCommand.class)))
+                .thenThrow(new InvalidScreenMediaAssetTypeException(assetId, "VIDEO", "IMAGE"));
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("INVALID_SCREEN_MEDIA_ASSET_TYPE"));
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 400 Bad Request on invalid UUID in sessionId path")
+    void shouldReturn400OnInvalidSessionIdPath() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", "invalid-uuid")
+                        .principal(principal))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"));
+
+        verify(discardUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: returns 400 Bad Request on malformed JSON body")
+    void shouldReturn400OnMalformedJson() throws Exception {
+        TestingAuthenticationToken principal = new TestingAuthenticationToken("admin-user-1", null);
+
+        mockMvc.perform(post("/admin/screen/video-uploads/{sessionId}/discard", sessionId)
+                        .principal(principal)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\": \"not-a-uuid\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"));
+
+        verify(discardUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: throws AccessDeniedException when unauthenticated")
+    void shouldThrowAccessDeniedWhenUnauthenticatedOnDiscard() {
+        assertThatThrownBy(() -> controller.discardRecoverableVideoUpload(sessionId, null, null))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Yêu cầu xác thực tài khoản hợp lệ.");
+    }
+
+    @Test
+    @DisplayName("POST /{sessionId}/discard: throws AccessDeniedException when principal has blank name")
+    void shouldThrowAccessDeniedWhenPrincipalBlankOnDiscard() {
+        TestingAuthenticationToken blankPrincipal = new TestingAuthenticationToken("   ", null);
+
+        assertThatThrownBy(() -> controller.discardRecoverableVideoUpload(sessionId, null, blankPrincipal))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Yêu cầu xác thực tài khoản hợp lệ.");
     }
