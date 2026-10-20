@@ -58,6 +58,8 @@ import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.application.ports.MediaUploadSessionPage;
+import com.universe.media.contracts.dto.MediaUploadSessionPageDTO;
 import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
@@ -817,6 +819,54 @@ public class MediaFacade implements MediaContract {
                 .map(this::toUploadSessionResponseDTO);
     }
 
+    @Override
+    public MediaUploadSessionPageDTO findCompletedUploadSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            String mediaType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        ensureUploadSessionServiceAvailable();
+        MediaUploadSessionPage sessionPage = mediaUploadSessionService.findCompletedSessions(
+                initiatorPrincipalId,
+                consumerContext,
+                targetEntityType,
+                mediaType,
+                targetEntityId,
+                page,
+                size
+        );
+
+        List<MediaUploadSessionResponseDTO> items = sessionPage.items().stream()
+                .map(this::toUploadSessionResponseDTO)
+                .toList();
+
+        return new MediaUploadSessionPageDTO(
+                items,
+                sessionPage.page(),
+                sessionPage.size(),
+                sessionPage.totalElements(),
+                sessionPage.totalPages(),
+                sessionPage.isFirst(),
+                sessionPage.isLast()
+        );
+    }
+
+    @Override
+    public MediaUploadSessionPageDTO findCompletedUploadSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        return findCompletedUploadSessions(initiatorPrincipalId, consumerContext, targetEntityType, null, targetEntityId, page, size);
+    }
+
     private MediaUploadSessionResponseDTO toUploadSessionResponseDTO(MediaUploadSession session) {
         if (session == null) {
             return null;
@@ -835,7 +885,8 @@ public class MediaFacade implements MediaContract {
                 session.getClientTag(),
                 session.getRegisteredAssetId(),
                 session.getCreatedAt(),
-                session.getExpiresAt()
+                session.getExpiresAt(),
+                session.getCompletedAt()
         );
     }
 

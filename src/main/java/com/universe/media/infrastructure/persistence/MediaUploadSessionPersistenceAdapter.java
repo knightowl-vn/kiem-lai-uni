@@ -1,5 +1,6 @@
 package com.universe.media.infrastructure.persistence;
 
+import com.universe.media.application.ports.MediaUploadSessionPage;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
 import com.universe.media.domain.MediaUploadSession;
 import com.universe.media.domain.MediaUploadSessionStatus;
@@ -348,6 +349,61 @@ public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionR
         if (entity.getExpectedPartCount() != session.getExpectedPartCount()) {
             throw new IllegalStateException("Cannot alter expectedPartCount on session " + entity.getId());
         }
+    }
+
+    @Override
+    public MediaUploadSessionPage findCompletedSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            String mediaType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        Objects.requireNonNull(initiatorPrincipalId, "initiatorPrincipalId cannot be null.");
+        Objects.requireNonNull(consumerContext, "consumerContext cannot be null.");
+        Objects.requireNonNull(targetEntityType, "targetEntityType cannot be null.");
+
+        int effectivePage = Math.max(0, page);
+        int effectiveSize = size <= 0 ? 20 : Math.min(size, 50);
+
+        String targetEntityIdStr = targetEntityId != null ? targetEntityId.toString() : null;
+        String normalizedMediaType = (mediaType != null && !mediaType.isBlank()) ? mediaType.trim() : null;
+        PageRequest pageRequest = PageRequest.of(effectivePage, effectiveSize);
+
+        org.springframework.data.domain.Page<MediaUploadSessionJpaEntity> resultPage = repository.findCompletedSessions(
+                initiatorPrincipalId.trim(),
+                consumerContext.trim(),
+                targetEntityType.trim(),
+                normalizedMediaType,
+                targetEntityIdStr,
+                pageRequest
+        );
+
+        List<MediaUploadSession> items = resultPage.getContent().stream()
+                .map(this::toDomain)
+                .toList();
+
+        return new MediaUploadSessionPage(
+                items,
+                resultPage.getNumber(),
+                resultPage.getSize(),
+                resultPage.getTotalElements(),
+                resultPage.getTotalPages()
+        );
+    }
+
+    @Override
+    public MediaUploadSessionPage findCompletedSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        return findCompletedSessions(initiatorPrincipalId, consumerContext, targetEntityType, null, targetEntityId, page, size);
     }
 
     private MediaUploadSession toDomain(MediaUploadSessionJpaEntity entity) {

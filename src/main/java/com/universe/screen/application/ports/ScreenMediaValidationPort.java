@@ -2,6 +2,7 @@ package com.universe.screen.application.ports;
 
 import com.universe.screen.application.dto.ScreenMediaAssetInspectionDTO;
 import com.universe.screen.application.dto.ScreenUploadSessionInfoDTO;
+import com.universe.screen.application.dto.ScreenUploadSessionPageDTO;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -38,7 +39,7 @@ public interface ScreenMediaValidationPort {
      * Atomically locks and validates that the specified media asset exists, is ACTIVE, and is a valid video asset.
      *
      * <p>Acquires an InnoDB exclusive row-level lock (FOR UPDATE) within the current transaction boundary.
-     * The lock remains held until the calling transaction commits or rolls back.
+     * The lock remains held until the calling transaction completes.
      *
      * <p>If {@code mediaAssetId} is null, validation succeeds as a no-op.
      *
@@ -69,4 +70,28 @@ public interface ScreenMediaValidationPort {
      * @param mediaAssetId scalar UUID of the media asset to soft-delete
      */
     void deleteMediaAsset(UUID mediaAssetId);
+
+    /**
+     * Finds completed Screen video upload sessions for the authenticated initiator with bounded pagination.
+     *
+     * @param initiatorPrincipalId authenticated initiator principal ID
+     * @param targetEntityId optional target ScreenEntry UUID filter, or null for actor-wide discovery
+     * @param page zero-based page index
+     * @param size page size (1..50)
+     * @return paginated session info container
+     */
+    ScreenUploadSessionPageDTO findCompletedUploadSessions(
+            String initiatorPrincipalId,
+            UUID targetEntityId,
+            int page,
+            int size
+    );
+
+    /**
+     * Inspects a media asset using a non-locking, read-only query.
+     *
+     * @param mediaAssetId scalar UUID of the media asset to inspect
+     * @return Optional containing inspection result if found, empty otherwise
+     */
+    Optional<ScreenMediaAssetInspectionDTO> getMediaAssetInspection(UUID mediaAssetId);
 }

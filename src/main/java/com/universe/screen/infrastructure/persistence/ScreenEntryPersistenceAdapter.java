@@ -180,4 +180,15 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
                 .map(UUID::fromString)
                 .toList();
     }
+
+    @Override
+    public List<UUID> findEntryIdsByVideoMediaAssetId(UUID videoMediaAssetId) {
+        if (videoMediaAssetId == null) {
+            return List.of();
+        }
+        return repository.findEntryIdsByVideoMediaAssetId(videoMediaAssetId.toString())
+                .stream()
+                .map(UUID::fromString)
+                .toList();
+    }
 }

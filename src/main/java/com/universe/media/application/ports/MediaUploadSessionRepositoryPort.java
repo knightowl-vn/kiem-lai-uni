@@ -136,4 +136,50 @@ public interface MediaUploadSessionRepositoryPort {
                 limit
         );
     }
+
+    /**
+     * Finds completed upload sessions for an initiator with bounded pagination and optional mediaType filter.
+     *
+     * @param initiatorPrincipalId authoritative initiator principal ID
+     * @param consumerContext consumer context filter (e.g. "screen")
+     * @param targetEntityType target entity type filter (e.g. "SCREEN_ENTRY")
+     * @param mediaType optional media type filter (e.g. "VIDEO"), or null for any
+     * @param targetEntityId optional target entity UUID filter, or null for actor-wide discovery
+     * @param page zero-based page index
+     * @param size page size (1..50)
+     * @return paginated session container
+     */
+    default MediaUploadSessionPage findCompletedSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            String mediaType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        throw new UnsupportedOperationException("findCompletedSessions is not supported by this repository implementation.");
+    }
+
+    /**
+     * Finds completed upload sessions for an initiator with bounded pagination.
+     *
+     * @param initiatorPrincipalId authoritative initiator principal ID
+     * @param consumerContext consumer context filter (e.g. "screen")
+     * @param targetEntityType target entity type filter (e.g. "SCREEN_ENTRY")
+     * @param targetEntityId optional target entity UUID filter, or null for actor-wide discovery
+     * @param page zero-based page index
+     * @param size page size (1..50)
+     * @return paginated session container
+     */
+    default MediaUploadSessionPage findCompletedSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        return findCompletedSessions(initiatorPrincipalId, consumerContext, targetEntityType, null, targetEntityId, page, size);
+    }
 }

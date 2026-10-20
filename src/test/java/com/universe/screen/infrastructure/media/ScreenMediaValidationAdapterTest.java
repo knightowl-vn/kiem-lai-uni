@@ -9,6 +9,11 @@ import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
+import com.universe.media.contracts.dto.MediaUploadSessionPageDTO;
+import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
+import com.universe.screen.application.dto.ScreenMediaAssetInspectionDTO;
+import com.universe.screen.application.dto.ScreenUploadSessionInfoDTO;
+import com.universe.screen.application.dto.ScreenUploadSessionPageDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +24,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -366,6 +372,115 @@ class ScreenMediaValidationAdapterTest {
     void shouldDelegateDeleteToMediaContract() {
         adapter.deleteMediaAsset(assetId);
         verify(mediaContract).delete(assetId);
+    }
+
+    // =========================================================================
+    // findCompletedUploadSessions Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("findCompletedUploadSessions: blank initiator returns empty page without calling mediaContract")
+    void shouldReturnEmptyPageWhenInitiatorIsBlank() {
+        ScreenUploadSessionPageDTO result = adapter.findCompletedUploadSessions("", null, 0, 20);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(result.totalElements()).isEqualTo(0);
+        verify(mediaContract, never()).findCompletedUploadSessions(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt()
+        );
+    }
+
+    @Test
+    @DisplayName("findCompletedUploadSessions: delegates to mediaContract with screen scope and maps items")
+    void shouldDelegateFindCompletedSessionsToMediaContract() {
+        String initiator = "admin-123";
+        UUID targetEntityId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-20T10:00:00Z");
+
+        MediaUploadSessionResponseDTO sessionDto = new MediaUploadSessionResponseDTO(
+                sessionId,
+                "COMPLETED",
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                targetEntityId,
+                1024L,
+                1024L,
+                1,
+                "sample.mp4",
+                "initial-upload",
+                assetId,
+                now.minusSeconds(60),
+                now.plusSeconds(3600),
+                now
+        );
+        MediaUploadSessionPageDTO mediaPage = new MediaUploadSessionPageDTO(
+                List.of(sessionDto), 0, 20, 1L, 1, true, true
+        );
+
+        when(mediaContract.findCompletedUploadSessions(initiator, "screen", "SCREEN_ENTRY", "VIDEO", targetEntityId, 0, 20))
+                .thenReturn(mediaPage);
+
+        ScreenUploadSessionPageDTO result = adapter.findCompletedUploadSessions(" " + initiator + " ", targetEntityId, 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        ScreenUploadSessionInfoDTO item = result.items().get(0);
+        assertThat(item.sessionId()).isEqualTo(sessionId);
+        assertThat(item.status()).isEqualTo("COMPLETED");
+        assertThat(item.initiatorPrincipalId()).isEqualTo(initiator);
+        assertThat(item.consumerContext()).isEqualTo("screen");
+        assertThat(item.targetEntityType()).isEqualTo("SCREEN_ENTRY");
+        assertThat(item.targetEntityId()).isEqualTo(targetEntityId);
+        assertThat(item.registeredAssetId()).isEqualTo(assetId);
+        assertThat(item.originalFilename()).isEqualTo("sample.mp4");
+        assertThat(item.declaredSizeBytes()).isEqualTo(1024L);
+        assertThat(item.clientTag()).isEqualTo("initial-upload");
+        assertThat(item.completedAt()).isEqualTo(now);
+        assertThat(result.totalElements()).isEqualTo(1L);
+    }
+
+    // =========================================================================
+    // getMediaAssetInspection Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("getMediaAssetInspection: null assetId returns empty optional without calling mediaContract")
+    void shouldReturnEmptyOptionalWhenAssetIdIsNull() {
+        Optional<ScreenMediaAssetInspectionDTO> result = adapter.getMediaAssetInspection(null);
+
+        assertThat(result).isEmpty();
+        verify(mediaContract, never()).getAssetDetail(any());
+    }
+
+    @Test
+    @DisplayName("getMediaAssetInspection: missing asset returns empty optional")
+    void shouldReturnEmptyOptionalWhenAssetMissing() {
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.empty());
+
+        Optional<ScreenMediaAssetInspectionDTO> result = adapter.getMediaAssetInspection(assetId);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getMediaAssetInspection: existing asset maps to ScreenMediaAssetInspectionDTO")
+    void shouldReturnInspectionWhenAssetFound() {
+        MediaAssetDetailDTO detail = createDetail(assetId, MediaTypeDTO.VIDEO, MediaAssetStatusDTO.ACTIVE);
+        when(mediaContract.getAssetDetail(assetId)).thenReturn(Optional.of(detail));
+
+        Optional<ScreenMediaAssetInspectionDTO> result = adapter.getMediaAssetInspection(assetId);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().assetId()).isEqualTo(assetId);
+        assertThat(result.get().mediaType()).isEqualTo("VIDEO");
+        assertThat(result.get().status()).isEqualTo("ACTIVE");
     }
 
     private MediaAssetDetailDTO createDetail(UUID id, MediaTypeDTO type, MediaAssetStatusDTO status) {

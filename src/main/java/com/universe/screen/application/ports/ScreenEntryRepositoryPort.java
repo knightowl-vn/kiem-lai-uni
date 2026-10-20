@@ -62,4 +62,12 @@ public interface ScreenEntryRepositoryPort {
      * @return list of ScreenEntry UUIDs currently referencing the asset
      */
     List<UUID> findEntryIdsByVideoMediaAssetIdForUpdate(UUID videoMediaAssetId);
+
+    /**
+     * Inspects entry IDs referencing a given video MediaAsset ID using a non-locking read query.
+     *
+     * @param videoMediaAssetId UUID of the video media asset
+     * @return list of ScreenEntry UUIDs currently referencing the asset
+     */
+    List<UUID> findEntryIdsByVideoMediaAssetId(UUID videoMediaAssetId);
 }

@@ -2,6 +2,7 @@ package com.universe.media.infrastructure.persistence;
 
 import com.universe.media.domain.MediaUploadSessionStatus;
 import com.universe.media.domain.UploadSessionCleanupStatus;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -74,6 +75,38 @@ public interface SpringDataMediaUploadSessionJpaRepository extends JpaRepository
     List<MediaUploadSessionJpaEntity> findWithExpiredLeases(
             @Param("statuses") Set<MediaUploadSessionStatus> statuses,
             @Param("now") Instant now,
+            Pageable pageable
+    );
+
+    @Query(
+            value = """
+                    SELECT s FROM MediaUploadSessionJpaEntity s
+                    WHERE s.initiatorPrincipalId = :initiatorPrincipalId
+                      AND s.consumerContext = :consumerContext
+                      AND s.targetEntityType = :targetEntityType
+                      AND (:mediaType IS NULL OR s.mediaType = :mediaType)
+                      AND s.status = com.universe.media.domain.MediaUploadSessionStatus.COMPLETED
+                      AND s.registeredAssetId IS NOT NULL
+                      AND (:targetEntityId IS NULL OR s.targetEntityId = :targetEntityId)
+                    ORDER BY s.completedAt DESC, s.id ASC
+                    """,
+            countQuery = """
+                    SELECT COUNT(s) FROM MediaUploadSessionJpaEntity s
+                    WHERE s.initiatorPrincipalId = :initiatorPrincipalId
+                      AND s.consumerContext = :consumerContext
+                      AND s.targetEntityType = :targetEntityType
+                      AND (:mediaType IS NULL OR s.mediaType = :mediaType)
+                      AND s.status = com.universe.media.domain.MediaUploadSessionStatus.COMPLETED
+                      AND s.registeredAssetId IS NOT NULL
+                      AND (:targetEntityId IS NULL OR s.targetEntityId = :targetEntityId)
+                    """
+    )
+    Page<MediaUploadSessionJpaEntity> findCompletedSessions(
+            @Param("initiatorPrincipalId") String initiatorPrincipalId,
+            @Param("consumerContext") String consumerContext,
+            @Param("targetEntityType") String targetEntityType,
+            @Param("mediaType") String mediaType,
+            @Param("targetEntityId") String targetEntityId,
             Pageable pageable
     );
 }

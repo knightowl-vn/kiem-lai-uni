@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import com.universe.media.application.ports.MediaUploadSessionPage;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1093,5 +1095,110 @@ class MediaUploadSessionPersistenceAdapterTest {
         MediaUploadSessionJpaEntity savedEntity = captor.getValue();
         assertThat(savedEntity.getCleanupStatus()).isEqualTo(UploadSessionCleanupStatus.QUARANTINED);
         assertThat(savedEntity.getCleanupErrorDetail()).isEqualTo("Safety halt: Object detected at storage key");
+    }
+
+    @Test
+    @DisplayName("findCompletedSessions: passes mediaType filter to repository query")
+    void shouldPassMediaTypeFilterToRepository() {
+        String initiator = "user-123";
+        UUID targetEntityId = UUID.randomUUID();
+
+        when(repository.findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                "VIDEO",
+                targetEntityId.toString(),
+                PageRequest.of(0, 20)
+        )).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        MediaUploadSessionPage result = adapter.findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                "VIDEO",
+                targetEntityId,
+                0,
+                20
+        );
+
+        assertThat(result.items()).isEmpty();
+        verify(repository).findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                "VIDEO",
+                targetEntityId.toString(),
+                PageRequest.of(0, 20)
+        );
+    }
+
+    @Test
+    @DisplayName("findCompletedSessions: normalizes blank mediaType to null")
+    void shouldNormalizeBlankMediaTypeFilterToNull() {
+        String initiator = "user-123";
+
+        when(repository.findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                null,
+                null,
+                PageRequest.of(0, 20)
+        )).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+        MediaUploadSessionPage result = adapter.findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                "   ",
+                null,
+                0,
+                20
+        );
+
+        assertThat(result.items()).isEmpty();
+        verify(repository).findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                null,
+                null,
+                PageRequest.of(0, 20)
+        );
+    }
+
+    @Test
+    @DisplayName("findCompletedSessions: clamps page to >= 0 and size to <= 50")
+    void shouldClampPaginationParameters() {
+        String initiator = "user-123";
+
+        when(repository.findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                "VIDEO",
+                null,
+                PageRequest.of(0, 50)
+        )).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
+
+        adapter.findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                "VIDEO",
+                null,
+                -5,
+                100
+        );
+
+        verify(repository).findCompletedSessions(
+                initiator,
+                "screen",
+                "SCREEN_ENTRY",
+                "VIDEO",
+                null,
+                PageRequest.of(0, 50)
+        );
     }
 }

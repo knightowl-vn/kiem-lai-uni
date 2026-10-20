@@ -14,6 +14,7 @@ import com.universe.media.contracts.dto.MediaAssetStreamDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
+import com.universe.media.contracts.dto.MediaUploadSessionPageDTO;
 import com.universe.media.contracts.dto.MediaUploadSessionResponseDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
@@ -283,6 +284,52 @@ public interface MediaContract extends MediaStreamingContract {
             UUID sessionId
     ) {
         throw new UnsupportedOperationException("getUploadSession is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Finds completed multipart upload sessions for a specific initiator, consumer context, and optional mediaType.
+     *
+     * @param initiatorPrincipalId authoritative principal ID of the upload initiator
+     * @param consumerContext consumer context filter (e.g. "screen")
+     * @param targetEntityType target entity type filter (e.g. "SCREEN_ENTRY")
+     * @param mediaType optional media type filter (e.g. "VIDEO"), or null for any
+     * @param targetEntityId optional target entity UUID filter, or null for actor-wide discovery
+     * @param page zero-based page index
+     * @param size page size (1..50)
+     * @return paginated container of completed upload session DTOs
+     */
+    default MediaUploadSessionPageDTO findCompletedUploadSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            String mediaType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        throw new UnsupportedOperationException("findCompletedUploadSessions is not supported by this MediaContract implementation.");
+    }
+
+    /**
+     * Finds completed multipart upload sessions for a specific initiator and consumer context.
+     *
+     * @param initiatorPrincipalId authoritative principal ID of the upload initiator
+     * @param consumerContext consumer context filter (e.g. "screen")
+     * @param targetEntityType target entity type filter (e.g. "SCREEN_ENTRY")
+     * @param targetEntityId optional target entity UUID filter, or null for actor-wide discovery
+     * @param page zero-based page index
+     * @param size page size (1..50)
+     * @return paginated container of completed upload session DTOs
+     */
+    default MediaUploadSessionPageDTO findCompletedUploadSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        return findCompletedUploadSessions(initiatorPrincipalId, consumerContext, targetEntityType, null, targetEntityId, page, size);
     }
 
     /**

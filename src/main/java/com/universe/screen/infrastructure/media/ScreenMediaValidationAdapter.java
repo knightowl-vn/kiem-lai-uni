@@ -5,14 +5,17 @@ import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetInspectionDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaUploadSessionPageDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.screen.application.dto.ScreenMediaAssetInspectionDTO;
 import com.universe.screen.application.dto.ScreenUploadSessionInfoDTO;
+import com.universe.screen.application.dto.ScreenUploadSessionPageDTO;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -103,7 +106,12 @@ public class ScreenMediaValidationAdapter implements ScreenMediaValidationPort {
                         s.consumerContext(),
                         s.targetEntityType(),
                         s.targetEntityId(),
-                        s.registeredAssetId()
+                        s.registeredAssetId(),
+                        s.originalFilename(),
+                        s.declaredSizeBytes(),
+                        s.clientTag(),
+                        s.createdAt(),
+                        s.completedAt()
                 ));
     }
 
@@ -140,5 +148,67 @@ public class ScreenMediaValidationAdapter implements ScreenMediaValidationPort {
     public void deleteMediaAsset(UUID mediaAssetId) {
         Objects.requireNonNull(mediaAssetId, "Media asset ID cannot be null.");
         mediaContract.delete(mediaAssetId);
+    }
+
+    @Override
+    public ScreenUploadSessionPageDTO findCompletedUploadSessions(
+            String initiatorPrincipalId,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        if (initiatorPrincipalId == null || initiatorPrincipalId.isBlank()) {
+            return ScreenUploadSessionPageDTO.empty(page, size);
+        }
+
+        MediaUploadSessionPageDTO pageResult = mediaContract.findCompletedUploadSessions(
+                initiatorPrincipalId.trim(),
+                "screen",
+                "SCREEN_ENTRY",
+                "VIDEO",
+                targetEntityId,
+                page,
+                size
+        );
+
+        List<ScreenUploadSessionInfoDTO> items = pageResult.items().stream()
+                .map(s -> new ScreenUploadSessionInfoDTO(
+                        s.sessionId(),
+                        s.status(),
+                        s.initiatorPrincipalId(),
+                        s.consumerContext(),
+                        s.targetEntityType(),
+                        s.targetEntityId(),
+                        s.registeredAssetId(),
+                        s.originalFilename(),
+                        s.declaredSizeBytes(),
+                        s.clientTag(),
+                        s.createdAt(),
+                        s.completedAt()
+                ))
+                .toList();
+
+        return new ScreenUploadSessionPageDTO(
+                items,
+                pageResult.page(),
+                pageResult.size(),
+                pageResult.totalElements(),
+                pageResult.totalPages(),
+                pageResult.first(),
+                pageResult.last()
+        );
+    }
+
+    @Override
+    public Optional<ScreenMediaAssetInspectionDTO> getMediaAssetInspection(UUID mediaAssetId) {
+        if (mediaAssetId == null) {
+            return Optional.empty();
+        }
+        return mediaContract.getAssetDetail(mediaAssetId)
+                .map(detail -> new ScreenMediaAssetInspectionDTO(
+                        detail.id(),
+                        String.valueOf(detail.mediaType()),
+                        String.valueOf(detail.status())
+                ));
     }
 }

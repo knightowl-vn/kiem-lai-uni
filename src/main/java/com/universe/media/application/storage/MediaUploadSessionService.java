@@ -6,6 +6,7 @@ import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.exceptions.StorageUploadNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
+import com.universe.media.application.ports.MediaUploadSessionPage;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
 import com.universe.media.application.ports.storage.MultipartAbortResult;
 import com.universe.media.application.ports.storage.MultipartCompletedObject;
@@ -430,6 +431,42 @@ public class MediaUploadSessionService {
     public Optional<MediaUploadSession> findById(UUID sessionId) {
         Objects.requireNonNull(sessionId, "Session ID cannot be null.");
         return sessionRepositoryPort.findById(sessionId);
+    }
+
+    @Transactional(readOnly = true)
+    public MediaUploadSessionPage findCompletedSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            String mediaType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        Objects.requireNonNull(initiatorPrincipalId, "initiatorPrincipalId cannot be null.");
+        Objects.requireNonNull(consumerContext, "consumerContext cannot be null.");
+        Objects.requireNonNull(targetEntityType, "targetEntityType cannot be null.");
+        return sessionRepositoryPort.findCompletedSessions(
+                initiatorPrincipalId,
+                consumerContext,
+                targetEntityType,
+                mediaType,
+                targetEntityId,
+                page,
+                size
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public MediaUploadSessionPage findCompletedSessions(
+            String initiatorPrincipalId,
+            String consumerContext,
+            String targetEntityType,
+            UUID targetEntityId,
+            int page,
+            int size
+    ) {
+        return findCompletedSessions(initiatorPrincipalId, consumerContext, targetEntityType, null, targetEntityId, page, size);
     }
 
     /**
