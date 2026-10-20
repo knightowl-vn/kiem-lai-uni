@@ -13,6 +13,8 @@ import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult.D
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
+import com.universe.screen.application.exceptions.ScreenEntryVideoAlreadyAttachedException;
+import com.universe.screen.application.exceptions.ScreenEntryVideoConflictException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.shared.exceptions.BaseApplicationException;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
@@ -401,6 +403,111 @@ class AdminScreenEntryVideoControllerTest {
                 .andExpect(jsonPath("$.status").value("COMPLETED"));
 
         verify(attachScreenEntryVideoUseCase).execute(titleId, entryId, assetId);
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/complete: retains MediaAsset and session when post-completion attachment fails with conflict")
+    void shouldRetainMediaAssetAndSessionWhenPostCompletionAttachmentFailsWithConflict() throws Exception {
+        stubTitleAndEntry(null);
+
+        MediaUploadSessionResponseDTO completedSession = new MediaUploadSessionResponseDTO(
+                sessionId, "COMPLETED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                26214400L, 26214400L, 1, "video.mp4", "screen-video", assetId, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.getUploadSession(sessionId)).thenReturn(Optional.of(completedSession));
+        doThrow(new ScreenEntryVideoAlreadyAttachedException(entryId, UUID.randomUUID()))
+                .when(attachScreenEntryVideoUseCase).execute(titleId, entryId, assetId);
+
+        CompleteVideoUploadSessionRequest req = new CompleteVideoUploadSessionRequest(
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                List.of(new MultipartManifestPartDTO(1, 26214400L, "\"etag-1\""))
+        );
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/complete",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("SCREEN_ENTRY_VIDEO_ALREADY_ATTACHED"))
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()));
+
+        verify(attachScreenEntryVideoUseCase).execute(titleId, entryId, assetId);
+        verify(mediaContract, never()).delete(any());
+        verify(mediaContract, never()).abortUploadSession(any(), any());
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session/{sessionId}/complete: retains new upload and preserves old video when replacement fails with conflict")
+    void shouldRetainNewUploadAndPreserveOldVideoWhenReplacementFailsWithConflict() throws Exception {
+        UUID oldAssetId = UUID.randomUUID();
+        stubTitleAndEntry(oldAssetId);
+
+        MediaUploadSessionResponseDTO completedSession = new MediaUploadSessionResponseDTO(
+                sessionId, "COMPLETED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                26214400L, 26214400L, 1, "video.mp4", "screen-replace:" + oldAssetId, assetId, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.getUploadSession(sessionId)).thenReturn(Optional.of(completedSession));
+        doThrow(new ScreenEntryVideoConflictException(entryId, oldAssetId, UUID.randomUUID()))
+                .when(replaceScreenEntryVideoUseCase).execute(titleId, entryId, assetId, oldAssetId);
+
+        CompleteVideoUploadSessionRequest req = new CompleteVideoUploadSessionRequest(
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                List.of(new MultipartManifestPartDTO(1, 26214400L, "\"etag-1\"")),
+                oldAssetId
+        );
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/complete",
+                        titleId, entryId, sessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("SCREEN_ENTRY_VIDEO_CONFLICT"))
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()));
+
+        verify(replaceScreenEntryVideoUseCase).execute(titleId, entryId, assetId, oldAssetId);
+        verify(mediaContract, never()).delete(any());
+        verify(mediaContract, never()).abortUploadSession(any(), any());
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("POST /attach: returns conflict error response with asset ID and session ID when replacement conflict occurs")
+    void shouldReturnConflictResponseWithAssetIdWhenAttachExistingFailsWithConflict() throws Exception {
+        UUID oldAssetId = UUID.randomUUID();
+        UUID newAssetId = UUID.randomUUID();
+        stubTitleAndEntry(oldAssetId);
+
+        MediaUploadSessionResponseDTO completedSession = new MediaUploadSessionResponseDTO(
+                sessionId, "COMPLETED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                26214400L, 26214400L, 1, "video.mp4", "screen-replace:" + oldAssetId, newAssetId, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.getUploadSession(sessionId)).thenReturn(Optional.of(completedSession));
+        doThrow(new ScreenEntryVideoConflictException(entryId, oldAssetId, UUID.randomUUID()))
+                .when(replaceScreenEntryVideoUseCase).execute(titleId, entryId, newAssetId, oldAssetId);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/attach",
+                        titleId, entryId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "sessionId", sessionId.toString(),
+                                "videoMediaAssetId", newAssetId.toString(),
+                                "isReplacement", "true",
+                                "expectedCurrentVideoMediaAssetId", oldAssetId.toString()
+                        )))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("SCREEN_ENTRY_VIDEO_CONFLICT"))
+                .andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(newAssetId.toString()));
+
+        verify(replaceScreenEntryVideoUseCase).execute(titleId, entryId, newAssetId, oldAssetId);
+        verify(mediaContract, never()).delete(any());
+        verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
     }
 
     @Test

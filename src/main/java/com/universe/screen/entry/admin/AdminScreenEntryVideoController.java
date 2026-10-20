@@ -282,7 +282,7 @@ public class AdminScreenEntryVideoController {
      * Supports idempotent replay if the session has already completed and attached to this entry.
      */
     @PostMapping(value = "/upload-session/{sessionId}/complete", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<CompleteVideoUploadResponse> completeUploadSession(
+    public ResponseEntity<?> completeUploadSession(
             @PathVariable UUID titleId,
             @PathVariable UUID entryId,
             @PathVariable UUID sessionId,
@@ -314,36 +314,65 @@ public class AdminScreenEntryVideoController {
         }
 
         // STEP 3: Validate operation intent BEFORE any Media completion mutation
-        if (intent.isReplacement()) {
-            if (entry.videoMediaAssetId() == null) {
-                throw new ScreenEntryVideoNotAttachedException(entryId);
+        try {
+            if (intent.isReplacement()) {
+                if (entry.videoMediaAssetId() == null) {
+                    throw new ScreenEntryVideoNotAttachedException(entryId);
+                }
+                if (request == null || request.expectedCurrentVideoMediaAssetId() == null) {
+                    throw new AdminScreenVideoValidationException("expectedCurrentVideoMediaAssetId không được để trống khi hoàn tất thay thế video.");
+                }
+                if (!intent.replacementExpectedAssetId().equals(request.expectedCurrentVideoMediaAssetId())) {
+                    throw new ScreenEntryVideoConflictException(
+                            entryId,
+                            request.expectedCurrentVideoMediaAssetId(),
+                            intent.replacementExpectedAssetId()
+                    );
+                }
+                if (!entry.videoMediaAssetId().equals(intent.replacementExpectedAssetId())) {
+                    throw new ScreenEntryVideoConflictException(
+                            entryId,
+                            intent.replacementExpectedAssetId(),
+                            entry.videoMediaAssetId()
+                    );
+                }
+            } else {
+                // Initial upload session: reject if entry already has a video attached
+                if (entry.videoMediaAssetId() != null) {
+                    throw new ScreenEntryVideoAlreadyAttachedException(entryId, entry.videoMediaAssetId());
+                }
+                // Reject converting initial upload session to replacement
+                if (request != null && request.expectedCurrentVideoMediaAssetId() != null) {
+                    throw new AdminScreenVideoValidationException("Upload session ban đầu không thể dùng để thay thế video.");
+                }
             }
-            if (request == null || request.expectedCurrentVideoMediaAssetId() == null) {
-                throw new AdminScreenVideoValidationException("expectedCurrentVideoMediaAssetId không được để trống khi hoàn tất thay thế video.");
-            }
-            if (!intent.replacementExpectedAssetId().equals(request.expectedCurrentVideoMediaAssetId())) {
-                throw new ScreenEntryVideoConflictException(
-                        entryId,
-                        request.expectedCurrentVideoMediaAssetId(),
-                        intent.replacementExpectedAssetId()
-                );
-            }
-            if (!entry.videoMediaAssetId().equals(intent.replacementExpectedAssetId())) {
-                throw new ScreenEntryVideoConflictException(
-                        entryId,
-                        intent.replacementExpectedAssetId(),
-                        entry.videoMediaAssetId()
-                );
-            }
-        } else {
-            // Initial upload session: reject if entry already has a video attached
-            if (entry.videoMediaAssetId() != null) {
-                throw new ScreenEntryVideoAlreadyAttachedException(entryId, entry.videoMediaAssetId());
-            }
-            // Reject converting initial upload session to replacement
-            if (request != null && request.expectedCurrentVideoMediaAssetId() != null) {
-                throw new AdminScreenVideoValidationException("Upload session ban đầu không thể dùng để thay thế video.");
-            }
+        } catch (ScreenEntryVideoAlreadyAttachedException ex) {
+            log.warn("ScreenEntry video already attached prior to completion for session {} (asset {}): {}",
+                    sessionId, session.registeredAssetId(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    session.registeredAssetId()
+            ));
+        } catch (ScreenEntryVideoConflictException ex) {
+            log.warn("ScreenEntry video conflict prior to completion for session {} (asset {}): {}",
+                    sessionId, session.registeredAssetId(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    session.registeredAssetId()
+            ));
+        } catch (ScreenEntryVideoNotAttachedException ex) {
+            log.warn("ScreenEntry video not attached for replacement prior to completion for session {} (asset {}): {}",
+                    sessionId, session.registeredAssetId(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    session.registeredAssetId()
+            ));
         }
 
         // STEP 4: Provider completion (only when session is not yet COMPLETED)
@@ -378,30 +407,59 @@ public class AdminScreenEntryVideoController {
         String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
 
         // STEP 5: Screen entry persistence (with locked-state check inside use-case)
-        if (intent.isReplacement()) {
-            replaceScreenEntryVideoUseCase.execute(
-                    titleId,
-                    entryId,
-                    registeredAssetId,
-                    request.expectedCurrentVideoMediaAssetId()
-            );
+        try {
+            if (intent.isReplacement()) {
+                replaceScreenEntryVideoUseCase.execute(
+                        titleId,
+                        entryId,
+                        registeredAssetId,
+                        request.expectedCurrentVideoMediaAssetId()
+                );
+
+                return ResponseEntity.ok(new CompleteVideoUploadResponse(
+                        registeredAssetId,
+                        playbackUrl,
+                        "REPLACED",
+                        "Video đã được thay thế thành công trên Screen Entry."
+                ));
+            }
+
+            attachScreenEntryVideoUseCase.execute(titleId, entryId, registeredAssetId);
 
             return ResponseEntity.ok(new CompleteVideoUploadResponse(
                     registeredAssetId,
                     playbackUrl,
-                    "REPLACED",
-                    "Video đã được thay thế thành công trên Screen Entry."
+                    "COMPLETED",
+                    "Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry."
+            ));
+        } catch (ScreenEntryVideoAlreadyAttachedException ex) {
+            log.warn("ScreenEntry video already attached after upload completion for session {} (asset {}): {}",
+                    sessionId, registeredAssetId, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    registeredAssetId
+            ));
+        } catch (ScreenEntryVideoConflictException ex) {
+            log.warn("ScreenEntry video conflict after upload completion for session {} (asset {}): {}",
+                    sessionId, registeredAssetId, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    registeredAssetId
+            ));
+        } catch (ScreenEntryVideoNotAttachedException ex) {
+            log.warn("ScreenEntry video not attached for replacement after upload completion for session {} (asset {}): {}",
+                    sessionId, registeredAssetId, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    registeredAssetId
             ));
         }
-
-        attachScreenEntryVideoUseCase.execute(titleId, entryId, registeredAssetId);
-
-        return ResponseEntity.ok(new CompleteVideoUploadResponse(
-                registeredAssetId,
-                playbackUrl,
-                "COMPLETED",
-                "Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry."
-        ));
     }
 
     /**
@@ -486,7 +544,7 @@ public class AdminScreenEntryVideoController {
      * Enforces strict provenance validation via a completed upload session tied to this ScreenEntry and authenticated principal.
      */
     @PostMapping(value = "/attach", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<CompleteVideoUploadResponse> attachExistingVideo(
+    public ResponseEntity<?> attachExistingVideo(
             @PathVariable UUID titleId,
             @PathVariable UUID entryId,
             @RequestBody Map<String, String> payload,
@@ -547,66 +605,95 @@ public class AdminScreenEntryVideoController {
 
         SessionOperationIntent intent = parseAndValidateSessionIntent(session.clientTag());
 
-        if (entry.videoMediaAssetId() != null) {
-            if (entry.videoMediaAssetId().equals(videoMediaAssetId)) {
+        try {
+            if (entry.videoMediaAssetId() != null) {
+                if (entry.videoMediaAssetId().equals(videoMediaAssetId)) {
+                    String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
+                    return ResponseEntity.ok(new CompleteVideoUploadResponse(
+                            videoMediaAssetId,
+                            playbackUrl,
+                            "ATTACHED",
+                            "Video đã được gắn vào Screen Entry từ trước (idempotent)."
+                    ));
+                }
+                if (!isReplacement || !intent.isReplacement()) {
+                    throw new ScreenEntryVideoAlreadyAttachedException(entryId, entry.videoMediaAssetId());
+                }
+                if (expectedCurrentVideoMediaAssetId == null) {
+                    throw new AdminScreenVideoValidationException("expectedCurrentVideoMediaAssetId không được để trống khi thực hiện thay thế video.");
+                }
+                if (!intent.replacementExpectedAssetId().equals(expectedCurrentVideoMediaAssetId)) {
+                    throw new ScreenEntryVideoConflictException(
+                            entryId,
+                            expectedCurrentVideoMediaAssetId,
+                            intent.replacementExpectedAssetId()
+                    );
+                }
+                if (!entry.videoMediaAssetId().equals(intent.replacementExpectedAssetId())) {
+                    throw new ScreenEntryVideoConflictException(
+                            entryId,
+                            intent.replacementExpectedAssetId(),
+                            entry.videoMediaAssetId()
+                    );
+                }
+
+                replaceScreenEntryVideoUseCase.execute(
+                        titleId,
+                        entryId,
+                        videoMediaAssetId,
+                        expectedCurrentVideoMediaAssetId
+                );
+
                 String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
                 return ResponseEntity.ok(new CompleteVideoUploadResponse(
                         videoMediaAssetId,
                         playbackUrl,
-                        "ATTACHED",
-                        "Video đã được gắn vào Screen Entry từ trước (idempotent)."
+                        "REPLACED",
+                        "Đã thay thế video media asset vào Screen Entry thành công."
                 ));
             }
-            if (!isReplacement || !intent.isReplacement()) {
-                throw new ScreenEntryVideoAlreadyAttachedException(entryId, entry.videoMediaAssetId());
-            }
-            if (expectedCurrentVideoMediaAssetId == null) {
-                throw new AdminScreenVideoValidationException("expectedCurrentVideoMediaAssetId không được để trống khi thực hiện thay thế video.");
-            }
-            if (!intent.replacementExpectedAssetId().equals(expectedCurrentVideoMediaAssetId)) {
-                throw new ScreenEntryVideoConflictException(
-                        entryId,
-                        expectedCurrentVideoMediaAssetId,
-                        intent.replacementExpectedAssetId()
-                );
-            }
-            if (!entry.videoMediaAssetId().equals(intent.replacementExpectedAssetId())) {
-                throw new ScreenEntryVideoConflictException(
-                        entryId,
-                        intent.replacementExpectedAssetId(),
-                        entry.videoMediaAssetId()
-                );
+
+            if (intent.isReplacement() || isReplacement) {
+                throw new ScreenEntryVideoNotAttachedException(entryId);
             }
 
-            replaceScreenEntryVideoUseCase.execute(
-                    titleId,
-                    entryId,
-                    videoMediaAssetId,
-                    expectedCurrentVideoMediaAssetId
-            );
+            attachScreenEntryVideoUseCase.execute(titleId, entryId, videoMediaAssetId);
 
             String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
             return ResponseEntity.ok(new CompleteVideoUploadResponse(
                     videoMediaAssetId,
                     playbackUrl,
-                    "REPLACED",
-                    "Đã thay thế video media asset vào Screen Entry thành công."
+                    "ATTACHED",
+                    "Đã gán video media asset vào Screen Entry thành công."
+            ));
+        } catch (ScreenEntryVideoAlreadyAttachedException ex) {
+            log.warn("ScreenEntry video already attached during fallback attach for session {} (asset {}): {}",
+                    sessionId, videoMediaAssetId, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    videoMediaAssetId
+            ));
+        } catch (ScreenEntryVideoConflictException ex) {
+            log.warn("ScreenEntry video conflict during fallback attach for session {} (asset {}): {}",
+                    sessionId, videoMediaAssetId, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    videoMediaAssetId
+            ));
+        } catch (ScreenEntryVideoNotAttachedException ex) {
+            log.warn("ScreenEntry video not attached during fallback attach for session {} (asset {}): {}",
+                    sessionId, videoMediaAssetId, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                    ex.getErrorCode(),
+                    ex.getMessage(),
+                    sessionId,
+                    videoMediaAssetId
             ));
         }
-
-        if (intent.isReplacement() || isReplacement) {
-            throw new ScreenEntryVideoNotAttachedException(entryId);
-        }
-
-        attachScreenEntryVideoUseCase.execute(titleId, entryId, videoMediaAssetId);
-
-        String playbackUrl = "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content";
-        return ResponseEntity.ok(new CompleteVideoUploadResponse(
-                videoMediaAssetId,
-                playbackUrl,
-                "ATTACHED",
-                "Đã gán video media asset vào Screen Entry thành công."
-        ));
     }
 
     /**
