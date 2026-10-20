@@ -2,19 +2,18 @@ package com.universe.screen.application.usecase;
 
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadCommand;
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult;
+import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult.DiscardOutcome;
 import com.universe.screen.application.dto.ScreenMediaAssetInspectionDTO;
 import com.universe.screen.application.dto.ScreenUploadSessionInfoDTO;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
-import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.exceptions.ScreenUploadSessionNotFoundException;
 import com.universe.screen.application.exceptions.ScreenVideoAlreadyReferencedException;
 import com.universe.screen.application.exceptions.ScreenVideoDiscardAccessDeniedException;
 import com.universe.screen.application.exceptions.ScreenVideoDiscardValidationException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,9 +46,6 @@ import static org.mockito.Mockito.when;
 class DiscardScreenEntryVideoUploadUseCaseTest {
 
     @Mock
-    private ScreenTitleRepositoryPort titleRepository;
-
-    @Mock
     private ScreenEntryRepositoryPort entryRepository;
 
     @Mock
@@ -69,7 +65,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new DiscardScreenEntryVideoUploadUseCase(
-                titleRepository,
                 entryRepository,
                 mediaValidationPort
         );
@@ -112,7 +107,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @Test
     @DisplayName("Active Discard: unreferenced ACTIVE video is soft-deleted and returns DISCARDED")
     void shouldSuccessfullyDiscardActiveUnreferencedVideo() {
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
@@ -131,14 +125,12 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
 
         // Verify strict physical lock and execution order:
         // 1. Upload session lookup & actor check
-        // 2. Title existence check
         // 3. MediaAsset exclusive lock (Step 5)
         // 4. Target ScreenEntry exclusive row lock (Step 6)
         // 5. Referencing ScreenEntries current-read lock (Step 7)
         // 6. Media soft-delete (Step 8)
-        InOrder inOrder = inOrder(titleRepository, mediaValidationPort, entryRepository);
+        InOrder inOrder = inOrder(mediaValidationPort, entryRepository);
         inOrder.verify(mediaValidationPort).getUploadSession(sessionId);
-        inOrder.verify(titleRepository).existsById(titleId);
         inOrder.verify(mediaValidationPort).lockAndInspectVideoMediaAsset(videoMediaAssetId);
         inOrder.verify(entryRepository).findByIdForUpdate(entryId);
         inOrder.verify(entryRepository).findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId);
@@ -148,7 +140,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @Test
     @DisplayName("Idempotency: unreferenced DELETED video returns ALREADY_DISCARDED without deleting")
     void shouldReturnAlreadyDiscardedWhenAssetIsDeletedAndUnreferenced() {
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "DELETED"));
@@ -165,9 +156,8 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
         verify(mediaValidationPort, never()).deleteMediaAsset(any());
         verify(entryRepository, never()).findById(any());
 
-        InOrder inOrder = inOrder(titleRepository, mediaValidationPort, entryRepository);
+        InOrder inOrder = inOrder(mediaValidationPort, entryRepository);
         inOrder.verify(mediaValidationPort).getUploadSession(sessionId);
-        inOrder.verify(titleRepository).existsById(titleId);
         inOrder.verify(mediaValidationPort).lockAndInspectVideoMediaAsset(videoMediaAssetId);
         inOrder.verify(entryRepository).findByIdForUpdate(entryId);
         inOrder.verify(entryRepository).findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId);
@@ -180,7 +170,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @Test
     @DisplayName("Reference Guard: ACTIVE video referenced by ScreenEntry is rejected without soft-delete")
     void shouldRejectDiscardWhenActiveAssetIsReferencedByScreenEntry() {
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
@@ -206,7 +195,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @DisplayName("Reference Guard: DELETED video referenced by ScreenEntry is rejected before ALREADY_DISCARDED")
     void shouldRejectDiscardWhenDeletedAssetIsReferencedByScreenEntry() {
         UUID referencingEntryId = UUID.randomUUID();
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "DELETED"));
@@ -241,7 +229,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .isInstanceOf(ScreenUploadSessionNotFoundException.class)
                 .hasMessageContaining(sessionId.toString());
 
-        verify(titleRepository, never()).existsById(any());
         verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
         verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).findById(any());
@@ -261,7 +248,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 entryId,
                 videoMediaAssetId
         );
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(nonCompletedSession));
 
         assertThatThrownBy(() -> useCase.execute(validCommand()))
@@ -287,7 +273,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 entryId,
                 videoMediaAssetId
         );
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(wrongContextSession));
 
         assertThatThrownBy(() -> useCase.execute(validCommand()))
@@ -313,7 +298,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 entryId,
                 videoMediaAssetId
         );
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(wrongTargetTypeSession));
 
         assertThatThrownBy(() -> useCase.execute(validCommand()))
@@ -340,7 +324,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 otherEntryId,
                 videoMediaAssetId
         );
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(wrongTargetIdSession));
 
         assertThatThrownBy(() -> useCase.execute(validCommand()))
@@ -366,7 +349,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 entryId,
                 otherAssetId
         );
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(wrongAssetSession));
 
         assertThatThrownBy(() -> useCase.execute(validCommand()))
@@ -391,7 +373,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 entryId,
                 null
         );
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(nullAssetSession));
 
         assertThatThrownBy(() -> useCase.execute(validCommand()))
@@ -427,7 +408,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .hasMessageContaining("not authorized")
                 .hasMessageNotContaining("original-initiator");
 
-        verify(titleRepository, never()).existsById(any());
         verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
         verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).findById(any());
@@ -454,7 +434,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .hasMessageNotContaining("INITIATED")
                 .hasMessageNotContaining("UPLOAD_SESSION_NOT_COMPLETED");
 
-        verify(titleRepository, never()).existsById(any());
         verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
         verify(entryRepository, never()).findByIdForUpdate(any());
     }
@@ -479,7 +458,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .hasMessageNotContaining("novel")
                 .hasMessageNotContaining("INVALID_CONSUMER_CONTEXT");
 
-        verify(titleRepository, never()).existsById(any());
         verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
     }
 
@@ -503,7 +481,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .hasMessageNotContaining("NOVEL_CHAPTER")
                 .hasMessageNotContaining("INVALID_TARGET_ENTITY_TYPE");
 
-        verify(titleRepository, never()).existsById(any());
         verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
     }
 
@@ -526,7 +503,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .hasMessageContaining("not authorized")
                 .hasMessageNotContaining("REGISTERED_ASSET_ID_MISMATCH");
 
-        verify(titleRepository, never()).existsById(any());
         verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
     }
 
@@ -548,7 +524,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .isInstanceOf(ScreenVideoDiscardAccessDeniedException.class)
                 .hasMessageContaining("not authorized");
 
-        verify(titleRepository, never()).existsById(any());
         verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
     }
 
@@ -564,7 +539,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .hasMessageContaining("AUTHENTICATED_ACTOR_REQUIRED");
 
         verify(mediaValidationPort, never()).getUploadSession(any());
-        verify(titleRepository, never()).existsById(any());
         verify(entryRepository, never()).findById(any());
         verify(entryRepository, never()).findByIdForUpdate(any());
     }
@@ -581,7 +555,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .hasMessageContaining("AUTHENTICATED_ACTOR_REQUIRED");
 
         verify(mediaValidationPort, never()).getUploadSession(any());
-        verify(titleRepository, never()).existsById(any());
         verify(entryRepository, never()).findById(any());
         verify(entryRepository, never()).findByIdForUpdate(any());
     }
@@ -591,42 +564,74 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     // =========================================================================
 
     @Test
-    @DisplayName("Target Rejection: non-existent ScreenTitle throws ScreenTitleNotFoundException after owner verification")
-    void shouldRejectWhenTitleDoesNotExist() {
-        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
-        when(titleRepository.existsById(titleId)).thenReturn(false);
-
-        assertThatThrownBy(() -> useCase.execute(validCommand()))
-                .isInstanceOf(ScreenTitleNotFoundException.class)
-                .hasMessageContaining(titleId.toString());
-
-        verify(entryRepository, never()).findById(any());
-        verify(entryRepository, never()).findByIdForUpdate(any());
-        verify(mediaValidationPort, never()).lockAndInspectVideoMediaAsset(any());
-        verify(mediaValidationPort, never()).deleteMediaAsset(any());
-    }
-
-    @Test
-    @DisplayName("Missing target from locked lookup: non-existent ScreenEntry throws ScreenEntryNotFoundException without delete")
-    void shouldRejectWhenTargetMissingInLockedLookup() {
-        when(titleRepository.existsById(titleId)).thenReturn(true);
+    @DisplayName("Missing target title: non-existent ScreenTitle permits successful discard when unreferenced")
+    void shouldDiscardWhenTargetTitleIsMissingAndUnreferenced() {
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> useCase.execute(validCommand()))
-                .isInstanceOf(ScreenEntryNotFoundException.class)
-                .hasMessageContaining(entryId.toString());
+        DiscardScreenEntryVideoUploadResult result = useCase.execute(validCommand());
 
-        InOrder inOrder = inOrder(titleRepository, mediaValidationPort, entryRepository);
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(result.videoMediaAssetId()).isEqualTo(videoMediaAssetId);
+        verify(mediaValidationPort).deleteMediaAsset(videoMediaAssetId);
+    }
+
+    @Test
+    @DisplayName("Missing target entry: non-existent ScreenEntry permits successful discard when unreferenced")
+    void shouldDiscardWhenTargetEntryMissingInLockedLookup() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
+                .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId)).thenReturn(List.of());
+
+        DiscardScreenEntryVideoUploadResult result = useCase.execute(validCommand());
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(result.videoMediaAssetId()).isEqualTo(videoMediaAssetId);
+
+        InOrder inOrder = inOrder(mediaValidationPort, entryRepository);
         inOrder.verify(mediaValidationPort).getUploadSession(sessionId);
-        inOrder.verify(titleRepository).existsById(titleId);
         inOrder.verify(mediaValidationPort).lockAndInspectVideoMediaAsset(videoMediaAssetId);
         inOrder.verify(entryRepository).findByIdForUpdate(entryId);
+        inOrder.verify(entryRepository).findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId);
+        inOrder.verify(mediaValidationPort).deleteMediaAsset(videoMediaAssetId);
+    }
 
-        verify(entryRepository, never()).findById(any());
-        verify(entryRepository, never()).findEntryIdsByVideoMediaAssetIdForUpdate(any());
+    @Test
+    @DisplayName("Missing target entry: referenced asset throws ScreenVideoAlreadyReferencedException without delete")
+    void shouldRejectMissingTargetWhenAssetIsReferenced() {
+        UUID referencingEntryId = UUID.randomUUID();
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
+                .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId))
+                .thenReturn(List.of(referencingEntryId));
+
+        assertThatThrownBy(() -> useCase.execute(validCommand()))
+                .isInstanceOf(ScreenVideoAlreadyReferencedException.class)
+                .hasMessageContaining(videoMediaAssetId.toString());
+
+        verify(mediaValidationPort, never()).deleteMediaAsset(any());
+    }
+
+    @Test
+    @DisplayName("Missing target entry: already DELETED unreferenced asset returns ALREADY_DISCARDED")
+    void shouldReturnAlreadyDiscardedWhenMissingTargetAndAssetAlreadyDeleted() {
+        when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
+        when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
+                .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "DELETED"));
+        when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
+        when(entryRepository.findEntryIdsByVideoMediaAssetIdForUpdate(videoMediaAssetId)).thenReturn(List.of());
+
+        DiscardScreenEntryVideoUploadResult result = useCase.execute(validCommand());
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.ALREADY_DISCARDED);
+        assertThat(result.videoMediaAssetId()).isEqualTo(videoMediaAssetId);
         verify(mediaValidationPort, never()).deleteMediaAsset(any());
     }
 
@@ -643,7 +648,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 "Episode 1",
                 Instant.now()
         );
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ACTIVE"));
@@ -653,9 +657,8 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
                 .isInstanceOf(ScreenEntryNotFoundException.class)
                 .hasMessageContaining(entryId.toString());
 
-        InOrder inOrder = inOrder(titleRepository, mediaValidationPort, entryRepository);
+        InOrder inOrder = inOrder(mediaValidationPort, entryRepository);
         inOrder.verify(mediaValidationPort).getUploadSession(sessionId);
-        inOrder.verify(titleRepository).existsById(titleId);
         inOrder.verify(mediaValidationPort).lockAndInspectVideoMediaAsset(videoMediaAssetId);
         inOrder.verify(entryRepository).findByIdForUpdate(entryId);
 
@@ -671,7 +674,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @Test
     @DisplayName("Media Asset Rejection: non-existent asset throws ScreenMediaAssetNotFoundException")
     void shouldRejectWhenAssetNotFoundInMedia() {
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenThrow(new ScreenMediaAssetNotFoundException(videoMediaAssetId));
@@ -689,7 +691,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @Test
     @DisplayName("Media Asset Rejection: non-VIDEO asset type throws InvalidScreenMediaAssetTypeException")
     void shouldRejectWhenAssetTypeNotVideo() {
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "IMAGE", "ACTIVE"));
@@ -708,7 +709,6 @@ class DiscardScreenEntryVideoUploadUseCaseTest {
     @Test
     @DisplayName("Media Asset Rejection: ARCHIVED status is rejected as unsupported for discard")
     void shouldRejectWhenAssetStatusIsArchived() {
-        when(titleRepository.existsById(titleId)).thenReturn(true);
         when(mediaValidationPort.getUploadSession(sessionId)).thenReturn(Optional.of(session));
         when(mediaValidationPort.lockAndInspectVideoMediaAsset(videoMediaAssetId))
                 .thenReturn(new ScreenMediaAssetInspectionDTO(videoMediaAssetId, "VIDEO", "ARCHIVED"));
