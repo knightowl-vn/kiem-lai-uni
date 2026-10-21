@@ -2,13 +2,19 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.exceptions.MediaReferenceCheckUnavailableException;
+import com.universe.media.contracts.interfaces.MediaAssetReferenceCheckPort;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
+import com.universe.media.domain.MediaType;
 import com.universe.shared.time.ClockPort;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -17,10 +23,13 @@ public class DeleteMediaAssetUseCase {
 
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final ClockPort clockPort;
+    private final List<MediaAssetReferenceCheckPort> referenceCheckPorts;
 
+    @Autowired
     public DeleteMediaAssetUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            List<MediaAssetReferenceCheckPort> referenceCheckPorts
     ) {
         this.mediaAssetRepositoryPort =
                 Objects.requireNonNull(
@@ -32,6 +41,14 @@ public class DeleteMediaAssetUseCase {
                         clockPort,
                         "ClockPort cannot be null."
                 );
+        this.referenceCheckPorts = referenceCheckPorts != null ? referenceCheckPorts : List.of();
+    }
+
+    public DeleteMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            ClockPort clockPort
+    ) {
+        this(mediaAssetRepositoryPort, clockPort, List.of());
     }
 
     @Transactional
@@ -58,6 +75,26 @@ public class DeleteMediaAssetUseCase {
 
         if (asset.getStatus() == MediaAssetStatus.DELETED) {
             return;
+        }
+
+        MediaType domainType = asset.getMediaType();
+        MediaTypeDTO typeDto = MediaTypeDTO.valueOf(domainType.name());
+
+        List<MediaAssetReferenceCheckPort> applicablePorts = referenceCheckPorts.stream()
+                .filter(port -> port.supports(typeDto))
+                .toList();
+
+        if (domainType == MediaType.VIDEO && applicablePorts.isEmpty()) {
+            throw new MediaReferenceCheckUnavailableException(
+                    assetId,
+                    typeDto,
+                    "Cannot delete VIDEO asset [" + assetId + "]: "
+                            + "required reference check protection is not registered or unavailable."
+            );
+        }
+
+        for (MediaAssetReferenceCheckPort port : applicablePorts) {
+            port.ensureNotReferenced(assetId);
         }
 
         Instant now = clockPort.now();

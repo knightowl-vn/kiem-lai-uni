@@ -6,6 +6,10 @@ import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.exceptions.MediaAssetReferencedException;
+import com.universe.media.contracts.exceptions.MediaReferenceCheckUnavailableException;
+import com.universe.media.contracts.interfaces.MediaAssetReferenceCheckPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
@@ -91,6 +95,9 @@ class PurgeDeletedMediaAssetUseCaseTest {
     @Mock
     private PurgeMediaAssetMetadataService purgeMediaAssetMetadataService;
 
+    @Mock
+    private MediaAssetReferenceCheckPort referenceCheckPort;
+
     private PurgeDeletedMediaAssetUseCase useCase;
 
     @BeforeEach
@@ -110,6 +117,18 @@ class PurgeDeletedMediaAssetUseCaseTest {
         return MediaAsset.rehydrate(
                 ASSET_ID,
                 MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.DELETED,
+                2,
+                deletedAt.minus(Duration.ofDays(10)),
+                deletedAt
+        );
+    }
+
+    private MediaAsset createDeletedVideoAsset(Instant deletedAt) {
+        return MediaAsset.rehydrate(
+                ASSET_ID,
+                MediaType.VIDEO,
                 MediaVisibility.PUBLIC,
                 MediaAssetStatus.DELETED,
                 2,
@@ -226,6 +245,91 @@ class PurgeDeletedMediaAssetUseCaseTest {
 
             verify(binaryStoragePort, never()).purgeExactKey(any());
             verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("throws MediaAssetReferencedException and aborts purge when asset is referenced by consumer guard")
+        void shouldRejectPurgeWhenAssetIsReferencedByConsumer() {
+            PurgeDeletedMediaAssetUseCase guardedUseCase = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of(referenceCheckPort)
+            );
+
+            MediaAsset asset = createDeletedVideoAsset(DELETED_AT);
+            when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+            doThrow(new MediaAssetReferencedException(ASSET_ID, "Referenced by ScreenEntry: " + ASSET_ID))
+                    .when(referenceCheckPort).ensureNotReferenced(ASSET_ID);
+
+            assertThatThrownBy(() -> guardedUseCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(MediaAssetReferencedException.class)
+                    .hasMessageContaining(ASSET_ID.toString());
+
+            verify(referenceCheckPort).ensureNotReferenced(ASSET_ID);
+            verify(binaryStoragePort, never()).purgeExactKey(any());
+            verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("throws MediaReferenceCheckUnavailableException and fails closed when VIDEO asset has no registered reference checker")
+        void shouldRejectPurgeWhenVideoAssetHasNoRegisteredReferenceCheckPort() {
+            PurgeDeletedMediaAssetUseCase unguardedUseCase = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of()
+            );
+
+            MediaAsset asset = createDeletedVideoAsset(DELETED_AT);
+            when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+
+            assertThatThrownBy(() -> unguardedUseCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(MediaReferenceCheckUnavailableException.class)
+                    .hasMessageContaining(ASSET_ID.toString())
+                    .satisfies(ex -> {
+                        MediaReferenceCheckUnavailableException unavail = (MediaReferenceCheckUnavailableException) ex;
+                        assertThat(unavail.getErrorCode()).isEqualTo("MEDIA_REFERENCE_CHECK_UNAVAILABLE");
+                        assertThat(unavail.getMediaType()).isEqualTo(MediaTypeDTO.VIDEO);
+                    });
+
+            verify(binaryStoragePort, never()).purgeExactKey(any());
+            verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("allows purge of IMAGE asset to proceed when no reference checker is registered (Media-only workflow)")
+        void shouldAllowPurgeWhenImageAssetHasNoRegisteredReferenceCheckPort() {
+            PurgeDeletedMediaAssetUseCase unguardedUseCase = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of()
+            );
+
+            MediaAsset asset = createDeletedAsset(DELETED_AT);
+            when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+            when(mediaAssetVersionRepositoryPort.findAllByAssetId(ASSET_ID)).thenReturn(List.of());
+
+            PurgeDeletedMediaAssetResult result = unguardedUseCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID));
+            assertThat(result.assetId()).isEqualTo(ASSET_ID);
+            verify(purgeMediaAssetMetadataService).execute(ASSET_ID);
         }
     }
 

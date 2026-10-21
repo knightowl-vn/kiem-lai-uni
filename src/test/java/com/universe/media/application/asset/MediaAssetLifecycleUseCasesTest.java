@@ -2,6 +2,10 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.exceptions.MediaAssetReferencedException;
+import com.universe.media.contracts.exceptions.MediaReferenceCheckUnavailableException;
+import com.universe.media.contracts.interfaces.MediaAssetReferenceCheckPort;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
@@ -17,12 +21,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,6 +50,9 @@ class MediaAssetLifecycleUseCasesTest {
 
     @Mock
     private MediaAssetRepositoryPort mediaAssetRepositoryPort;
+
+    @Mock
+    private MediaAssetReferenceCheckPort referenceCheckPort;
 
     private ChangeMediaVisibilityUseCase changeVisibilityUseCase;
     private ArchiveMediaAssetUseCase archiveUseCase;
@@ -74,6 +83,15 @@ class MediaAssetLifecycleUseCasesTest {
         return MediaAsset.registerInitial(
                 ASSET_ID,
                 MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                T0
+        );
+    }
+
+    private MediaAsset createActiveVideoAsset() {
+        return MediaAsset.registerInitial(
+                ASSET_ID,
+                MediaType.VIDEO,
                 MediaVisibility.PUBLIC,
                 T0
         );
@@ -156,7 +174,7 @@ class MediaAssetLifecycleUseCasesTest {
         @DisplayName("successful archive mutates asset status to ARCHIVED and saves")
         void shouldArchiveSuccessfully() {
             MediaAsset asset = createActiveAsset();
-            when(mediaAssetRepositoryPort.findById(ASSET_ID))
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                     .thenReturn(Optional.of(asset));
 
             archiveUseCase.execute(new ArchiveMediaAssetCommand(ASSET_ID));
@@ -172,7 +190,7 @@ class MediaAssetLifecycleUseCasesTest {
         @Test
         @DisplayName("asset not found throws MediaAssetNotFoundException")
         void shouldThrowWhenAssetNotFound() {
-            when(mediaAssetRepositoryPort.findById(ASSET_ID))
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> archiveUseCase.execute(new ArchiveMediaAssetCommand(ASSET_ID)))
@@ -180,6 +198,77 @@ class MediaAssetLifecycleUseCasesTest {
                     .hasMessageContaining(ASSET_ID.toString());
 
             verify(mediaAssetRepositoryPort, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("archive rejects when asset is referenced by consumer guard")
+        void shouldRejectArchiveWhenAssetIsReferencedByConsumer() {
+            ArchiveMediaAssetUseCase guardedArchiveUseCase = new ArchiveMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of(referenceCheckPort)
+            );
+
+            MediaAsset asset = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+            doThrow(new MediaAssetReferencedException(ASSET_ID))
+                    .when(referenceCheckPort).ensureNotReferenced(ASSET_ID);
+
+            assertThatThrownBy(() -> guardedArchiveUseCase.execute(new ArchiveMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(MediaAssetReferencedException.class)
+                    .hasMessageContaining(ASSET_ID.toString());
+
+            verify(referenceCheckPort).ensureNotReferenced(ASSET_ID);
+            verify(mediaAssetRepositoryPort, never()).save(any());
+            assertThat(asset.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("archive rejects with MediaReferenceCheckUnavailableException when VIDEO asset has no registered checker")
+        void shouldRejectArchiveWhenVideoAssetHasNoRegisteredReferenceCheckPort() {
+            ArchiveMediaAssetUseCase unguardedArchiveUseCase = new ArchiveMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of()
+            );
+
+            MediaAsset asset = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+
+            assertThatThrownBy(() -> unguardedArchiveUseCase.execute(new ArchiveMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(MediaReferenceCheckUnavailableException.class)
+                    .hasMessageContaining(ASSET_ID.toString())
+                    .satisfies(ex -> {
+                        MediaReferenceCheckUnavailableException unavail = (MediaReferenceCheckUnavailableException) ex;
+                        assertThat(unavail.getErrorCode()).isEqualTo("MEDIA_REFERENCE_CHECK_UNAVAILABLE");
+                        assertThat(unavail.getMediaType()).isEqualTo(MediaTypeDTO.VIDEO);
+                    });
+
+            verify(mediaAssetRepositoryPort, never()).save(any());
+            assertThat(asset.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("archive allows IMAGE asset to proceed when no reference checker is registered (Media-only workflow)")
+        void shouldAllowArchiveWhenImageAssetHasNoRegisteredReferenceCheckPort() {
+            ArchiveMediaAssetUseCase unguardedArchiveUseCase = new ArchiveMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of()
+            );
+
+            MediaAsset asset = createActiveAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+
+            unguardedArchiveUseCase.execute(new ArchiveMediaAssetCommand(ASSET_ID));
+
+            ArgumentCaptor<MediaAsset> captor = ArgumentCaptor.forClass(MediaAsset.class);
+            verify(mediaAssetRepositoryPort).save(captor.capture());
+            assertThat(captor.getValue().getStatus()).isEqualTo(MediaAssetStatus.ARCHIVED);
         }
     }
 
@@ -265,6 +354,99 @@ class MediaAssetLifecycleUseCasesTest {
                     .hasMessageContaining(ASSET_ID.toString());
 
             verify(mediaAssetRepositoryPort, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("delete rejects when asset is referenced by consumer guard")
+        void shouldRejectDeleteWhenAssetIsReferencedByConsumer() {
+            DeleteMediaAssetUseCase guardedDeleteUseCase = new DeleteMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of(referenceCheckPort)
+            );
+
+            MediaAsset asset = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+            doThrow(new MediaAssetReferencedException(ASSET_ID))
+                    .when(referenceCheckPort).ensureNotReferenced(ASSET_ID);
+
+            assertThatThrownBy(() -> guardedDeleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(MediaAssetReferencedException.class)
+                    .hasMessageContaining(ASSET_ID.toString());
+
+            verify(referenceCheckPort).ensureNotReferenced(ASSET_ID);
+            verify(mediaAssetRepositoryPort, never()).save(any());
+            assertThat(asset.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("delete succeeds when consumer guard finds no references")
+        void shouldAllowDeleteWhenConsumerGuardPasses() {
+            DeleteMediaAssetUseCase guardedDeleteUseCase = new DeleteMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of(referenceCheckPort)
+            );
+
+            MediaAsset asset = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+
+            guardedDeleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID));
+
+            verify(referenceCheckPort).ensureNotReferenced(ASSET_ID);
+            ArgumentCaptor<MediaAsset> captor = ArgumentCaptor.forClass(MediaAsset.class);
+            verify(mediaAssetRepositoryPort).save(captor.capture());
+            assertThat(captor.getValue().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+        }
+
+        @Test
+        @DisplayName("delete rejects with MediaReferenceCheckUnavailableException when VIDEO asset has no registered checker")
+        void shouldRejectDeleteWhenVideoAssetHasNoRegisteredReferenceCheckPort() {
+            DeleteMediaAssetUseCase unguardedDeleteUseCase = new DeleteMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of()
+            );
+
+            MediaAsset asset = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+
+            assertThatThrownBy(() -> unguardedDeleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(MediaReferenceCheckUnavailableException.class)
+                    .hasMessageContaining(ASSET_ID.toString())
+                    .satisfies(ex -> {
+                        MediaReferenceCheckUnavailableException unavail = (MediaReferenceCheckUnavailableException) ex;
+                        assertThat(unavail.getErrorCode()).isEqualTo("MEDIA_REFERENCE_CHECK_UNAVAILABLE");
+                        assertThat(unavail.getMediaType()).isEqualTo(MediaTypeDTO.VIDEO);
+                    });
+
+            verify(mediaAssetRepositoryPort, never()).save(any());
+            assertThat(asset.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("delete allows IMAGE asset to proceed when no reference checker is registered (Media-only workflow)")
+        void shouldAllowDeleteWhenImageAssetHasNoRegisteredReferenceCheckPort() {
+            DeleteMediaAssetUseCase unguardedDeleteUseCase = new DeleteMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of()
+            );
+
+            MediaAsset asset = createActiveAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+
+            unguardedDeleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID));
+
+            ArgumentCaptor<MediaAsset> captor = ArgumentCaptor.forClass(MediaAsset.class);
+            verify(mediaAssetRepositoryPort).save(captor.capture());
+            assertThat(captor.getValue().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
         }
     }
 }

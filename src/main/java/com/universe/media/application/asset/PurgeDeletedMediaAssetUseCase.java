@@ -5,9 +5,13 @@ import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.exceptions.MediaReferenceCheckUnavailableException;
+import com.universe.media.contracts.interfaces.MediaAssetReferenceCheckPort;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaImageVariant;
+import com.universe.media.domain.MediaType;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +33,7 @@ import java.util.UUID;
  * <ol>
  *     <li>Check aggregate existence. If missing, treat as already-purged idempotent success (zero-count result).</li>
  *     <li>Validate eligibility via {@link MediaAsset#isPurgeEligible(Instant)}.</li>
+ *     <li>Validate absence of consumer references via registered {@link MediaAssetReferenceCheckPort} instances.</li>
  *     <li>Collect all persisted {@link com.universe.media.domain.StorageLocation} values for versions and variants.</li>
  *     <li>Physically delete all variant binaries via resolved {@link BinaryStoragePort#delete(com.universe.media.domain.StorageKey)}.</li>
  *     <li>Physically delete all source version binaries via resolved {@link BinaryStoragePort#delete(com.universe.media.domain.StorageKey)}.</li>
@@ -52,6 +57,7 @@ public class PurgeDeletedMediaAssetUseCase {
     private final ClockPort clockPort;
     private final com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService;
     private final com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier;
+    private final List<MediaAssetReferenceCheckPort> referenceCheckPorts;
 
     @org.springframework.beans.factory.annotation.Autowired
     public PurgeDeletedMediaAssetUseCase(
@@ -62,7 +68,8 @@ public class PurgeDeletedMediaAssetUseCase {
             PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
             ClockPort clockPort,
             com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService,
-            com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier
+            com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier,
+            List<MediaAssetReferenceCheckPort> referenceCheckPorts
     ) {
         this.mediaAssetRepositoryPort = Objects.requireNonNull(
                 mediaAssetRepositoryPort,
@@ -90,6 +97,30 @@ public class PurgeDeletedMediaAssetUseCase {
         );
         this.storageKeyAllocationService = storageKeyAllocationService;
         this.cutoverBarrier = cutoverBarrier;
+        this.referenceCheckPorts = referenceCheckPorts != null ? referenceCheckPorts : List.of();
+    }
+
+    public PurgeDeletedMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
+            StorageProviderResolverPort storageProviderResolverPort,
+            PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
+            ClockPort clockPort,
+            com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService,
+            com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                mediaImageVariantRepositoryPort,
+                storageProviderResolverPort,
+                purgeMediaAssetMetadataService,
+                clockPort,
+                storageKeyAllocationService,
+                cutoverBarrier,
+                List.of()
+        );
     }
 
     public PurgeDeletedMediaAssetUseCase(
@@ -109,7 +140,8 @@ public class PurgeDeletedMediaAssetUseCase {
                 purgeMediaAssetMetadataService,
                 clockPort,
                 storageKeyAllocationService,
-                null
+                null,
+                List.of()
         );
     }
 
@@ -129,7 +161,8 @@ public class PurgeDeletedMediaAssetUseCase {
                 purgeMediaAssetMetadataService,
                 clockPort,
                 null,
-                null
+                null,
+                List.of()
         );
     }
 
@@ -161,6 +194,27 @@ public class PurgeDeletedMediaAssetUseCase {
                     "Media asset [ID: " + assetId + "] is not eligible for purge. Status: "
                             + asset.getStatus() + ", updatedAt: " + asset.getUpdatedAt() + ", cutoff: " + cutoff
             );
+        }
+
+        // 2b. Validate absence of consumer references before physical storage deletion
+        MediaType domainType = asset.getMediaType();
+        MediaTypeDTO typeDto = MediaTypeDTO.valueOf(domainType.name());
+
+        List<MediaAssetReferenceCheckPort> applicablePorts = referenceCheckPorts.stream()
+                .filter(port -> port.supports(typeDto))
+                .toList();
+
+        if (domainType == MediaType.VIDEO && applicablePorts.isEmpty()) {
+            throw new MediaReferenceCheckUnavailableException(
+                    assetId,
+                    typeDto,
+                    "Cannot purge VIDEO asset [" + assetId + "]: "
+                            + "required reference check protection is not registered or unavailable."
+            );
+        }
+
+        for (MediaAssetReferenceCheckPort port : applicablePorts) {
+            port.ensureNotReferenced(assetId);
         }
 
         // 3. Collect versions and variants using persisted StorageLocation values only
