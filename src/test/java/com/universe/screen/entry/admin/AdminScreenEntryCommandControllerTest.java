@@ -114,11 +114,13 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/new");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("Loại tập phim/video không hợp lệ.");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+            assertThat(redirectAttributes.getFlashAttributes().get(BindingResult.MODEL_KEY_PREFIX + "form")).isSameAs(bindingResult);
             verify(createScreenEntryUseCase, never()).execute(any());
         }
 
         @Test
-        @DisplayName("Command: createEntry with blank title redirects to /new with error message")
+        @DisplayName("Command: createEntry with blank title redirects to /new with error message and retains form")
         void shouldRedirectWhenTitleIsBlank() {
             CreateScreenEntryForm form = new CreateScreenEntryForm("", "ep-1", ScreenEntryType.EPISODE, 1, null, null);
             BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
@@ -129,11 +131,12 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/new");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("Tiêu đề Screen entry không được để trống");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
             verify(createScreenEntryUseCase, never()).execute(any());
         }
 
         @Test
-        @DisplayName("Command: createEntry with blank slug redirects to /new with error message")
+        @DisplayName("Command: createEntry with blank slug redirects to /new with error message and retains form")
         void shouldRedirectWhenSlugIsBlank() {
             CreateScreenEntryForm form = new CreateScreenEntryForm("Tập 1", "  ", ScreenEntryType.EPISODE, 1, null, null);
             BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
@@ -144,6 +147,7 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/new");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("Slug URL không được để trống");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
             verify(createScreenEntryUseCase, never()).execute(any());
         }
 
@@ -159,6 +163,7 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/new");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("loại nội dung");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
             assertThat(redirectAttributes.getFlashAttributes()).doesNotContainKey("successMessage");
             verify(createScreenEntryUseCase, never()).execute(any());
         }
@@ -178,6 +183,7 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/new");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("ep-1");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
         }
 
         @Test
@@ -228,6 +234,8 @@ class AdminScreenEntryCommandControllerTest {
 
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+            assertThat(redirectAttributes.getFlashAttributes().get(BindingResult.MODEL_KEY_PREFIX + "form")).isSameAs(bindingResult);
             verify(updateScreenEntryUseCase, never()).execute(any());
         }
 
@@ -245,6 +253,7 @@ class AdminScreenEntryCommandControllerTest {
 
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
         }
 
         @Test
@@ -258,6 +267,7 @@ class AdminScreenEntryCommandControllerTest {
 
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("loại nội dung");
             assertThat(redirectAttributes.getFlashAttributes()).doesNotContainKey("successMessage");
             verify(updateScreenEntryUseCase, never()).execute(any());

@@ -20,6 +20,8 @@ import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.entry.admin.form.CreateScreenEntryForm;
+import com.universe.screen.entry.admin.form.EditScreenEntryForm;
 import com.universe.shared.security.AuthenticatedEmailResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,6 +37,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.validation.BeanPropertyBindingResult;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -186,7 +191,34 @@ class AdminScreenEntryViewRenderingTest {
                 .andExpect(content().string(containsString("Thứ tự / Số tập (Number)")))
                 .andExpect(content().string(containsString("Thời lượng (giây)")))
                 .andExpect(content().string(containsString("Tạo Screen Entry")))
+                .andExpect(content().string(containsString("id=\"numberRequiredMark\"")))
+                .andExpect(content().string(containsString("id=\"numberHint\"")))
+                .andExpect(content().string(containsString("syncNumberField")))
                 .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-create page preserves flashed form input on validation retry")
+    void shouldRenderEntryCreatePageWithPreservedForm() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+
+        CreateScreenEntryForm flashedForm = new CreateScreenEntryForm(
+                "Tập 1: Thu nghiem do dang",
+                "tap-1-dang-do",
+                ScreenEntryType.EPISODE,
+                1,
+                "Tom tat nhap do dang can giu lai",
+                1500L
+        );
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/new", TITLE_ID)
+                        .flashAttr("form", flashedForm))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("value=\"Tập 1: Thu nghiem do dang\"")))
+                .andExpect(content().string(containsString("value=\"tap-1-dang-do\"")))
+                .andExpect(content().string(containsString("Tom tat nhap do dang can giu lai")))
+                .andExpect(content().string(containsString("value=\"1500\"")));
     }
 
     @Test
@@ -226,6 +258,91 @@ class AdminScreenEntryViewRenderingTest {
                 .andExpect(content().string(containsString("Video Media Asset ID:")))
                 .andExpect(content().string(containsString("Thumbnail Media Asset ID:")))
                 .andExpect(content().string(containsString("Cập nhật Screen Entry")))
+                .andExpect(content().string(containsString("id=\"numberRequiredMark\"")))
+                .andExpect(content().string(containsString("id=\"numberHint\"")))
+                .andExpect(content().string(containsString("syncNumberField")))
                 .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-edit page preserves flashed form input and retains read-only media references")
+    void shouldRenderEntryEditPageWithPreservedForm() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(sampleEntry);
+
+        EditScreenEntryForm flashedForm = new EditScreenEntryForm(
+                "Tập 1 Sửa Lỗi",
+                "tap-1-sua-loi",
+                ScreenEntryType.EPISODE,
+                2,
+                "Noi dung sua doi do dang",
+                1800L,
+                null,
+                null
+        );
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/edit", TITLE_ID, ENTRY_ID)
+                        .flashAttr("form", flashedForm))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("value=\"Tập 1 Sửa Lỗi\"")))
+                .andExpect(content().string(containsString("value=\"tap-1-sua-loi\"")))
+                .andExpect(content().string(containsString("Noi dung sua doi do dang")))
+                .andExpect(content().string(containsString("value=\"1800\"")))
+                .andExpect(content().string(containsString(sampleEntry.videoMediaAssetId().toString())))
+                .andExpect(content().string(containsString(sampleEntry.thumbnailMediaAssetId().toString())));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-create page displays field-level validation errors from flashed BindingResult")
+    void shouldRenderEntryCreatePageWithFieldErrors() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+
+        CreateScreenEntryForm form = new CreateScreenEntryForm();
+        BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+        bindingResult.addError(new FieldError("form", "title", "", false, null, null, "Tiêu đề không được để trống."));
+        bindingResult.addError(new FieldError("form", "number", "abc", false, null, null, "Số tập/thứ tự không hợp lệ."));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/new", TITLE_ID)
+                        .flashAttr("form", form)
+                        .flashAttr(BindingResult.MODEL_KEY_PREFIX + "form", bindingResult))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Tiêu đề không được để trống.")))
+                .andExpect(content().string(containsString("Số tập/thứ tự không hợp lệ.")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-edit page displays field-level validation errors from flashed BindingResult")
+    void shouldRenderEntryEditPageWithFieldErrors() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(sampleEntry);
+
+        EditScreenEntryForm form = new EditScreenEntryForm();
+        BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+        bindingResult.addError(new FieldError("form", "number", "-5", false, null, null, "Số tập/thứ tự không hợp lệ."));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/edit", TITLE_ID, ENTRY_ID)
+                        .flashAttr("form", form)
+                        .flashAttr(BindingResult.MODEL_KEY_PREFIX + "form", bindingResult))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Số tập/thứ tự không hợp lệ.")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-create page preserves initial number value and uses safe JS init")
+    void shouldRenderEntryCreatePageWithInitialNumberAndSafeScriptInit() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+
+        CreateScreenEntryForm form = new CreateScreenEntryForm("Tập 5", "tap-5", ScreenEntryType.EPISODE, 5, null, null);
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/new", TITLE_ID)
+                        .flashAttr("form", form))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("value=\"5\"")))
+                .andExpect(content().string(containsString("syncNumberField(false)")))
+                .andExpect(content().string(containsString("syncNumberField(true)")));
     }
 }

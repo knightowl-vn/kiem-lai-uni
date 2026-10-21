@@ -91,7 +91,9 @@ public class AdminScreenEntryPageController {
                     .toList();
 
             model.addAttribute("title", title);
-            model.addAttribute("form", new CreateScreenEntryForm());
+            if (!model.containsAttribute("form") || model.getAttribute("form") == null) {
+                model.addAttribute("form", new CreateScreenEntryForm());
+            }
             model.addAttribute("types", compatibleTypes);
             model.addAttribute("pageTitle", "Tạo Screen Entry - " + title.title());
             model.addAttribute("activeMenu", ACTIVE_MENU);
@@ -155,25 +157,35 @@ public class AdminScreenEntryPageController {
         try {
             ScreenTitleDTO title = getScreenTitleDetailUseCase.execute(titleId);
             ScreenEntryDTO entry = getScreenEntryDetailUseCase.execute(titleId, entryId);
-
-            EditScreenEntryForm form = new EditScreenEntryForm(
-                    entry.title(),
-                    entry.slug(),
-                    entry.type(),
-                    entry.number(),
-                    entry.synopsis(),
-                    entry.durationSeconds(),
-                    entry.videoMediaAssetId() != null ? entry.videoMediaAssetId().toString() : null,
-                    entry.thumbnailMediaAssetId() != null ? entry.thumbnailMediaAssetId().toString() : null
-            );
-
             List<ScreenEntryType> compatibleTypes = Arrays.stream(ScreenEntryType.values())
                     .filter(t -> t.isCompatibleWith(title.structure()))
                     .toList();
 
             model.addAttribute("title", title);
             model.addAttribute("entry", entry);
-            model.addAttribute("form", form);
+            if (!model.containsAttribute("form") || model.getAttribute("form") == null) {
+                EditScreenEntryForm form = new EditScreenEntryForm(
+                        entry.title(),
+                        entry.slug(),
+                        entry.type(),
+                        entry.number(),
+                        entry.synopsis(),
+                        entry.durationSeconds(),
+                        entry.videoMediaAssetId() != null ? entry.videoMediaAssetId().toString() : null,
+                        entry.thumbnailMediaAssetId() != null ? entry.thumbnailMediaAssetId().toString() : null
+                );
+                model.addAttribute("form", form);
+            } else {
+                Object existingForm = model.getAttribute("form");
+                if (existingForm instanceof EditScreenEntryForm editForm) {
+                    if (editForm.getVideoMediaAssetId() == null && entry.videoMediaAssetId() != null) {
+                        editForm.setVideoMediaAssetId(entry.videoMediaAssetId().toString());
+                    }
+                    if (editForm.getThumbnailMediaAssetId() == null && entry.thumbnailMediaAssetId() != null) {
+                        editForm.setThumbnailMediaAssetId(entry.thumbnailMediaAssetId().toString());
+                    }
+                }
+            }
             model.addAttribute("types", compatibleTypes);
             model.addAttribute("pageTitle", "Chỉnh sửa Screen Entry - " + entry.title());
             model.addAttribute("activeMenu", ACTIVE_MENU);

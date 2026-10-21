@@ -11,6 +11,8 @@ import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.entry.admin.form.CreateScreenEntryForm;
+import com.universe.screen.entry.admin.form.EditScreenEntryForm;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -120,6 +122,22 @@ class AdminScreenEntryPageControllerTest {
     }
 
     @Test
+    @DisplayName("Page: createPage retains flashed form when already present in model")
+    void shouldRetainFlashedFormOnCreatePage() {
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(sampleTitle);
+
+        CreateScreenEntryForm flashedForm = new CreateScreenEntryForm("Nhập dở dang", "slug-loi", ScreenEntryType.FEATURE, null, "Tóm tắt dở dang", 1800L);
+        Model model = new ConcurrentModel();
+        model.addAttribute("form", flashedForm);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.createPage(titleId, model, null, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/screen/entry-create");
+        assertThat(model.getAttribute("form")).isSameAs(flashedForm);
+    }
+
+    @Test
     @DisplayName("Page: createPage redirects to /admin/screen/titles when title not found")
     void shouldRedirectWhenTitleNotFoundOnCreate() {
         when(getScreenTitleDetailUseCase.execute(titleId)).thenThrow(new ScreenTitleNotFoundException(titleId));
@@ -193,6 +211,24 @@ class AdminScreenEntryPageControllerTest {
         assertThat(model.getAttribute("title")).isEqualTo(sampleTitle);
         assertThat(model.getAttribute("entry")).isEqualTo(sampleEntry);
         assertThat(model.getAttribute("form")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Page: editPage retains flashed form when already present in model")
+    void shouldRetainFlashedFormOnEditPage() {
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(titleId, entryId)).thenReturn(sampleEntry);
+
+        EditScreenEntryForm flashedForm = new EditScreenEntryForm("Tiêu đề sửa dở", "slug-sua-loi", ScreenEntryType.FEATURE, null, "Tóm tắt sửa", 2000L, null, null);
+        Model model = new ConcurrentModel();
+        model.addAttribute("form", flashedForm);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.editPage(titleId, entryId, model, null, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/screen/entry-edit");
+        assertThat(model.getAttribute("form")).isSameAs(flashedForm);
+        assertThat(flashedForm.getVideoMediaAssetId()).isEqualTo(sampleEntry.videoMediaAssetId() != null ? sampleEntry.videoMediaAssetId().toString() : null);
     }
 
     @Test

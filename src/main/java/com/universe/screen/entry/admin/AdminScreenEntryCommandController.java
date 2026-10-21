@@ -60,6 +60,8 @@ public class AdminScreenEntryCommandController {
     ) {
         if (bindingResult.hasErrors()) {
             redirectAttributes.addFlashAttribute("errorMessage", resolveBindingErrorMessage(bindingResult));
+            redirectAttributes.addFlashAttribute("form", form);
+            redirectAttributes.addFlashAttribute(BindingResult.MODEL_KEY_PREFIX + "form", bindingResult);
             return "redirect:/admin/screen/titles/" + titleId + "/entries/new";
         }
 
@@ -86,6 +88,7 @@ public class AdminScreenEntryCommandController {
 
         } catch (ScreenEntrySlugAlreadyExistsException | IllegalArgumentException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            redirectAttributes.addFlashAttribute("form", form);
             return "redirect:/admin/screen/titles/" + titleId + "/entries/new";
         } catch (ScreenTitleNotFoundException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
@@ -103,6 +106,8 @@ public class AdminScreenEntryCommandController {
     ) {
         if (bindingResult.hasErrors()) {
             redirectAttributes.addFlashAttribute("errorMessage", resolveBindingErrorMessage(bindingResult));
+            redirectAttributes.addFlashAttribute("form", form);
+            redirectAttributes.addFlashAttribute(BindingResult.MODEL_KEY_PREFIX + "form", bindingResult);
             return "redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit";
         }
 
@@ -132,6 +137,7 @@ public class AdminScreenEntryCommandController {
                  | IllegalArgumentException
                  | IllegalStateException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            redirectAttributes.addFlashAttribute("form", form);
             return "redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit";
         } catch (ScreenEntryNotFoundException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());

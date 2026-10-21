@@ -46,6 +46,8 @@
                         <input type="text" id="title" th:field="*{title}" required
                                placeholder="Tiêu đề hiển thị..."
                                style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <small th:if="${#fields.hasErrors('title')}" th:errors="*{title}"
+                               style="color: #c5221f; font-size: 12px; display: block; margin-top: 4px; font-weight: 500;">Lỗi tiêu đề</small>
                     </div>
 
                     <div style="margin-bottom: 20px;">
@@ -55,6 +57,8 @@
                         <input type="text" id="slug" th:field="*{slug}" required
                                placeholder="Slug URL..."
                                style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <small th:if="${#fields.hasErrors('slug')}" th:errors="*{slug}"
+                               style="color: #c5221f; font-size: 12px; display: block; margin-top: 4px; font-weight: 500;">Lỗi slug</small>
                         <small style="color: #5f6368; font-size: 12px;">Slug định danh duy nhất trong phạm vi của Screen Title này.</small>
                     </div>
 
@@ -67,15 +71,20 @@
                                     style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box; background: #fff;">
                                 <option th:each="t : ${types}" th:value="${t}" th:text="${t}">EPISODE</option>
                             </select>
+                            <small th:if="${#fields.hasErrors('type')}" th:errors="*{type}"
+                                   style="color: #c5221f; font-size: 12px; display: block; margin-top: 4px; font-weight: 500;">Lỗi loại entry</small>
                         </div>
 
                         <div>
                             <label for="number" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
-                                Thứ tự / Số tập (Number)
+                                Thứ tự / Số tập (Number) <span id="numberRequiredMark" style="color: #c5221f; display: none;">*</span>
                             </label>
                             <input type="number" id="number" th:field="*{number}" min="1" step="1"
                                    placeholder="Bắt buộc cho EPISODE (>0), để trống cho FEATURE"
                                    style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                            <small th:if="${#fields.hasErrors('number')}" th:errors="*{number}"
+                                   style="color: #c5221f; font-size: 12px; display: block; margin-top: 4px; font-weight: 500;">Lỗi số tập</small>
+                            <small id="numberHint" style="color: #5f6368; font-size: 12px; display: block; margin-top: 4px;"></small>
                         </div>
                     </div>
 
@@ -86,6 +95,8 @@
                         <input type="number" id="durationSeconds" th:field="*{durationSeconds}" min="1" step="1"
                                placeholder="Ví dụ: 1200 (20 phút)"
                                style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+                        <small th:if="${#fields.hasErrors('durationSeconds')}" th:errors="*{durationSeconds}"
+                               style="color: #c5221f; font-size: 12px; display: block; margin-top: 4px; font-weight: 500;">Lỗi thời lượng</small>
                     </div>
 
                     <!-- Read-only Media References Info -->
@@ -113,6 +124,8 @@
                         <textarea id="synopsis" th:field="*{synopsis}" rows="4"
                                   placeholder="Tóm tắt ngắn gọn nội dung tập phim / video..."
                                   style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box; font-family: inherit;"></textarea>
+                        <small th:if="${#fields.hasErrors('synopsis')}" th:errors="*{synopsis}"
+                               style="color: #c5221f; font-size: 12px; display: block; margin-top: 4px; font-weight: 500;">Lỗi tóm tắt</small>
                     </div>
 
                     <div style="display: flex; gap: 12px; align-items: center;">
@@ -129,5 +142,50 @@
         </section>
     </main>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const typeSelect = document.getElementById('type');
+    const numberInput = document.getElementById('number');
+    const numberRequiredMark = document.getElementById('numberRequiredMark');
+    const numberHint = document.getElementById('numberHint');
+
+    if (!typeSelect || !numberInput) {
+        return;
+    }
+
+    function syncNumberField(isUserInteraction) {
+        const selectedType = typeSelect.value;
+        if (selectedType === 'FEATURE') {
+            if (isUserInteraction) {
+                numberInput.value = '';
+            }
+            numberInput.disabled = true;
+            numberInput.required = false;
+            numberInput.placeholder = 'FEATURE không sử dụng số tập (để trống)';
+            if (numberRequiredMark) numberRequiredMark.style.display = 'none';
+            if (numberHint) numberHint.textContent = 'Phim lẻ / FEATURE không có số tập.';
+        } else if (selectedType === 'EPISODE') {
+            numberInput.disabled = false;
+            numberInput.required = true;
+            numberInput.placeholder = 'Bắt buộc cho EPISODE (>0)';
+            if (numberRequiredMark) numberRequiredMark.style.display = 'inline';
+            if (numberHint) numberHint.textContent = 'Bắt buộc nhập số tập dương (>0) cho EPISODE.';
+        } else {
+            numberInput.disabled = false;
+            numberInput.required = false;
+            numberInput.placeholder = 'Tùy chọn cho ' + (selectedType || 'entry') + ' (>0)';
+            if (numberRequiredMark) numberRequiredMark.style.display = 'none';
+            if (numberHint) numberHint.textContent = 'Tùy chọn: Để trống hoặc nhập số thứ tự >0.';
+        }
+    }
+
+    typeSelect.addEventListener('change', function () {
+        syncNumberField(true);
+    });
+
+    syncNumberField(false);
+});
+</script>
 </body>
 </html>
