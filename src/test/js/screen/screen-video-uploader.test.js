@@ -1,9 +1,19 @@
 const { describe, test } = require('node:test');
 const assert = require('node:assert');
+const crypto = require('node:crypto');
 const {
+    PART_SIZE,
+    MAX_VIDEO_SIZE_BYTES,
+    MAX_BROWSER_SMOKE_SIZE,
+    HASH_CHUNK_SIZE,
+    HASH_NAVIGATION_CANCELLED,
+    HASH_ABORTED,
     UploadPhase,
     createAttempt,
-    UploadCoordinator
+    UploadCoordinator,
+    IncrementalSha256,
+    formatBytes,
+    validateFileConstraints
 } = require('../../../main/resources/static/js/screen/screen-video-uploader.js');
 
 describe('MS-08E2 Screen Video Upload Lifecycle & Browser Safety Tests', () => {
@@ -1515,5 +1525,1595 @@ describe('MS-08E2 Screen Video Upload Lifecycle & Browser Safety Tests', () => {
         assert.strictEqual(partUrlDispatched, false, 'Must not dispatch part URLs on JSON parse error');
         assert.ok(capturedError !== null);
         assert.ok(capturedError.message.includes('Phản hồi không phải định dạng JSON hợp lệ'));
+    });
+
+    // =========================================================================
+    // MS-08E3-S2 INCREMENTAL SHA-256, LARGE FILE & MEMORY SAFETY TESTS
+    // =========================================================================
+
+    test('MS-08E3-S2.1: IncrementalSha256 produces exact NIST standard test vectors', () => {
+        const vectors = [
+            { input: '', expected: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
+            { input: 'abc', expected: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' },
+            { input: 'abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq', expected: '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1' },
+            { input: 'a'.repeat(100000), expected: crypto.createHash('sha256').update('a'.repeat(100000)).digest('hex') }
+        ];
+
+        for (const v of vectors) {
+            const hasher = new IncrementalSha256();
+            hasher.update(Buffer.from(v.input));
+            const digest = hasher.digest();
+            assert.strictEqual(digest, v.expected, `Digest mismatch for input: "${v.input.slice(0, 20)}..."`);
+            assert.match(digest, /^[0-9a-f]{64}$/, 'Digest must be 64-char lowercase hex');
+        }
+    });
+
+    test('MS-08E3-S2.2: IncrementalSha256 produces identical digest regardless of chunk size (chunk-boundary independence)', () => {
+        const payload = Buffer.from('Kiếm Lai Universe Large-File Multipart Upload UX & Memory Safety MS-08E3-S2 testing arbitrary binary stream chunking independence across variable slice boundaries.'.repeat(50));
+        const expectedDigest = crypto.createHash('sha256').update(payload).digest('hex');
+
+        const testChunkSizes = [1, 2, 3, 7, 15, 32, 63, 64, 65, 127, 128, 255, 512, 1024, 4096, 7777];
+
+        for (const chunkSize of testChunkSizes) {
+            const hasher = new IncrementalSha256();
+            for (let offset = 0; offset < payload.length; offset += chunkSize) {
+                const slice = payload.subarray(offset, Math.min(offset + chunkSize, payload.length));
+                hasher.update(slice);
+            }
+            const actualDigest = hasher.digest();
+            assert.strictEqual(actualDigest, expectedDigest, `Chunk size ${chunkSize} must produce exact standard digest`);
+        }
+    });
+
+    test('MS-08E3-S2.3: IncrementalSha256 handles message lengths exceeding 512 MiB with 64-bit length padding without 32-bit overflow', () => {
+        // 520 MiB exceeds 512 MiB (2^32 bits = 536,870,912 bytes).
+        // High 32 bits of bit length must equal 1 rather than overflowing or truncating to 0.
+        const chunk10MB = Buffer.alloc(10 * 1024 * 1024, 0x4b); // 10 MiB of 'K'
+        const repeatCount = 52; // 520 MiB total
+
+        const nodeHash = crypto.createHash('sha256');
+        for (let i = 0; i < repeatCount; i++) {
+            nodeHash.update(chunk10MB);
+        }
+        const expectedDigest = nodeHash.digest('hex');
+
+        const myHash = new IncrementalSha256();
+        for (let i = 0; i < repeatCount; i++) {
+            myHash.update(chunk10MB);
+        }
+        const actualDigest = myHash.digest();
+
+        assert.strictEqual(actualDigest, expectedDigest, 'IncrementalSha256 must match native SHA-256 above 512 MiB');
+
+        // Verify mathematical 64-bit length bit encoding across large boundaries up to 50 GiB
+        const testBoundaries = [
+            { bytes: 536870912, expectedHigh: 1, expectedLow: 0 }, // 512 MiB exactly (2^32 bits)
+            { bytes: 1073741824, expectedHigh: 2, expectedLow: 0 }, // 1 GiB
+            { bytes: 5 * 1073741824, expectedHigh: 10, expectedLow: 0 }, // 5 GiB
+            { bytes: 53687091200, expectedHigh: 100, expectedLow: 0 }, // 50 GiB maximum allowed
+            { bytes: 53687091200 - 1, expectedHigh: 99, expectedLow: 4294967288 } // 50 GiB - 1 byte
+        ];
+
+        for (const b of testBoundaries) {
+            const totalBits = b.bytes * 8;
+            const highBits = Math.floor(totalBits / 0x100000000);
+            const lowBits = (totalBits >>> 0);
+            assert.strictEqual(highBits, b.expectedHigh, `High bits mismatch for ${b.bytes} bytes`);
+            assert.strictEqual(lowBits, b.expectedLow, `Low bits mismatch for ${b.bytes} bytes`);
+            assert.strictEqual(highBits * 0x100000000 + lowBits, totalBits, `Total bits reconstruction mismatch for ${b.bytes} bytes`);
+        }
+    });
+
+    test('MS-08E3-S2.4: IncrementalSha256 output encoding and state machine guard (disallow update/digest after finalize)', () => {
+        const hasher = new IncrementalSha256();
+        hasher.update(Buffer.from('immutable test'));
+        const digest = hasher.digest();
+
+        assert.strictEqual(typeof digest, 'string');
+        assert.strictEqual(digest.length, 64);
+        assert.match(digest, /^[0-9a-f]{64}$/);
+
+        assert.throws(() => hasher.update(Buffer.from('after finalized')), /Cannot update finalized hash/);
+        assert.throws(() => hasher.digest(), /Digest already called/);
+    });
+
+    test('MS-08E3-S2.5: calculateSha256Chunked reads file in bounded slices without loading full file into memory', async () => {
+        const coordinator = new UploadCoordinator();
+        const totalSize = 10 * 1024 * 1024; // 10 MiB synthetic file
+        const testChunkSize = 2 * 1024 * 1024; // 2 MiB slices
+
+        const requestedSlices = [];
+        let fullArrayBufferCalled = false;
+
+        const syntheticFile = {
+            name: 'synthetic-large.mp4',
+            size: totalSize,
+            slice: (start, end) => {
+                requestedSlices.push({ start, end, size: end - start });
+                // Return a slice buffer of 2 MiB, NOT full 10 MiB!
+                const sliceBuf = Buffer.alloc(end - start, 0x5a);
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => sliceBuf.buffer.slice(sliceBuf.byteOffset, sliceBuf.byteOffset + sliceBuf.byteLength)
+                };
+            },
+            arrayBuffer: async () => {
+                fullArrayBufferCalled = true;
+                throw new Error('arrayBuffer() on full file must NEVER be called');
+            }
+        };
+
+        const digest = await coordinator.calculateSha256Chunked(syntheticFile, {
+            chunkSize: testChunkSize
+        });
+
+        assert.strictEqual(fullArrayBufferCalled, false, 'Must never allocate whole file via file.arrayBuffer()');
+        assert.strictEqual(requestedSlices.length, 5, 'Must read file in exactly 5 slices of 2 MiB');
+        assert.deepStrictEqual(requestedSlices[0], { start: 0, end: 2097152, size: 2097152 });
+        assert.deepStrictEqual(requestedSlices[4], { start: 8388608, end: 10485760, size: 2097152 });
+        assert.match(digest, /^[0-9a-f]{64}$/);
+    });
+
+    test('MS-08E3-S2.6: calculateSha256Chunked emits granular progress events during hashing', async () => {
+        const coordinator = new UploadCoordinator();
+        const totalSize = 8 * 1024 * 1024; // 8 MiB
+        const testChunkSize = 2 * 1024 * 1024; // 2 MiB
+
+        const progressCalls = [];
+        const syntheticFile = {
+            name: 'progress-test.mp4',
+            size: totalSize,
+            slice: (start, end) => {
+                const buf = Buffer.alloc(end - start, 0x11);
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+                };
+            }
+        };
+
+        await coordinator.calculateSha256Chunked(syntheticFile, {
+            chunkSize: testChunkSize,
+            onProgress: (pct, hashedBytes, totalBytes) => {
+                progressCalls.push({ pct, hashedBytes, totalBytes });
+            }
+        });
+
+        assert.strictEqual(progressCalls.length, 4);
+        assert.deepStrictEqual(progressCalls[0], { pct: 25, hashedBytes: 2097152, totalBytes: totalSize });
+        assert.deepStrictEqual(progressCalls[1], { pct: 50, hashedBytes: 4194304, totalBytes: totalSize });
+        assert.deepStrictEqual(progressCalls[2], { pct: 75, hashedBytes: 6291456, totalBytes: totalSize });
+        assert.deepStrictEqual(progressCalls[3], { pct: 100, hashedBytes: totalSize, totalBytes: totalSize });
+    });
+
+    test('MS-08E3-S2.7: calculateSha256Chunked stops immediately and cleans up when upload attempt is cancelled', async () => {
+        const coordinator = new UploadCoordinator();
+        const attempt = createAttempt({ name: 'cancel-test.mp4', size: 10 * 1024 * 1024 }, 'entry-cancel');
+        coordinator.currentAttempt = attempt;
+
+        let sliceCount = 0;
+        const syntheticFile = {
+            name: 'cancel-test.mp4',
+            size: 10 * 1024 * 1024,
+            slice: (start, end) => {
+                sliceCount++;
+                if (sliceCount === 2) {
+                    // Cancel attempt while hashing is in flight
+                    attempt.isCancelled = true;
+                }
+                const buf = Buffer.alloc(end - start, 0x22);
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+                };
+            }
+        };
+
+        await assert.rejects(
+            async () => {
+                await coordinator.calculateSha256Chunked(syntheticFile, {
+                    attempt: attempt,
+                    chunkSize: 1024 * 1024
+                });
+            },
+            /Tính toán SHA-256 đã bị hủy/
+        );
+
+        // Slice processing halted after slice 2, not reading all 10 slices
+        assert.strictEqual(sliceCount, 2, 'Hashing loop must break immediately on attempt cancellation');
+    });
+
+    test('MS-08E3-S2.8: calculateSha256Chunked captures chunk read errors safely and marks attempt failed at HASHING phase', async () => {
+        const coordinator = new UploadCoordinator();
+        let reportedError = null;
+
+        const faultyFile = {
+            name: 'faulty.mp4',
+            size: 5 * 1024 * 1024,
+            slice: () => {
+                return {
+                    size: 1024 * 1024,
+                    arrayBuffer: async () => {
+                        throw new Error('I/O read failure from disk');
+                    }
+                };
+            }
+        };
+
+        const fakeFetch = async () => ({ ok: true });
+
+        await coordinator.startAttempt({
+            file: faultyFile,
+            titleId: 'title-1',
+            entryId: 'entry-1',
+            fetchFn: fakeFetch,
+            callbacks: {
+                onError: (err) => { reportedError = err; }
+            }
+        });
+
+        const attempt = coordinator.getCurrentAttempt();
+        assert.strictEqual(attempt.phase, UploadPhase.FAILED);
+        assert.strictEqual(attempt.failedAtPhase, UploadPhase.HASHING);
+        assert.strictEqual(attempt.isSettled, true, 'Pre-initiation read failure is locally settled');
+        assert.ok(reportedError !== null);
+        assert.ok(reportedError.message.includes('I/O read failure from disk'));
+    });
+
+    test('MS-08E3-S2.9: formatBytes displays consistent binary units (KiB, MiB, GiB) and avoids decimal confusion', () => {
+        assert.strictEqual(formatBytes(0), '0 B');
+        assert.strictEqual(formatBytes(500), '500 B');
+        assert.strictEqual(formatBytes(1024), '1.00 KiB');
+        assert.strictEqual(formatBytes(1536), '1.50 KiB');
+        assert.strictEqual(formatBytes(1048576), '1.00 MiB');
+        assert.strictEqual(formatBytes(26214400), '25.00 MiB');
+        assert.strictEqual(formatBytes(1073741824), '1.00 GiB');
+        assert.strictEqual(formatBytes(53687091200), '50.00 GiB');
+        assert.strictEqual(formatBytes(-10), '0 B');
+        assert.strictEqual(formatBytes(null), '0 B');
+    });
+
+    test('MS-08E3-S2.10: validateFileConstraints accepts small video, 5 GiB video, and video exactly at 50 GiB limit', () => {
+        const small = validateFileConstraints({ name: 'small.mp4', size: 1024 * 1024 });
+        assert.strictEqual(small.valid, true);
+        assert.strictEqual(small.expectedParts, 1);
+        assert.strictEqual(small.formattedSize, '1.00 MiB');
+
+        const fiveGiB = validateFileConstraints({ name: 'movie-5gib.mp4', size: 5 * 1073741824 });
+        assert.strictEqual(fiveGiB.valid, true);
+        assert.strictEqual(fiveGiB.formattedSize, '5.00 GiB');
+        assert.strictEqual(fiveGiB.expectedParts, 205);
+
+        const exact50GiB = validateFileConstraints({ name: 'large-50gib.mp4', size: MAX_VIDEO_SIZE_BYTES });
+        assert.strictEqual(exact50GiB.valid, true);
+        assert.strictEqual(exact50GiB.formattedSize, '50.00 GiB');
+        assert.strictEqual(exact50GiB.expectedParts, 2048);
+    });
+
+    test('MS-08E3-S2.11: validateFileConstraints rejects 0-byte video and video exceeding 50 GiB', () => {
+        assert.throws(() => validateFileConstraints(null), /Vui lòng chọn file video/);
+        assert.throws(() => validateFileConstraints({ name: 'empty.mp4', size: 0 }), /File video không được để trống \(0 byte\)/);
+        assert.throws(() => validateFileConstraints({ name: 'audio.mp3', size: 1000 }), /Chỉ chấp nhận file định dạng MP4/);
+        assert.throws(() => validateFileConstraints({ name: 'huge.mp4', size: MAX_VIDEO_SIZE_BYTES + 1 }), /vượt quá giới hạn tối đa cho phép \(50 GiB\)/);
+    });
+
+    test('MS-08E3-S2.12: startAttempt accepts 5 GiB video without legacy 500 MiB rejection and bounds in-flight parts', async () => {
+        const coordinator = new UploadCoordinator();
+        const fiveGiBSize = 5 * 1073741824; // 5 GiB > 500 MiB legacy limit
+        const expectedParts = Math.ceil(fiveGiBSize / PART_SIZE); // 205 parts
+
+        let maxInFlightParts = 0;
+        let activeInFlightParts = 0;
+        const uploadedPartNumbers = [];
+
+        const fakeFetch = async (url, options) => {
+            if (url.endsWith('/video/upload-session')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        sessionId: 'sess-5gib-ok',
+                        expectedPartCount: expectedParts,
+                        partSizeBytes: PART_SIZE
+                    })
+                };
+            }
+            if (url.includes('/parts/') && url.endsWith('/url')) {
+                const match = url.match(/\/parts\/(\d+)\/url/);
+                const partNum = parseInt(match[1], 10);
+                return {
+                    ok: true,
+                    json: async () => ({ uploadUrl: `https://b2.test/part-${partNum}` })
+                };
+            }
+            if (url.startsWith('https://b2.test/part-')) {
+                activeInFlightParts++;
+                if (activeInFlightParts > maxInFlightParts) {
+                    maxInFlightParts = activeInFlightParts;
+                }
+                const match = url.match(/\/part-(\d+)/);
+                const partNum = parseInt(match[1], 10);
+                uploadedPartNumbers.push(partNum);
+
+                // Simulate slight network delay
+                await new Promise(r => setImmediate(r));
+                activeInFlightParts--;
+
+                return {
+                    ok: true,
+                    headers: { get: () => `"etag-part-${partNum}"` }
+                };
+            }
+            if (url.endsWith('/complete')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        videoMediaAssetId: 'asset-5gib-success',
+                        playbackUrl: '/media/assets/asset-5gib-success/content'
+                    })
+                };
+            }
+            throw new Error('Unhandled URL: ' + url);
+        };
+
+        const mockFile5GiB = {
+            name: 'movie-5gib.mp4',
+            size: fiveGiBSize,
+            slice: (start, end) => ({
+                size: end - start,
+                arrayBuffer: async () => new ArrayBuffer(end - start)
+            })
+        };
+
+        const result = await coordinator.startAttempt({
+            file: mockFile5GiB,
+            titleId: 'title-5gib',
+            entryId: 'entry-5gib',
+            fetchFn: fakeFetch,
+            cryptoFn: async () => '5gib-mock-sha256-hash-value-0000000000000000000000000000000000000000'
+        });
+
+        assert.strictEqual(result.phase, UploadPhase.COMPLETED);
+        assert.strictEqual(result.isSettled, true);
+        assert.strictEqual(result.registeredAssetId, 'asset-5gib-success');
+        assert.strictEqual(uploadedPartNumbers.length, expectedParts);
+        assert.strictEqual(uploadedPartNumbers[0], 1);
+        assert.strictEqual(uploadedPartNumbers[expectedParts - 1], expectedParts);
+        // Sequential part execution guarantees max in-flight parts is strictly bounded to 1
+        assert.strictEqual(maxInFlightParts, 1, 'In-flight part concurrency must be strictly bounded to 1 to preserve memory');
+    });
+
+    // =========================================================================
+    // MS-08E3-S2 REVIEW CORRECTION TESTS: WORKER LIFECYCLE & BOUNDED-MEMORY FALLBACK
+    // =========================================================================
+
+    test('MS-08E3-S2.13: calculateSha256Chunked rejects non-slice input safely and NEVER calls full-file arrayBuffer()', async () => {
+        const coordinator = new UploadCoordinator();
+        let arrayBufferCalled = false;
+
+        const nonSliceFile = {
+            name: 'unsupported-file.mp4',
+            size: 10 * 1024 * 1024,
+            // Notice: slice method is intentionally absent
+            arrayBuffer: async () => {
+                arrayBufferCalled = true;
+                throw new Error('Full-file arrayBuffer() was illegally called!');
+            }
+        };
+
+        await assert.rejects(
+            async () => {
+                await coordinator.calculateSha256Chunked(nonSliceFile);
+            },
+            /Đối tượng file không hỗ trợ đọc phân đoạn \(file\.slice không khả dụng\)/
+        );
+
+        assert.strictEqual(arrayBufferCalled, false, 'full-file arrayBuffer() must NEVER be invoked on unsupported input');
+    });
+
+    test('MS-08E3-S2.14: screen-hash-worker.js executes in simulated Worker environment with 100% digest parity against node:crypto', async () => {
+        const vm = require('node:vm');
+        const fs = require('node:fs');
+        const path = require('node:path');
+
+        const workerFilePath = path.resolve(__dirname, '../../../main/resources/static/js/screen/screen-hash-worker.js');
+        const workerSource = fs.readFileSync(workerFilePath, 'utf-8');
+
+        // Create 1.5 MiB of pseudorandom deterministic data
+        const testData = Buffer.alloc(1572864);
+        for (let i = 0; i < testData.length; i++) {
+            testData[i] = (i * 31 + 17) & 0xff;
+        }
+        const expectedDigest = crypto.createHash('sha256').update(testData).digest('hex');
+
+        const postedMessages = [];
+        const mockSelf = {
+            postMessage: (msg) => { postedMessages.push(msg); }
+        };
+
+        const context = vm.createContext({
+            self: mockSelf,
+            Int32Array,
+            Uint8Array,
+            ArrayBuffer,
+            Math,
+            Error,
+            console
+        });
+        vm.runInContext(workerSource, context);
+
+        assert.strictEqual(typeof mockSelf.onmessage, 'function', 'Worker must register self.onmessage');
+
+        const simulatedFile = {
+            name: 'worker-test.mp4',
+            size: testData.length,
+            slice: (start, end) => {
+                const subBuf = testData.subarray(start, end);
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => subBuf.buffer.slice(subBuf.byteOffset, subBuf.byteOffset + subBuf.byteLength)
+                };
+            }
+        };
+
+        // Execute onmessage with 256 KiB chunks
+        await mockSelf.onmessage({
+            data: {
+                type: 'HASH',
+                file: simulatedFile,
+                chunkSize: 256 * 1024
+            }
+        });
+
+        // Verify progress messages were emitted
+        const progressMsgs = postedMessages.filter(m => m.type === 'PROGRESS');
+        assert.ok(progressMsgs.length >= 6, 'Worker must emit progress messages for multiple chunks');
+        assert.strictEqual(progressMsgs[progressMsgs.length - 1].percent, 100);
+
+        // Verify completion message and exact cryptographic parity against node:crypto
+        const completeMsg = postedMessages.find(m => m.type === 'COMPLETE');
+        assert.ok(completeMsg, 'Worker must emit COMPLETE message');
+        assert.strictEqual(completeMsg.digest, expectedDigest, 'Worker digest must match node:crypto SHA-256');
+    });
+
+    test('MS-08E3-S2.15: calculateSha256WithWorker lifecycle cleanup on normal completion releases worker and event listeners', async () => {
+        const coordinator = new UploadCoordinator();
+        const attempt = createAttempt({ name: 'worker-life.mp4', size: 1024 }, 'entry-wl');
+        coordinator.currentAttempt = attempt;
+
+        let abortListenerCount = 0;
+        attempt.abortController.signal = {
+            aborted: false,
+            addEventListener: (event) => {
+                if (event === 'abort') abortListenerCount++;
+            },
+            removeEventListener: (event) => {
+                if (event === 'abort') abortListenerCount--;
+            }
+        };
+
+        let beforeunloadCount = 0;
+        const originalWindow = global.window;
+        global.window = {
+            addEventListener: (event) => {
+                if (event === 'beforeunload') beforeunloadCount++;
+            },
+            removeEventListener: (event) => {
+                if (event === 'beforeunload') beforeunloadCount--;
+            }
+        };
+
+        let terminated = false;
+        const originalWorker = global.Worker;
+        global.Worker = function (url) {
+            this.url = url;
+            this.terminate = () => { terminated = true; };
+            this.postMessage = () => {
+                // Simulate async completion
+                setImmediate(() => {
+                    if (this.onmessage) {
+                        this.onmessage({ data: { type: 'PROGRESS', percent: 50, hashedBytes: 512, totalBytes: 1024 } });
+                        this.onmessage({ data: { type: 'COMPLETE', digest: 'worker-digest-1234567890abcdef' } });
+                    }
+                });
+            };
+        };
+
+        try {
+            const digest = await coordinator.calculateSha256WithWorker(attempt.file, { attempt: attempt });
+
+            assert.strictEqual(digest, 'worker-digest-1234567890abcdef');
+            assert.strictEqual(terminated, true, 'Worker must be terminated on completion');
+            assert.strictEqual(attempt.hashWorker, null, 'attempt.hashWorker must be cleared to null after completion');
+            assert.strictEqual(abortListenerCount, 0, 'Abort listener must be removed from signal');
+            assert.strictEqual(beforeunloadCount, 0, 'beforeunload listener must be removed from window');
+        } finally {
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('MS-08E3-S2.16: calculateSha256WithWorker lifecycle cleanup on worker error releases worker and rejects safely', async () => {
+        const coordinator = new UploadCoordinator();
+        const attempt = createAttempt({ name: 'worker-err.mp4', size: 1024 }, 'entry-we');
+        coordinator.currentAttempt = attempt;
+
+        let abortListenerCount = 0;
+        attempt.abortController.signal = {
+            aborted: false,
+            addEventListener: () => { abortListenerCount++; },
+            removeEventListener: () => { abortListenerCount--; }
+        };
+
+        let beforeunloadCount = 0;
+        const originalWindow = global.window;
+        global.window = {
+            addEventListener: () => { beforeunloadCount++; },
+            removeEventListener: () => { beforeunloadCount--; }
+        };
+
+        let terminated = false;
+        const originalWorker = global.Worker;
+        global.Worker = function () {
+            this.terminate = () => { terminated = true; };
+            this.postMessage = () => {
+                setImmediate(() => {
+                    if (this.onerror) {
+                        this.onerror(new Error('Simulated worker runtime failure'));
+                    }
+                });
+            };
+        };
+
+        try {
+            await assert.rejects(
+                async () => {
+                    await coordinator.calculateSha256WithWorker(attempt.file, { attempt: attempt });
+                },
+                /Simulated worker runtime failure/
+            );
+
+            assert.strictEqual(terminated, true, 'Worker must be terminated on error');
+            assert.strictEqual(attempt.hashWorker, null, 'attempt.hashWorker must be cleared to null on error');
+            assert.strictEqual(abortListenerCount, 0, 'Abort listener must be removed on error');
+            assert.strictEqual(beforeunloadCount, 0, 'beforeunload listener must be removed on error');
+        } finally {
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('MS-08E3-S2.17: calculateSha256WithWorker handles postMessage failure safely with full resource cleanup', async () => {
+        const coordinator = new UploadCoordinator();
+        const attempt = createAttempt({ name: 'worker-post-fail.mp4', size: 1024 }, 'entry-wpf');
+        coordinator.currentAttempt = attempt;
+
+        let abortListenerCount = 0;
+        attempt.abortController.signal = {
+            aborted: false,
+            addEventListener: () => { abortListenerCount++; },
+            removeEventListener: () => { abortListenerCount--; }
+        };
+
+        let beforeunloadCount = 0;
+        const originalWindow = global.window;
+        global.window = {
+            addEventListener: () => { beforeunloadCount++; },
+            removeEventListener: () => { beforeunloadCount--; }
+        };
+
+        let terminated = false;
+        const originalWorker = global.Worker;
+        global.Worker = function () {
+            this.terminate = () => { terminated = true; };
+            this.postMessage = () => {
+                throw new Error('DataCloneError: file object cannot be cloned');
+            };
+        };
+
+        try {
+            await assert.rejects(
+                async () => {
+                    await coordinator.calculateSha256WithWorker(attempt.file, { attempt: attempt });
+                },
+                /DataCloneError: file object cannot be cloned/
+            );
+
+            assert.strictEqual(terminated, true, 'Worker must be terminated on postMessage failure');
+            assert.strictEqual(attempt.hashWorker, null, 'attempt.hashWorker must be cleared on postMessage failure');
+            assert.strictEqual(abortListenerCount, 0, 'Abort listener must be removed on postMessage failure');
+            assert.strictEqual(beforeunloadCount, 0, 'beforeunload listener must be removed on postMessage failure');
+        } finally {
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('MS-08E3-S2.18: calculateSha256WithWorker fences out stale worker messages when attempt is cancelled or generation advanced', async () => {
+        const coordinator = new UploadCoordinator();
+        const attempt = createAttempt({ name: 'worker-fence.mp4', size: 2048 }, 'entry-wf', { generation: 1 });
+        coordinator.currentAttempt = attempt;
+
+        let progressEvents = [];
+        let terminated = false;
+        let mockWorkerInstance = null;
+
+        const originalWorker = global.Worker;
+        global.Worker = function () {
+            this.terminate = () => { terminated = true; };
+            this.postMessage = () => {};
+            mockWorkerInstance = this;
+        };
+
+        try {
+            const workerPromise = coordinator.calculateSha256WithWorker(attempt.file, {
+                attempt: attempt,
+                generation: 1,
+                onProgress: (pct) => { progressEvents.push(pct); }
+            });
+
+            // Simulate progress while active
+            mockWorkerInstance.onmessage({ data: { type: 'PROGRESS', percent: 25, hashedBytes: 512, totalBytes: 2048 } });
+            assert.strictEqual(progressEvents.length, 1);
+            assert.strictEqual(progressEvents[0], 25);
+
+            // Now cancel attempt / advance generation
+            attempt.isCancelled = true;
+
+            // Worker emits delayed progress and completion from stale generation
+            mockWorkerInstance.onmessage({ data: { type: 'PROGRESS', percent: 75, hashedBytes: 1536, totalBytes: 2048 } });
+            mockWorkerInstance.onmessage({ data: { type: 'COMPLETE', digest: 'stale-hash' } });
+
+            // Ensure progressEvents did NOT receive the 75% update
+            assert.strictEqual(progressEvents.length, 1, 'Stale worker progress must be fenced out and never reach UI callback');
+
+            // The worker promise should reject due to cancellation
+            await assert.rejects(
+                workerPromise,
+                /Tính toán SHA-256 đã bị hủy/
+            );
+
+            assert.strictEqual(terminated, true, 'Worker must be terminated when stale event is fenced out');
+            assert.strictEqual(attempt.hashWorker, null, 'hashWorker reference must be cleared');
+        } finally {
+            global.Worker = originalWorker;
+        }
+    });
+
+    // =========================================================================
+    // MS-08E3-S2 CANCELLATION CORRECTIVE TESTS: T1 - T7
+    // =========================================================================
+
+    test('T1: Navigation cancellation (beforeunload) settles hashing Promise within bounded time, terminates worker and cleans up listeners', async () => {
+        const coordinator = new UploadCoordinator();
+        const attempt = createAttempt({ name: 'nav-test.mp4', size: 10 * 1024 * 1024 }, 'entry-t1');
+        coordinator.currentAttempt = attempt;
+
+        let capturedBeforeUnload = null;
+        let beforeunloadRemoved = false;
+        const originalWindow = global.window;
+        global.window = {
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') capturedBeforeUnload = handler;
+            },
+            removeEventListener: (event) => {
+                if (event === 'beforeunload') beforeunloadRemoved = true;
+            }
+        };
+
+        let workerTerminated = false;
+        const originalWorker = global.Worker;
+        global.Worker = function () {
+            this.terminate = () => { workerTerminated = true; };
+            this.postMessage = () => {};
+        };
+
+        try {
+            const hashPromise = coordinator.calculateSha256WithWorker(attempt.file, {
+                attempt: attempt
+            });
+
+            assert.strictEqual(typeof capturedBeforeUnload, 'function', 'beforeunload handler must be registered');
+            assert.strictEqual(attempt.hashWorker !== null, true, 'attempt.hashWorker must reference active worker');
+
+            // Dispatch navigation cancellation
+            capturedBeforeUnload();
+
+            // Guard against indefinitely pending Promise via bounded timeout
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_PENDING_PROMISE')), 500));
+
+            const rejectedErr = await Promise.race([
+                hashPromise.then(
+                    () => { throw new Error('Promise should have rejected'); },
+                    (err) => err
+                ),
+                timeoutPromise
+            ]);
+
+            assert.strictEqual(rejectedErr.code, HASH_NAVIGATION_CANCELLED);
+            assert.strictEqual(rejectedErr.isCancellation, true);
+            assert.strictEqual(workerTerminated, true, 'Worker must be terminated on beforeunload');
+            assert.strictEqual(attempt.hashWorker, null, 'attempt.hashWorker reference must be cleared');
+            assert.strictEqual(beforeunloadRemoved, true, 'beforeunload listener must be removed');
+        } finally {
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('T2: Navigation cancellation in calculateSha256 propagates error and does NOT trigger fallback chunked hashing', async () => {
+        const coordinator = new UploadCoordinator();
+        const testFile = {
+            name: 'nav-nofallback.mp4',
+            size: 10 * 1024 * 1024,
+            slice: () => ({ arrayBuffer: async () => new ArrayBuffer(10) })
+        };
+        const attempt = createAttempt(testFile, 'entry-t2');
+        coordinator.currentAttempt = attempt;
+
+        let capturedBeforeUnload = null;
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+
+        const mockWorkerClass = function () {
+            this.terminate = () => {};
+            this.postMessage = () => {};
+        };
+        global.Worker = mockWorkerClass;
+        global.window = {
+            Worker: mockWorkerClass,
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') capturedBeforeUnload = handler;
+            },
+            removeEventListener: () => {}
+        };
+
+        let chunkedFallbackCalled = false;
+        const originalChunked = coordinator.calculateSha256Chunked;
+        coordinator.calculateSha256Chunked = async function (...args) {
+            chunkedFallbackCalled = true;
+            return originalChunked.apply(this, args);
+        };
+
+        try {
+            const calculatePromise = coordinator.calculateSha256(attempt.file, null, {
+                attempt: attempt
+            });
+
+            assert.strictEqual(typeof capturedBeforeUnload, 'function');
+            capturedBeforeUnload();
+
+            await assert.rejects(
+                calculatePromise,
+                (err) => {
+                    assert.strictEqual(err.code, HASH_NAVIGATION_CANCELLED);
+                    return true;
+                }
+            );
+
+            assert.strictEqual(chunkedFallbackCalled, false, 'Main-thread chunked fallback must NEVER be triggered on cancellation');
+        } finally {
+            coordinator.calculateSha256Chunked = originalChunked;
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('T3: startAttempt with navigation cancellation during hashing never calls initiation/parts/completion endpoints and settles attempt', async () => {
+        const coordinator = new UploadCoordinator();
+        const fetchUrls = [];
+
+        let capturedBeforeUnload = null;
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+
+        const mockWorkerClass = function () {
+            this.terminate = () => {};
+            this.postMessage = () => {
+                // Trigger beforeunload while hashing
+                setImmediate(() => {
+                    if (capturedBeforeUnload) capturedBeforeUnload();
+                });
+            };
+        };
+        global.Worker = mockWorkerClass;
+        global.window = {
+            Worker: mockWorkerClass,
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') capturedBeforeUnload = handler;
+            },
+            removeEventListener: () => {}
+        };
+
+        const fakeFetch = async (url) => {
+            fetchUrls.push(url);
+            return { ok: true, json: async () => ({ sessionId: 'illegal-sess' }) };
+        };
+
+        let errorReported = null;
+        try {
+            const result = await coordinator.startAttempt({
+                file: { name: 'test-t3.mp4', size: 10 * 1024 * 1024, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(10) }) },
+                titleId: 'title-t3',
+                entryId: 'entry-t3',
+                fetchFn: fakeFetch,
+                callbacks: {
+                    onError: (err) => { errorReported = err; }
+                }
+            });
+
+            assert.strictEqual(fetchUrls.length, 0, 'No fetch calls must be made after navigation cancellation');
+            assert.strictEqual(result.sessionId, null, 'sessionId must remain null');
+            assert.strictEqual(result.initiationDispatched, false, 'initiationDispatched must remain false');
+            assert.strictEqual(result.isSettled, true, 'Cancelled pre-initiation attempt must be marked settled');
+            assert.strictEqual(result.phase, UploadPhase.ABORTED, 'Attempt phase must be ABORTED');
+            assert.strictEqual(errorReported !== null, true, 'onError callback must be invoked with cancellation error');
+            assert.strictEqual(errorReported.code, HASH_NAVIGATION_CANCELLED);
+        } finally {
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('T4: When user remains on page after beforeunload, attempt settles safely and a new startAttempt succeeds without PREVIOUS_ATTEMPT_UNSETTLED', async () => {
+        const coordinator = new UploadCoordinator();
+        let capturedBeforeUnload = null;
+
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+
+        let workerCount = 0;
+        const mockWorkerClass = function () {
+            workerCount++;
+            const id = workerCount;
+            this.id = id;
+            this.terminate = () => {};
+            this.postMessage = () => {
+                if (id === 1) {
+                    // Attempt 1: Trigger beforeunload
+                    setImmediate(() => {
+                        if (capturedBeforeUnload) capturedBeforeUnload();
+                    });
+                } else if (id === 2) {
+                    // Attempt 2: Normal completion
+                    setImmediate(() => {
+                        if (this.onmessage) {
+                            this.onmessage({ data: { type: 'COMPLETE', digest: 'second-attempt-valid-sha256-hash-00000000000000000000000000000000' } });
+                        }
+                    });
+                }
+            };
+        };
+        global.Worker = mockWorkerClass;
+        global.window = {
+            Worker: mockWorkerClass,
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') capturedBeforeUnload = handler;
+            },
+            removeEventListener: () => {}
+        };
+
+        const file1 = { name: 'file-1.mp4', size: 10 * 1024 * 1024, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(10) }) };
+        const file2 = { name: 'file-2.mp4', size: 5 * 1024 * 1024, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(5) }) };
+
+        let fetchCalls = [];
+        const fakeFetch = async (url) => {
+            fetchCalls.push(url);
+            if (url.endsWith('/video/upload-session')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        sessionId: 'sess-attempt-2',
+                        expectedPartCount: 1,
+                        partSizeBytes: 52428800
+                    })
+                };
+            }
+            if (url.includes('/parts/1/url')) {
+                return { ok: true, json: async () => ({ uploadUrl: 'https://b2.test/part-1' }) };
+            }
+            if (url.startsWith('https://b2.test/part-1')) {
+                return { ok: true, headers: { get: () => '"etag-1"' } };
+            }
+            if (url.endsWith('/complete')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        videoMediaAssetId: 'asset-2-ok',
+                        playbackUrl: '/media/video/content'
+                    })
+                };
+            }
+            throw new Error('Unknown URL: ' + url);
+        };
+
+        try {
+            // Attempt 1 starts and is cancelled by beforeunload
+            const attempt1Result = await coordinator.startAttempt({
+                file: file1,
+                titleId: 'title-t4',
+                entryId: 'entry-t4',
+                fetchFn: fakeFetch
+            });
+
+            assert.strictEqual(attempt1Result.phase, UploadPhase.ABORTED);
+            assert.strictEqual(attempt1Result.isSettled, true, 'Attempt 1 must be settled');
+
+            // User stays on page and clicks upload for file 2
+            // This MUST NOT throw PREVIOUS_ATTEMPT_UNSETTLED
+            const attempt2Result = await coordinator.startAttempt({
+                file: file2,
+                titleId: 'title-t4',
+                entryId: 'entry-t4',
+                fetchFn: fakeFetch
+            });
+
+            assert.strictEqual(attempt2Result.phase, UploadPhase.COMPLETED);
+            assert.strictEqual(attempt2Result.isSettled, true);
+            assert.strictEqual(attempt2Result.registeredAssetId, 'asset-2-ok');
+            assert.strictEqual(attempt2Result.sessionId, 'sess-attempt-2');
+        } finally {
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('T5: Late Worker PROGRESS, COMPLETE, and ERROR messages arriving after cancellation do not alter settled state or trigger callbacks', async () => {
+        const coordinator = new UploadCoordinator();
+        const attempt = createAttempt({ name: 'late-events.mp4', size: 1024 }, 'entry-t5');
+        coordinator.currentAttempt = attempt;
+
+        let capturedBeforeUnload = null;
+        let mockWorker = null;
+
+        const originalWindow = global.window;
+        global.window = {
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') capturedBeforeUnload = handler;
+            },
+            removeEventListener: () => {}
+        };
+
+        const originalWorker = global.Worker;
+        global.Worker = function () {
+            this.terminate = () => {};
+            this.postMessage = () => {};
+            mockWorker = this;
+        };
+
+        let progressCount = 0;
+        try {
+            const hashPromise = coordinator.calculateSha256WithWorker(attempt.file, {
+                attempt: attempt,
+                onProgress: () => { progressCount++; }
+            });
+
+            // Cancel via beforeunload
+            capturedBeforeUnload();
+
+            await assert.rejects(
+                hashPromise,
+                (err) => err.code === HASH_NAVIGATION_CANCELLED
+            );
+
+            const initialProgress = progressCount;
+
+            // Simulate late Worker events on the terminated worker
+            mockWorker.onmessage({ data: { type: 'PROGRESS', percent: 99, hashedBytes: 990, totalBytes: 1024 } });
+            mockWorker.onmessage({ data: { type: 'COMPLETE', digest: 'late-stale-digest' } });
+            mockWorker.onerror(new Error('late-stale-worker-error'));
+
+            // Verify late events were completely dropped
+            assert.strictEqual(progressCount, initialProgress, 'Late PROGRESS event must not invoke onProgress');
+            assert.strictEqual(attempt.hashWorker, null, 'attempt.hashWorker must remain null');
+        } finally {
+            global.window = originalWindow;
+            global.Worker = originalWorker;
+        }
+    });
+
+    test('T6: Competing termination events settle Promise exactly once and ensure idempotent cleanup', async () => {
+        const originalWorker = global.Worker;
+        const originalWindow = global.window;
+
+        try {
+            // Case 1: Abort -> COMPLETE
+            {
+                const coordinator = new UploadCoordinator();
+                const attempt = createAttempt({ name: 'c1.mp4', size: 1024 }, 'entry-c1');
+                coordinator.currentAttempt = attempt;
+                let workerInstance = null;
+                global.Worker = function () {
+                    this.terminate = () => {};
+                    this.postMessage = () => {};
+                    workerInstance = this;
+                };
+
+                const promise1 = coordinator.calculateSha256WithWorker(attempt.file, { attempt });
+                attempt.abortController.abort();
+                // Late complete
+                workerInstance.onmessage({ data: { type: 'COMPLETE', digest: 'late-digest' } });
+
+                await assert.rejects(promise1, (err) => err.code === HASH_ABORTED);
+                assert.strictEqual(attempt.hashWorker, null);
+            }
+
+            // Case 2: COMPLETE -> Abort
+            {
+                const coordinator = new UploadCoordinator();
+                const attempt = createAttempt({ name: 'c2.mp4', size: 1024 }, 'entry-c2');
+                coordinator.currentAttempt = attempt;
+                let workerInstance = null;
+                global.Worker = function () {
+                    this.terminate = () => {};
+                    this.postMessage = () => {};
+                    workerInstance = this;
+                };
+
+                const promise2 = coordinator.calculateSha256WithWorker(attempt.file, { attempt });
+                workerInstance.onmessage({ data: { type: 'COMPLETE', digest: 'valid-digest-c2' } });
+                attempt.abortController.abort();
+
+                const digest = await promise2;
+                assert.strictEqual(digest, 'valid-digest-c2');
+                assert.strictEqual(attempt.hashWorker, null);
+            }
+
+            // Case 3: Beforeunload -> ERROR
+            {
+                const coordinator = new UploadCoordinator();
+                const attempt = createAttempt({ name: 'c3.mp4', size: 1024 }, 'entry-c3');
+                coordinator.currentAttempt = attempt;
+                let capturedBeforeUnload = null;
+                let workerInstance = null;
+
+                global.window = {
+                    addEventListener: (event, handler) => { if (event === 'beforeunload') capturedBeforeUnload = handler; },
+                    removeEventListener: () => {}
+                };
+                global.Worker = function () {
+                    this.terminate = () => {};
+                    this.postMessage = () => {};
+                    workerInstance = this;
+                };
+
+                const promise3 = coordinator.calculateSha256WithWorker(attempt.file, { attempt });
+                capturedBeforeUnload();
+                workerInstance.onerror(new Error('Late worker error'));
+
+                await assert.rejects(promise3, (err) => err.code === HASH_NAVIGATION_CANCELLED);
+                assert.strictEqual(attempt.hashWorker, null);
+            }
+
+            // Case 4: ERROR -> Beforeunload
+            {
+                const coordinator = new UploadCoordinator();
+                const attempt = createAttempt({ name: 'c4.mp4', size: 1024 }, 'entry-c4');
+                coordinator.currentAttempt = attempt;
+                let capturedBeforeUnload = null;
+                let workerInstance = null;
+
+                global.window = {
+                    addEventListener: (event, handler) => { if (event === 'beforeunload') capturedBeforeUnload = handler; },
+                    removeEventListener: () => {}
+                };
+                global.Worker = function () {
+                    this.terminate = () => {};
+                    this.postMessage = () => {};
+                    workerInstance = this;
+                };
+
+                const promise4 = coordinator.calculateSha256WithWorker(attempt.file, { attempt });
+                workerInstance.onerror(new Error('Primary worker runtime error'));
+                capturedBeforeUnload();
+
+                await assert.rejects(promise4, (err) => err.code === 'WORKER_ERROR' || err.message.includes('Primary worker runtime error'));
+                assert.strictEqual(attempt.hashWorker, null);
+            }
+        } finally {
+            global.Worker = originalWorker;
+            global.window = originalWindow;
+        }
+    });
+
+    test('T7: Genuine Worker initialization error falls back to bounded-memory chunked hashing and calculates exact SHA-256', async () => {
+        const coordinator = new UploadCoordinator();
+        const testData = Buffer.alloc(1024 * 1024, 0x3c); // 1 MiB deterministic data
+        const expectedDigest = crypto.createHash('sha256').update(testData).digest('hex');
+
+        let fullArrayBufferCalled = false;
+        let sliceCount = 0;
+        const file = {
+            name: 'test-fallback.mp4',
+            size: testData.length,
+            slice: (start, end) => {
+                sliceCount++;
+                const sub = testData.subarray(start, end);
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => sub.buffer.slice(sub.byteOffset, sub.byteOffset + sub.byteLength)
+                };
+            },
+            arrayBuffer: async () => {
+                fullArrayBufferCalled = true;
+                throw new Error('Whole-file arrayBuffer() must never be called!');
+            }
+        };
+
+        const attempt = createAttempt(file, 'entry-t7');
+        coordinator.currentAttempt = attempt;
+
+        const originalWorker = global.Worker;
+        const originalWindow = global.window;
+        global.window = {}; // Simulate browser window present
+        global.Worker = function () {
+            throw new Error('DOMException: The operation is insecure (CSP worker-src restricted)');
+        };
+
+        try {
+            const digest = await coordinator.calculateSha256(file, null, {
+                attempt: attempt,
+                chunkSize: 256 * 1024
+            });
+
+            assert.strictEqual(digest, expectedDigest, 'Fallback must produce exact standard SHA-256 digest');
+            assert.strictEqual(fullArrayBufferCalled, false, 'Fallback must not allocate full file');
+            assert.strictEqual(sliceCount, 4, 'Must process file in bounded slices');
+        } finally {
+            global.Worker = originalWorker;
+            global.window = originalWindow;
+        }
+    });
+
+    // =========================================================================
+    // MS-08E3-S2 NAVIGATION CANCELLATION ACROSS WORKER & FALLBACK: T9 - T13
+    // =========================================================================
+
+    const waitUntil = async (predicate, description, timeoutMs = 2000) => {
+        const start = Date.now();
+        while (!predicate()) {
+            if (Date.now() - start > timeoutMs) {
+                throw new Error(`Timeout waiting for ${description}`);
+            }
+            await new Promise(r => setImmediate(r));
+        }
+    };
+
+    test('T9: When Worker fails with recoverable error and navigation occurs during fallback hashing, cancellation is honored, no initiation occurs and attempt settles', async () => {
+        const coordinator = new UploadCoordinator();
+        let capturedBeforeUnload = null;
+        let beforeunloadRemovedCount = 0;
+        let beforeunloadAddedCount = 0;
+
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+
+        const mockWorkerClass = function () {
+            this.terminate = () => {};
+            this.postMessage = () => {
+                // Trigger recoverable Worker error immediately
+                setImmediate(() => {
+                    if (this.onerror) {
+                        this.onerror(new Error('Recoverable Worker initialization error (e.g. CSP restriction)'));
+                    }
+                });
+            };
+        };
+        global.Worker = mockWorkerClass;
+        global.window = {
+            Worker: mockWorkerClass,
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') {
+                    beforeunloadAddedCount++;
+                    capturedBeforeUnload = handler;
+                }
+            },
+            removeEventListener: (event) => {
+                if (event === 'beforeunload') beforeunloadRemovedCount++;
+            }
+        };
+
+        const fetchUrls = [];
+        const fakeFetch = async (url) => {
+            fetchUrls.push(url);
+            return { ok: true, json: async () => ({ sessionId: 'illegal-sess' }) };
+        };
+
+        let sliceIndex = 0;
+        let resumeDeferred = null;
+        const testFile = {
+            name: 'fallback-nav-test.mp4',
+            size: 10 * 1024 * 1024,
+            slice: (start, end) => {
+                sliceIndex++;
+                if (sliceIndex === 1) {
+                    return {
+                        size: end - start,
+                        arrayBuffer: async () => {
+                            // Hold chunked fallback pending while navigation is dispatched
+                            await new Promise(resolve => { resumeDeferred = resolve; });
+                            return new ArrayBuffer(end - start);
+                        }
+                    };
+                }
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => new ArrayBuffer(end - start)
+                };
+            }
+        };
+
+        let reportedError = null;
+        const startPromise = coordinator.startAttempt({
+            file: testFile,
+            titleId: 'title-t9',
+            entryId: 'entry-t9',
+            fetchFn: fakeFetch,
+            callbacks: {
+                onError: (err) => { reportedError = err; }
+            }
+        });
+
+        // Wait until fallback is paused inside slice 1
+        await waitUntil(() => resumeDeferred !== null, 'resumeDeferred in slice 1');
+
+        // Dispatch beforeunload while fallback is paused
+        assert.strictEqual(typeof capturedBeforeUnload, 'function', 'Fallback must have registered beforeunload listener');
+        capturedBeforeUnload();
+
+        // Resume fallback
+        resumeDeferred();
+
+        const result = await startPromise;
+
+        assert.strictEqual(fetchUrls.length, 0, 'No fetch/initiation requests must be dispatched after navigation cancellation');
+        assert.strictEqual(result.sessionId, null, 'No session must be created');
+        assert.strictEqual(result.phase, UploadPhase.ABORTED, 'Attempt must be marked ABORTED');
+        assert.strictEqual(result.isSettled, true, 'Pre-initiation cancelled attempt must be marked safely settled');
+        assert.strictEqual(reportedError !== null, true, 'onError callback must receive cancellation error');
+        assert.strictEqual(reportedError.code, HASH_NAVIGATION_CANCELLED);
+        assert.ok(beforeunloadRemovedCount >= 2, 'Both Worker and fallback beforeunload listeners must be removed');
+    });
+
+    test('T10: When Worker is unavailable from start, navigation during fallback halts hashing and does not initiate upload', async () => {
+        const coordinator = new UploadCoordinator();
+        let capturedBeforeUnload = null;
+
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+        delete global.Worker; // No Worker available
+
+        global.window = {
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') capturedBeforeUnload = handler;
+            },
+            removeEventListener: () => {}
+        };
+
+        const fetchUrls = [];
+        const fakeFetch = async (url) => {
+            fetchUrls.push(url);
+            return { ok: true, json: async () => ({ sessionId: 'illegal-sess' }) };
+        };
+
+        let sliceIndex = 0;
+        let resumeDeferred = null;
+        const testFile = {
+            name: 'no-worker-nav-test.mp4',
+            size: 10 * 1024 * 1024,
+            slice: (start, end) => {
+                sliceIndex++;
+                if (sliceIndex === 1) {
+                    return {
+                        size: end - start,
+                        arrayBuffer: async () => {
+                            await new Promise(resolve => { resumeDeferred = resolve; });
+                            return new ArrayBuffer(end - start);
+                        }
+                    };
+                }
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => new ArrayBuffer(end - start)
+                };
+            }
+        };
+
+        let reportedError = null;
+        const startPromise = coordinator.startAttempt({
+            file: testFile,
+            titleId: 'title-t10',
+            entryId: 'entry-t10',
+            fetchFn: fakeFetch,
+            callbacks: {
+                onError: (err) => { reportedError = err; }
+            }
+        });
+
+        await waitUntil(() => resumeDeferred !== null, 'resumeDeferred in slice 1');
+
+        assert.strictEqual(typeof capturedBeforeUnload, 'function', 'beforeunload listener must be registered even when Worker is absent');
+        capturedBeforeUnload();
+
+        resumeDeferred();
+
+        const result = await startPromise;
+
+        assert.strictEqual(fetchUrls.length, 0, 'No fetch calls must be made after navigation cancellation');
+        assert.strictEqual(result.sessionId, null);
+        assert.strictEqual(result.phase, UploadPhase.ABORTED);
+        assert.strictEqual(result.isSettled, true);
+        assert.strictEqual(reportedError !== null, true);
+        assert.strictEqual(reportedError.code, HASH_NAVIGATION_CANCELLED);
+    });
+
+    test('T11: When Worker fails with recoverable error and no navigation occurs, fallback calculates exact SHA-256 and upload proceeds normally', async () => {
+        const coordinator = new UploadCoordinator();
+        const testData = Buffer.alloc(1024 * 1024, 0x4d); // 1 MiB deterministic data
+        const expectedDigest = crypto.createHash('sha256').update(testData).digest('hex');
+
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+
+        const mockWorkerClass = function () {
+            this.terminate = () => {};
+            this.postMessage = () => {
+                setImmediate(() => {
+                    if (this.onerror) {
+                        this.onerror(new Error('Simulated recoverable worker load failure'));
+                    }
+                });
+            };
+        };
+        global.Worker = mockWorkerClass;
+        global.window = {
+            Worker: mockWorkerClass,
+            addEventListener: () => {},
+            removeEventListener: () => {}
+        };
+
+        const testFile = {
+            name: 'functional-fallback.mp4',
+            size: testData.length,
+            slice: (start, end) => {
+                const sub = testData.subarray(start, end);
+                return {
+                    size: end - start,
+                    arrayBuffer: async () => sub.buffer.slice(sub.byteOffset, sub.byteOffset + sub.byteLength)
+                };
+            }
+        };
+
+        let initBody = null;
+        let completeBody = null;
+        const fakeFetch = async (url, options = {}) => {
+            if (url.endsWith('/video/upload-session')) {
+                initBody = JSON.parse(options.body);
+                return {
+                    ok: true,
+                    json: async () => ({
+                        sessionId: 'sess-t11-ok',
+                        expectedPartCount: 1,
+                        partSizeBytes: 52428800
+                    })
+                };
+            }
+            if (url.includes('/parts/1/url')) {
+                return { ok: true, json: async () => ({ uploadUrl: 'https://b2.test/part-1' }) };
+            }
+            if (url.startsWith('https://b2.test/part-1')) {
+                return { ok: true, headers: { get: () => '"etag-t11"' } };
+            }
+            if (url.endsWith('/complete')) {
+                completeBody = JSON.parse(options.body);
+                return {
+                    ok: true,
+                    json: async () => ({
+                        videoMediaAssetId: 'asset-t11-success',
+                        playbackUrl: '/media/video/t11'
+                    })
+                };
+            }
+            throw new Error('Unknown URL: ' + url);
+        };
+
+        const result = await coordinator.startAttempt({
+            file: testFile,
+            titleId: 'title-t11',
+            entryId: 'entry-t11',
+            fetchFn: fakeFetch
+        });
+
+        assert.strictEqual(result.phase, UploadPhase.COMPLETED);
+        assert.strictEqual(result.isSettled, true);
+        assert.strictEqual(result.registeredAssetId, 'asset-t11-success');
+        assert.strictEqual(completeBody.declaredContentHash, expectedDigest, 'Fallback must transmit exact SHA-256 hash');
+    });
+
+    test('T12: When navigation occurs during retry hashing after uncertain initiation, session uncertainty is retained and attempt is NOT settled', async () => {
+        const coordinator = new UploadCoordinator();
+        let capturedBeforeUnload = null;
+
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+
+        const mockWorkerClass = function () {
+            this.terminate = () => {};
+            this.postMessage = () => {
+                setImmediate(() => {
+                    if (capturedBeforeUnload) capturedBeforeUnload();
+                });
+            };
+        };
+        global.Worker = mockWorkerClass;
+        global.window = {
+            Worker: mockWorkerClass,
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') capturedBeforeUnload = handler;
+            },
+            removeEventListener: () => {}
+        };
+
+        let fetchCallCount = 0;
+        const fakeFetch = async (url) => {
+            fetchCallCount++;
+            if (url.endsWith('/video/upload-session')) {
+                // Initial attempt: network drops after dispatching POST
+                throw new Error('Network error: connection lost after POST dispatch');
+            }
+            return { ok: true };
+        };
+
+        const testFile = {
+            name: 'retry-nav-test.mp4',
+            size: 10 * 1024 * 1024,
+            slice: () => ({ arrayBuffer: async () => new ArrayBuffer(10) })
+        };
+
+        // 1. Initial attempt fails after dispatching initiation
+        await coordinator.startAttempt({
+            file: testFile,
+            titleId: 'title-t12',
+            entryId: 'entry-t12',
+            fetchFn: fakeFetch,
+            cryptoFn: async () => 'init-hash-111111111111111111111111111111111111111111111111111111111111'
+        });
+
+        const attempt = coordinator.getCurrentAttempt();
+        assert.strictEqual(attempt.initiationDispatched, true, 'Initiation was dispatched in Generation 1');
+        assert.strictEqual(attempt.isSettled, false, 'Attempt must be unsettled after dropped initiation');
+        assert.strictEqual(attempt.phase, UploadPhase.FAILED);
+
+        // 2. Administrator clicks "Retry Initiation" (starts Generation 2 hashing)
+        let retryError = null;
+        const retryResult = await coordinator.retryInitiation({
+            titleId: 'title-t12',
+            entryId: 'entry-t12',
+            fetchFn: fakeFetch,
+            callbacks: {
+                onError: (err) => { retryError = err; }
+            }
+        });
+
+        // 3. Navigation was triggered during retry hashing
+        assert.strictEqual(retryResult.phase, UploadPhase.ABORTED);
+        // CRITICAL INVARIANT: Because initiation was already dispatched in Generation 1,
+        // session uncertainty must be retained and attempt must NOT be marked settled!
+        assert.strictEqual(retryResult.isSettled, false, 'Attempt with prior dispatched initiation MUST remain unsettled');
+        assert.strictEqual(retryResult.initiationDispatched, true, 'initiationDispatched flag must be preserved');
+        assert.strictEqual(retryError !== null, true);
+        assert.strictEqual(retryError.code, HASH_NAVIGATION_CANCELLED);
+    });
+
+    test('T13: Listeners are completely removed after terminal outcomes; new upload can begin after pre-initiation cancellation and old callbacks are fenced out', async () => {
+        const coordinator = new UploadCoordinator();
+        let beforeunloadListeners = [];
+        let beforeunloadRemoved = [];
+
+        const originalWindow = global.window;
+        const originalWorker = global.Worker;
+
+        let workerInstances = [];
+        const mockWorkerClass = function () {
+            workerInstances.push(this);
+            this.id = workerInstances.length;
+            this.terminate = () => {};
+            this.postMessage = () => {
+                if (this.id === 1) {
+                    // Attempt 1: Trigger beforeunload
+                    setImmediate(() => {
+                        const handler = beforeunloadListeners[beforeunloadListeners.length - 1];
+                        if (handler) handler();
+                    });
+                } else if (this.id === 2) {
+                    // Attempt 2: Normal completion
+                    setImmediate(() => {
+                        if (this.onmessage) {
+                            this.onmessage({ data: { type: 'COMPLETE', digest: 'attempt-2-sha256-hash-00000000000000000000000000000000000000000000' } });
+                        }
+                    });
+                }
+            };
+        };
+        global.Worker = mockWorkerClass;
+        global.window = {
+            Worker: mockWorkerClass,
+            addEventListener: (event, handler) => {
+                if (event === 'beforeunload') beforeunloadListeners.push(handler);
+            },
+            removeEventListener: (event, handler) => {
+                if (event === 'beforeunload') beforeunloadRemoved.push(handler);
+            }
+        };
+
+        const file1 = { name: 'f1.mp4', size: 10 * 1024 * 1024, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(10) }) };
+        const file2 = { name: 'f2.mp4', size: 5 * 1024 * 1024, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(5) }) };
+
+        const fakeFetch = async (url) => {
+            if (url.endsWith('/video/upload-session')) {
+                return {
+                    ok: true,
+                    json: async () => ({ sessionId: 'sess-t13-ok', expectedPartCount: 1, partSizeBytes: 52428800 })
+                };
+            }
+            if (url.includes('/parts/1/url')) {
+                return { ok: true, json: async () => ({ uploadUrl: 'https://b2.test/part-1' }) };
+            }
+            if (url.startsWith('https://b2.test/part-1')) {
+                return { ok: true, headers: { get: () => '"etag-t13"' } };
+            }
+            if (url.endsWith('/complete')) {
+                return {
+                    ok: true,
+                    json: async () => ({ videoMediaAssetId: 'asset-t13-ok', playbackUrl: '/media/video/t13' })
+                };
+            }
+            throw new Error('Unknown URL: ' + url);
+        };
+
+        // 1. Attempt 1 starts and is cancelled by beforeunload
+        let attempt1Error = null;
+        let attempt1ProgressCalls = 0;
+        const attempt1Result = await coordinator.startAttempt({
+            file: file1,
+            titleId: 'title-t13',
+            entryId: 'entry-t13',
+            fetchFn: fakeFetch,
+            callbacks: {
+                onError: (err) => { attempt1Error = err; },
+                onProgress: () => { attempt1ProgressCalls++; }
+            }
+        });
+
+        assert.strictEqual(attempt1Result.phase, UploadPhase.ABORTED);
+        assert.strictEqual(attempt1Result.isSettled, true, 'Attempt 1 must be settled');
+        assert.strictEqual(beforeunloadRemoved.length >= 1, true, 'Attempt 1 beforeunload listener must be removed');
+
+        // 2. Attempt 2 starts cleanly without PREVIOUS_ATTEMPT_UNSETTLED
+        let attempt2ProgressCalls = 0;
+        let attempt2Success = null;
+        const attempt2Result = await coordinator.startAttempt({
+            file: file2,
+            titleId: 'title-t13',
+            entryId: 'entry-t13',
+            fetchFn: fakeFetch,
+            callbacks: {
+                onProgress: () => { attempt2ProgressCalls++; },
+                onSuccess: (data) => { attempt2Success = data; }
+            }
+        });
+
+        assert.strictEqual(attempt2Result.phase, UploadPhase.COMPLETED);
+        assert.strictEqual(attempt2Result.isSettled, true);
+        assert.strictEqual(attempt2Success !== null, true);
+
+        // 3. Stale callbacks from Attempt 1 worker must not mutate Attempt 2
+        const initialAttempt2Progress = attempt2ProgressCalls;
+        workerInstances[0].onmessage({ data: { type: 'PROGRESS', percent: 99, hashedBytes: 990, totalBytes: 1024 } });
+        workerInstances[0].onmessage({ data: { type: 'COMPLETE', digest: 'stale-override' } });
+        workerInstances[0].onerror(new Error('stale-err'));
+
+        assert.strictEqual(attempt2ProgressCalls, initialAttempt2Progress, 'Stale Attempt 1 callbacks must not trigger Attempt 2 onProgress');
+        assert.strictEqual(coordinator.getCurrentAttempt(), attempt2Result, 'Current attempt must remain Attempt 2');
+        assert.strictEqual(attempt2Result.registeredAssetId, 'asset-t13-ok');
     });
 });

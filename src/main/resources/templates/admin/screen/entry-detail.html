@@ -278,8 +278,7 @@
 
                     <p style="margin-top: 0; margin-bottom: 16px; color: #5f6368; font-size: 14px; line-height: 1.5;">
                         Chọn file video MP4 để tải lên trực tiếp từ trình duyệt tới Backblaze B2 thông qua multipart upload.<br/>
-                        Giới hạn dung lượng thử nghiệm trình duyệt (V1 Smoke Slice): <strong>500 MiB</strong>. Kích thước chunk: <strong>25 MiB</strong>.<br/>
-                        <span style="font-size: 12px; color: #70757a;">(Lưu ý: Nền tảng Backblaze B2 hỗ trợ tới 50 GiB; giới hạn 500 MiB này được áp dụng tại giao diện trình duyệt để đảm bảo an toàn bộ nhớ V8 heap khi tính toán SHA-256 client-side trước khi tích hợp streaming hasher).</span>
+                        Giới hạn dung lượng tối đa: <strong>50 GiB</strong>. Kích thước phân đoạn (chunk): <strong>25 MiB</strong>. Quá trình tính toán mã băm SHA-256 và truyền tải được thực hiện phân đoạn với bộ nhớ kiểm soát.
                     </p>
 
                     <!-- Alert message container -->
@@ -390,7 +389,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     const PART_SIZE = 26214400; // 25 MiB fixed part size
-    const MAX_BROWSER_SMOKE_SIZE = 524288000; // 500 MiB (Conservative client limit for V1 browser smoke slice to prevent V8 memory exhaustion)
+    const MAX_VIDEO_SIZE_BYTES = 53687091200; // 50 GiB authoritative Media limit (50 * 1024 * 1024 * 1024)
+    const MAX_BROWSER_SMOKE_SIZE = MAX_VIDEO_SIZE_BYTES; // Deprecated alias for backwards compatibility
 
     const Uploader = window.ScreenVideoUploader || window.KiemLai?.ScreenVideoUploader;
     if (!Uploader) {
@@ -439,10 +439,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function formatBytes(bytes) {
+        if (typeof bytes !== 'number' || isNaN(bytes) || bytes < 0) return '0 B';
         if (bytes < 1024) return bytes + ' B';
-        if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
-        if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + ' MB';
-        return (bytes / 1073741824).toFixed(2) + ' GB';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KiB';
+        if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + ' MiB';
+        return (bytes / 1073741824).toFixed(2) + ' GiB';
     }
 
     function showAlert(type, message) {
@@ -505,8 +506,15 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        if (file.size > MAX_BROWSER_SMOKE_SIZE) {
-            showAlert('error', 'Dung lượng file (' + formatBytes(file.size) + ') vượt quá giới hạn thử nghiệm trình duyệt (500 MiB). Vui lòng chọn file video nhỏ hơn để thử nghiệm.');
+        if (file.size <= 0) {
+            showAlert('error', 'File video không được để trống (0 byte).');
+            fileInfoBox.style.display = 'none';
+            startUploadBtn.disabled = true;
+            return;
+        }
+
+        if (file.size > MAX_VIDEO_SIZE_BYTES) {
+            showAlert('error', 'Dung lượng file (' + formatBytes(file.size) + ') vượt quá giới hạn tối đa cho phép (50 GiB). Vui lòng chọn file video nhỏ hơn.');
             fileInfoBox.style.display = 'none';
             startUploadBtn.disabled = true;
             return;

@@ -238,6 +238,20 @@ class AdminScreenTemplateContractTest {
         assertThat(template).contains("data-is-replacement");
     }
 
+    @Test
+    @DisplayName("Entry detail contract: entry-detail.html contains MS-08E3-S2 50 GiB video upload configuration and zero-byte validation")
+    void entryDetailPageDefinesLargeFileUploadContract() throws Exception {
+        String template = read("src/main/resources/templates/admin/screen/entry-detail.html");
+
+        assertThat(template).contains("/js/screen/screen-video-uploader.js");
+        assertThat(template).contains("MAX_VIDEO_SIZE_BYTES = 53687091200");
+        assertThat(template).contains("File video không được để trống (0 byte)");
+        assertThat(template).contains("Giới hạn dung lượng tối đa: <strong>50 GiB</strong>");
+        assertThat(template).doesNotContain("524288000");
+        assertThat(template).doesNotContain("500 MiB");
+        assertThat(template).doesNotContain("V1 Smoke Slice");
+    }
+
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8);
     }

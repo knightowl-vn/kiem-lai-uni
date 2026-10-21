@@ -29,7 +29,235 @@
     'use strict';
 
     const PART_SIZE = 26214400; // 25 MiB fixed part size
-    const MAX_BROWSER_SMOKE_SIZE = 524288000; // 500 MiB limit for browser smoke slice
+    const MAX_VIDEO_SIZE_BYTES = 53687091200; // 50 GiB authoritative Media limit (50 * 1024 * 1024 * 1024)
+    const MAX_BROWSER_SMOKE_SIZE = MAX_VIDEO_SIZE_BYTES; // Deprecated alias for backwards compatibility
+    const HASH_CHUNK_SIZE = 2097152; // 2 MiB slice size for bounded memory hashing
+    const HASH_NAVIGATION_CANCELLED = 'HASH_NAVIGATION_CANCELLED';
+    const HASH_ABORTED = 'HASH_ABORTED';
+
+    const K_SHA256 = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+
+    /**
+     * Incremental SHA-256 implementation conforming to FIPS PUB 180-4.
+     * Accurately supports 64-bit length padding for inputs exceeding 512 MiB up to 50 GiB.
+     */
+    function IncrementalSha256() {
+        this.h = new Int32Array([
+            0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+            0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+        ]);
+        this.buffer = new Uint8Array(64);
+        this.bufferLength = 0;
+        this.totalBytes = 0;
+        this.w = new Int32Array(64);
+        this.finalized = false;
+    }
+
+    IncrementalSha256.prototype._processBlock = function (block, offset) {
+        const w = this.w;
+        for (let i = 0; i < 16; i++) {
+            const idx = offset + (i << 2);
+            w[i] = ((block[idx] << 24) | (block[idx + 1] << 16) | (block[idx + 2] << 8) | block[idx + 3]) | 0;
+        }
+        for (let i = 16; i < 64; i++) {
+            const w15 = w[i - 15];
+            const s0 = ((w15 >>> 7) | (w15 << 25)) ^ ((w15 >>> 18) | (w15 << 14)) ^ (w15 >>> 3);
+            const w2 = w[i - 2];
+            const s1 = ((w2 >>> 17) | (w2 << 15)) ^ ((w2 >>> 19) | (w2 << 13)) ^ (w2 >>> 10);
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+        }
+
+        let a = this.h[0], b = this.h[1], c = this.h[2], d = this.h[3];
+        let e = this.h[4], f = this.h[5], g = this.h[6], h = this.h[7];
+
+        for (let i = 0; i < 64; i++) {
+            const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+            const ch = (e & f) ^ ((~e) & g);
+            const temp1 = (h + S1 + ch + K_SHA256[i] + w[i]) | 0;
+            const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+            const maj = (a & b) ^ (a & c) ^ (b & c);
+            const temp2 = (S0 + maj) | 0;
+
+            h = g;
+            g = f;
+            f = e;
+            e = (d + temp1) | 0;
+            d = c;
+            c = b;
+            b = a;
+            a = (temp1 + temp2) | 0;
+        }
+
+        this.h[0] = (this.h[0] + a) | 0;
+        this.h[1] = (this.h[1] + b) | 0;
+        this.h[2] = (this.h[2] + c) | 0;
+        this.h[3] = (this.h[3] + d) | 0;
+        this.h[4] = (this.h[4] + e) | 0;
+        this.h[5] = (this.h[5] + f) | 0;
+        this.h[6] = (this.h[6] + g) | 0;
+        this.h[7] = (this.h[7] + h) | 0;
+    };
+
+    IncrementalSha256.prototype.update = function (chunk) {
+        if (this.finalized) {
+            throw new Error('Cannot update finalized hash');
+        }
+        const uint8 = (chunk instanceof Uint8Array) ? chunk : new Uint8Array(chunk);
+        let offset = 0;
+        let len = uint8.length;
+        this.totalBytes += len;
+
+        if (this.bufferLength > 0) {
+            const need = 64 - this.bufferLength;
+            if (len >= need) {
+                this.buffer.set(uint8.subarray(0, need), this.bufferLength);
+                this._processBlock(this.buffer, 0);
+                this.bufferLength = 0;
+                offset = need;
+                len -= need;
+            } else {
+                this.buffer.set(uint8, this.bufferLength);
+                this.bufferLength += len;
+                return this;
+            }
+        }
+
+        while (len >= 64) {
+            this._processBlock(uint8, offset);
+            offset += 64;
+            len -= 64;
+        }
+
+        if (len > 0) {
+            this.buffer.set(uint8.subarray(offset, offset + len), 0);
+            this.bufferLength = len;
+        }
+        return this;
+    };
+
+    IncrementalSha256.prototype.digest = function () {
+        if (this.finalized) {
+            throw new Error('Digest already called');
+        }
+        this.finalized = true;
+
+        const totalBits = this.totalBytes * 8;
+        const highBits = Math.floor(totalBits / 0x100000000);
+        const lowBits = (totalBits >>> 0);
+
+        this.buffer[this.bufferLength++] = 0x80;
+
+        if (this.bufferLength > 56) {
+            this.buffer.fill(0, this.bufferLength, 64);
+            this._processBlock(this.buffer, 0);
+            this.bufferLength = 0;
+        }
+
+        this.buffer.fill(0, this.bufferLength, 56);
+
+        this.buffer[56] = (highBits >>> 24) & 0xff;
+        this.buffer[57] = (highBits >>> 16) & 0xff;
+        this.buffer[58] = (highBits >>> 8) & 0xff;
+        this.buffer[59] = highBits & 0xff;
+
+        this.buffer[60] = (lowBits >>> 24) & 0xff;
+        this.buffer[61] = (lowBits >>> 16) & 0xff;
+        this.buffer[62] = (lowBits >>> 8) & 0xff;
+        this.buffer[63] = lowBits & 0xff;
+
+        this._processBlock(this.buffer, 0);
+
+        let hex = '';
+        for (let i = 0; i < 8; i++) {
+            hex += (this.h[i] >>> 0).toString(16).padStart(8, '0');
+        }
+        return hex;
+    };
+
+    /**
+     * Formats byte counts into human-readable binary units (B, KiB, MiB, GiB).
+     */
+    function formatBytes(bytes) {
+        if (typeof bytes !== 'number' || isNaN(bytes) || bytes < 0) return '0 B';
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KiB';
+        if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + ' MiB';
+        return (bytes / 1073741824).toFixed(2) + ' GiB';
+    }
+
+    /**
+     * Authoritative frontend validation for selected video files.
+     */
+    function validateFileConstraints(file) {
+        if (!file) {
+            const err = new Error('Vui lòng chọn file video.');
+            err.code = 'MISSING_FILE';
+            throw err;
+        }
+        if (file.name && !file.name.toLowerCase().endsWith('.mp4')) {
+            const err = new Error('Chỉ chấp nhận file định dạng MP4 (*.mp4).');
+            err.code = 'INVALID_FORMAT';
+            throw err;
+        }
+        if (typeof file.size === 'number') {
+            if (file.size <= 0) {
+                const err = new Error('File video không được để trống (0 byte).');
+                err.code = 'ZERO_SIZE_FILE';
+                throw err;
+            }
+            if (file.size > MAX_VIDEO_SIZE_BYTES) {
+                const err = new Error('Dung lượng file (' + formatBytes(file.size) + ') vượt quá giới hạn tối đa cho phép (50 GiB). Vui lòng chọn file nhỏ hơn.');
+                err.code = 'FILE_EXCEEDS_MAX_SIZE';
+                throw err;
+            }
+        }
+        const expectedParts = Math.max(1, Math.ceil((file.size || 0) / PART_SIZE));
+        return {
+            valid: true,
+            size: file.size,
+            formattedSize: formatBytes(file.size),
+            expectedParts: expectedParts,
+            partSize: PART_SIZE
+        };
+    }
+
+    /**
+     * Helper to read a chunk slice into a Uint8Array safely across environments.
+     */
+    async function readChunkAsUint8Array(chunk) {
+        if (chunk instanceof Uint8Array) return chunk;
+        if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk);
+        if (typeof chunk.arrayBuffer === 'function') {
+            const buf = await chunk.arrayBuffer();
+            return new Uint8Array(buf);
+        }
+        if (typeof FileReader !== 'undefined') {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(new Uint8Array(reader.result));
+                reader.onerror = () => reject(reader.error || new Error('FileReader failed to read chunk'));
+                reader.readAsArrayBuffer(chunk);
+            });
+        }
+        throw new Error('Không thể đọc dữ liệu chunk nhị phân.');
+    }
 
     const UploadPhase = {
         IDLE: 'IDLE',
@@ -72,6 +300,7 @@
             failedAtPhase: null,
             initiationDispatched: false,
             abortController: abortController,
+            hashWorker: null,
             isCancelled: false,
             isSettled: false,
             registeredAssetId: null,
@@ -108,20 +337,326 @@
     };
 
     /**
-     * Calculates SHA-256 hash using crypto.subtle or provided custom crypto function.
-     * FAILS CLOSED: Never fabricates synthetic hashes if Web Crypto is unavailable.
+     * Incrementally calculates standard SHA-256 in memory-bounded slices on the current thread,
+     * yielding periodically via setTimeout(..., 0) to avoid UI freezing.
      */
-    UploadCoordinator.prototype.calculateSha256 = async function (file, cryptoFn) {
+    UploadCoordinator.prototype.calculateSha256Chunked = async function (file, options) {
+        options = options || {};
+        const attempt = options.attempt;
+        const currentGen = options.generation;
+        const onProgress = options.onProgress;
+        const chunkSize = options.chunkSize || HASH_CHUNK_SIZE;
+        const totalSize = typeof file.size === 'number' ? file.size : 0;
+
+        if (totalSize > 0 && typeof file.slice !== 'function') {
+            throw new Error('Đối tượng file không hỗ trợ đọc phân đoạn (file.slice không khả dụng).');
+        }
+
+        let onBeforeUnload = null;
+        let onAbort = null;
+        let navigationCancelled = false;
+
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            onBeforeUnload = () => {
+                navigationCancelled = true;
+                if (attempt) {
+                    attempt.isCancelled = true;
+                }
+            };
+            try {
+                window.addEventListener('beforeunload', onBeforeUnload, { once: true });
+            } catch (e) { /* ignore */ }
+        }
+
+        if (attempt && attempt.abortController && attempt.abortController.signal) {
+            onAbort = () => {
+                if (attempt) {
+                    attempt.isCancelled = true;
+                }
+            };
+            if (attempt.abortController.signal.aborted) {
+                if (attempt) attempt.isCancelled = true;
+            } else {
+                try {
+                    attempt.abortController.signal.addEventListener('abort', onAbort, { once: true });
+                } catch (e) { /* ignore */ }
+            }
+        }
+
+        const cleanupListeners = () => {
+            if (onBeforeUnload && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+                try {
+                    window.removeEventListener('beforeunload', onBeforeUnload);
+                } catch (e) { /* ignore */ }
+                onBeforeUnload = null;
+            }
+            if (onAbort && attempt && attempt.abortController && attempt.abortController.signal) {
+                try {
+                    attempt.abortController.signal.removeEventListener('abort', onAbort);
+                } catch (e) { /* ignore */ }
+                onAbort = null;
+            }
+        };
+
+        try {
+            const hasher = new IncrementalSha256();
+            if (totalSize === 0) {
+                return hasher.digest();
+            }
+
+            let offset = 0;
+            let lastYieldTime = Date.now();
+
+            while (offset < totalSize) {
+                if (navigationCancelled) {
+                    const navErr = new Error('Tính toán SHA-256 bị hủy do điều hướng trang.');
+                    navErr.code = HASH_NAVIGATION_CANCELLED;
+                    navErr.isCancellation = true;
+                    throw navErr;
+                }
+                if (attempt && (attempt.isCancelled || this.isStale(attempt, currentGen))) {
+                    const cancelErr = new Error('Tính toán SHA-256 đã bị hủy.');
+                    cancelErr.code = (attempt && attempt.isCancelled && navigationCancelled) ? HASH_NAVIGATION_CANCELLED : HASH_ABORTED;
+                    cancelErr.isCancellation = true;
+                    throw cancelErr;
+                }
+
+                const end = Math.min(offset + chunkSize, totalSize);
+                const slice = file.slice(offset, end);
+                const uint8Chunk = await readChunkAsUint8Array(slice);
+
+                if (navigationCancelled) {
+                    const navErr = new Error('Tính toán SHA-256 bị hủy do điều hướng trang.');
+                    navErr.code = HASH_NAVIGATION_CANCELLED;
+                    navErr.isCancellation = true;
+                    throw navErr;
+                }
+                if (attempt && (attempt.isCancelled || this.isStale(attempt, currentGen))) {
+                    const cancelErr = new Error('Tính toán SHA-256 đã bị hủy.');
+                    cancelErr.code = (attempt && attempt.isCancelled && navigationCancelled) ? HASH_NAVIGATION_CANCELLED : HASH_ABORTED;
+                    cancelErr.isCancellation = true;
+                    throw cancelErr;
+                }
+
+                hasher.update(uint8Chunk);
+                offset = end;
+
+                if (onProgress && totalSize > 0) {
+                    const pct = Math.floor((offset / totalSize) * 100);
+                    onProgress(pct, offset, totalSize);
+                }
+
+                const now = Date.now();
+                if (now - lastYieldTime > 16 || offset >= totalSize) {
+                    lastYieldTime = now;
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            }
+
+            if (navigationCancelled) {
+                const navErr = new Error('Tính toán SHA-256 bị hủy do điều hướng trang.');
+                navErr.code = HASH_NAVIGATION_CANCELLED;
+                navErr.isCancellation = true;
+                throw navErr;
+            }
+            if (attempt && (attempt.isCancelled || this.isStale(attempt, currentGen))) {
+                const cancelErr = new Error('Tính toán SHA-256 đã bị hủy.');
+                cancelErr.code = HASH_ABORTED;
+                cancelErr.isCancellation = true;
+                throw cancelErr;
+            }
+
+            return hasher.digest();
+        } finally {
+            cleanupListeners();
+        }
+    };
+
+    /**
+     * Executes SHA-256 calculation inside a Web Worker when supported.
+     */
+    UploadCoordinator.prototype.calculateSha256WithWorker = async function (file, options) {
+        options = options || {};
+        const self = this;
+        const attempt = options.attempt;
+        const currentGen = options.generation;
+        const onProgress = options.onProgress;
+        const workerUrl = options.workerUrl || '/js/screen/screen-hash-worker.js';
+
+        return new Promise((resolve, reject) => {
+            let worker;
+            try {
+                const WorkerClass = (typeof window !== 'undefined' && typeof window.Worker !== 'undefined') ? window.Worker : Worker;
+                worker = new WorkerClass(workerUrl);
+            } catch (e) {
+                reject(e);
+                return;
+            }
+
+            if (attempt) {
+                attempt.hashWorker = worker;
+            }
+
+            let settled = false;
+            let onAbort = null;
+            let onBeforeUnload = null;
+
+            const cleanupResources = () => {
+                if (attempt && attempt.hashWorker === worker) {
+                    attempt.hashWorker = null;
+                }
+                if (worker) {
+                    try { worker.terminate(); } catch (e) { /* ignore */ }
+                    worker = null;
+                }
+                if (onAbort && attempt && attempt.abortController && attempt.abortController.signal) {
+                    try {
+                        attempt.abortController.signal.removeEventListener('abort', onAbort);
+                    } catch (e) { /* ignore */ }
+                    onAbort = null;
+                }
+                if (onBeforeUnload && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+                    try {
+                        window.removeEventListener('beforeunload', onBeforeUnload);
+                    } catch (e) { /* ignore */ }
+                    onBeforeUnload = null;
+                }
+            };
+
+            const finishSuccess = (digest) => {
+                if (settled) return;
+                settled = true;
+                cleanupResources();
+                resolve(digest);
+            };
+
+            const finishFailure = (error) => {
+                if (settled) return;
+                settled = true;
+                cleanupResources();
+                reject(error);
+            };
+
+            if (attempt && attempt.abortController && attempt.abortController.signal) {
+                onAbort = () => {
+                    if (attempt) {
+                        attempt.isCancelled = true;
+                    }
+                    const abortErr = new Error('Tính toán SHA-256 đã bị hủy.');
+                    abortErr.code = HASH_ABORTED;
+                    abortErr.isCancellation = true;
+                    finishFailure(abortErr);
+                };
+                if (attempt.abortController.signal.aborted) {
+                    onAbort();
+                    return;
+                }
+                attempt.abortController.signal.addEventListener('abort', onAbort, { once: true });
+            }
+
+            onBeforeUnload = () => {
+                if (attempt) {
+                    attempt.isCancelled = true;
+                }
+                const navErr = new Error('Tính toán SHA-256 bị hủy do điều hướng trang.');
+                navErr.code = HASH_NAVIGATION_CANCELLED;
+                navErr.isCancellation = true;
+                finishFailure(navErr);
+            };
+
+            if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+                window.addEventListener('beforeunload', onBeforeUnload, { once: true });
+            }
+
+            worker.onmessage = (event) => {
+                if (settled) return;
+                if (attempt && (attempt.isCancelled || self.isStale(attempt, currentGen))) {
+                    const cancelErr = new Error('Tính toán SHA-256 đã bị hủy.');
+                    cancelErr.code = HASH_ABORTED;
+                    cancelErr.isCancellation = true;
+                    finishFailure(cancelErr);
+                    return;
+                }
+                const data = event.data || {};
+                if (data.type === 'PROGRESS') {
+                    if (onProgress && (!attempt || !self.isStale(attempt, currentGen))) {
+                        onProgress(data.percent, data.hashedBytes, data.totalBytes);
+                    }
+                } else if (data.type === 'COMPLETE') {
+                    finishSuccess(data.digest);
+                } else if (data.type === 'ERROR') {
+                    const err = new Error(data.message || 'Lỗi trong quá trình Web Worker tính toán SHA-256.');
+                    err.code = data.code || 'WORKER_HASH_ERROR';
+                    finishFailure(err);
+                }
+            };
+
+            worker.onerror = (errEvent) => {
+                if (settled) return;
+                if (attempt && (attempt.isCancelled || self.isStale(attempt, currentGen))) {
+                    const cancelErr = new Error('Tính toán SHA-256 đã bị hủy.');
+                    cancelErr.code = HASH_ABORTED;
+                    cancelErr.isCancellation = true;
+                    finishFailure(cancelErr);
+                    return;
+                }
+                const err = new Error((errEvent && errEvent.message) || 'Web Worker gặp sự cố khi tính toán SHA-256.');
+                err.code = 'WORKER_ERROR';
+                finishFailure(err);
+            };
+
+            try {
+                worker.postMessage({
+                    type: 'HASH',
+                    file: file,
+                    chunkSize: HASH_CHUNK_SIZE
+                });
+            } catch (postErr) {
+                finishFailure(postErr);
+            }
+        });
+    };
+
+    /**
+     * Calculates standard SHA-256 hash using bounded-memory streaming without loading the full file.
+     * FAILS CLOSED: Never fabricates synthetic hashes if Web Crypto capability check fails.
+     */
+    UploadCoordinator.prototype.calculateSha256 = async function (file, cryptoFn, options) {
         if (cryptoFn) {
             return await cryptoFn(file);
         }
-        if (typeof crypto !== 'undefined' && crypto.subtle && typeof crypto.subtle.digest === 'function' && typeof file.arrayBuffer === 'function') {
-            const buffer = await file.arrayBuffer();
-            const digest = await crypto.subtle.digest('SHA-256', buffer);
-            const hashArray = Array.from(new Uint8Array(digest));
-            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // FAILS CLOSED: Check environment cryptographic capabilities (MS-08E2 fix 3 invariant)
+        if (typeof crypto === 'undefined' || !crypto.subtle || typeof crypto.subtle.digest !== 'function') {
+            throw new Error('Web Crypto API (crypto.subtle) is not supported in this environment. SHA-256 calculation failed closed.');
         }
-        throw new Error('Web Crypto API (crypto.subtle) is not supported in this environment. SHA-256 calculation failed closed.');
+
+        options = options || {};
+        const attempt = options.attempt;
+
+        // Try Web Worker if in browser/worker environment and not explicitly disabled
+        const workerCtor = (typeof window !== 'undefined' && typeof window.Worker !== 'undefined')
+            ? window.Worker
+            : (typeof Worker !== 'undefined' ? Worker : null);
+        const canUseWorker = workerCtor !== null && options.disableWorker !== true;
+
+        if (canUseWorker) {
+            try {
+                return await this.calculateSha256WithWorker(file, options);
+            } catch (workerErr) {
+                const isCancellation = (attempt && attempt.isCancelled)
+                    || (attempt && this.isStale(attempt, options.generation))
+                    || (attempt && attempt.abortController && attempt.abortController.signal && attempt.abortController.signal.aborted)
+                    || (workerErr && (workerErr.isCancellation === true || workerErr.code === HASH_NAVIGATION_CANCELLED || workerErr.code === HASH_ABORTED));
+
+                if (isCancellation) {
+                    throw workerErr;
+                }
+                // Fallback to bounded-memory chunked hashing on main thread
+            }
+        }
+
+        return await this.calculateSha256Chunked(file, options);
     };
 
     /**
@@ -138,6 +673,16 @@
 
         if (!fetchFn) {
             throw new Error('Fetch implementation is not available.');
+        }
+
+        // Validate file constraints
+        try {
+            validateFileConstraints(file);
+        } catch (validationErr) {
+            if (callbacks.onError) {
+                callbacks.onError(validationErr, null);
+            }
+            throw validationErr;
         }
 
         // Prevent concurrent uploads: reject if existing attempt is active and not settled
@@ -179,10 +724,20 @@
             // STEP 1: Hashing
             attempt.phase = UploadPhase.HASHING;
             if (callbacks.onProgress && !this.isStale(attempt, currentGen)) {
-                callbacks.onProgress(5, 'Đang tính toán mã băm SHA-256...', attempt);
+                callbacks.onProgress(0, 'Đang chuẩn bị tính toán mã băm SHA-256...', attempt);
             }
 
-            const contentHash = await this.calculateSha256(file, cryptoFn);
+            const contentHash = await this.calculateSha256(file, cryptoFn, {
+                attempt: attempt,
+                generation: currentGen,
+                onProgress: (hashPct, hashedBytes, totalBytes) => {
+                    if (callbacks.onProgress && !this.isStale(attempt, currentGen)) {
+                        const overallPct = Math.round(hashPct * 0.1);
+                        const status = 'Đang tính mã băm SHA-256: ' + hashPct + '% (' + formatBytes(hashedBytes) + ' / ' + formatBytes(totalBytes) + ')...';
+                        callbacks.onProgress(overallPct, status, attempt);
+                    }
+                }
+            });
             if (this.isStale(attempt, currentGen)) return attempt;
 
             // STEP 2: Initiate upload session with stable idempotencyKey
@@ -198,13 +753,27 @@
             return attempt;
 
         } catch (err) {
-            if (this.isStale(attempt, currentGen)) {
-                // Silently ignore errors from stale or cancelled attempts
+            // Fenced out if attempt was superseded by another attempt or if generation advanced
+            if (this.currentAttempt !== attempt || (attempt.generation !== currentGen)) {
                 return attempt;
             }
+
+            // If attempt was already settled (e.g. by abortAttempt()), preserve its settled state
+            if (attempt.isSettled) {
+                return attempt;
+            }
+
             attempt.error = err.message;
             attempt.failedAtPhase = attempt.phase;
-            attempt.phase = UploadPhase.FAILED;
+
+            const isNavCancelled = err && (err.code === HASH_NAVIGATION_CANCELLED || err.isCancellation === true);
+            const isAborted = attempt.isCancelled || (attempt.abortController && attempt.abortController.signal && attempt.abortController.signal.aborted) || (err && err.code === HASH_ABORTED);
+
+            if (isNavCancelled || isAborted) {
+                attempt.phase = UploadPhase.ABORTED;
+            } else {
+                attempt.phase = UploadPhase.FAILED;
+            }
 
             // Only settled if failure happened strictly before initiation was dispatched
             if (!attempt.initiationDispatched && !attempt.sessionId) {
@@ -420,7 +989,20 @@
 
         try {
             attempt.phase = UploadPhase.HASHING;
-            const contentHash = await this.calculateSha256(attempt.file, cryptoFn);
+            if (callbacks.onProgress && !this.isStale(attempt, currentGen)) {
+                callbacks.onProgress(0, 'Đang tính toán lại mã băm SHA-256...', attempt);
+            }
+            const contentHash = await this.calculateSha256(attempt.file, cryptoFn, {
+                attempt: attempt,
+                generation: currentGen,
+                onProgress: (hashPct, hashedBytes, totalBytes) => {
+                    if (callbacks.onProgress && !this.isStale(attempt, currentGen)) {
+                        const overallPct = Math.round(hashPct * 0.1);
+                        const status = 'Đang tính mã băm SHA-256: ' + hashPct + '% (' + formatBytes(hashedBytes) + ' / ' + formatBytes(totalBytes) + ')...';
+                        callbacks.onProgress(overallPct, status, attempt);
+                    }
+                }
+            });
             if (this.isStale(attempt, currentGen)) return attempt;
 
             await this.performInitiation(attempt, titleId, entryId, contentHash, callbacks, fetchFn, getCsrfHeaders);
@@ -432,10 +1014,21 @@
             await this.performCompletion(attempt, titleId, entryId, contentHash, callbacks, fetchFn, getCsrfHeaders);
             return attempt;
         } catch (err) {
-            if (this.isStale(attempt, currentGen)) return attempt;
+            if (this.currentAttempt !== attempt || (attempt.generation !== currentGen)) {
+                return attempt;
+            }
+            if (attempt.isSettled) {
+                return attempt;
+            }
             attempt.error = err.message;
             attempt.failedAtPhase = attempt.phase;
-            attempt.phase = UploadPhase.FAILED;
+            const isNavCancelled = err && (err.code === HASH_NAVIGATION_CANCELLED || err.isCancellation === true);
+            const isAborted = attempt.isCancelled || (attempt.abortController && attempt.abortController.signal && attempt.abortController.signal.aborted) || (err && err.code === HASH_ABORTED);
+            if (isNavCancelled || isAborted) {
+                attempt.phase = UploadPhase.ABORTED;
+            } else {
+                attempt.phase = UploadPhase.FAILED;
+            }
             if (!attempt.initiationDispatched && !attempt.sessionId) {
                 attempt.isSettled = true;
             } else {
@@ -616,6 +1209,14 @@
             } catch (e) { /* ignore */ }
         }
 
+        // Terminate any active hashing worker for this attempt
+        if (attempt.hashWorker && typeof attempt.hashWorker.terminate === 'function') {
+            try {
+                attempt.hashWorker.terminate();
+                attempt.hashWorker = null;
+            } catch (e) { /* ignore */ }
+        }
+
         // Case A: Initiation was NEVER dispatched (e.g. cancelled during hashing or pre-initiation)
         if (!attempt.initiationDispatched && !attempt.sessionId) {
             attempt.phase = UploadPhase.ABORTED;
@@ -708,10 +1309,17 @@
 
     return {
         PART_SIZE: PART_SIZE,
+        MAX_VIDEO_SIZE_BYTES: MAX_VIDEO_SIZE_BYTES,
         MAX_BROWSER_SMOKE_SIZE: MAX_BROWSER_SMOKE_SIZE,
+        HASH_CHUNK_SIZE: HASH_CHUNK_SIZE,
         UploadPhase: UploadPhase,
         generateId: generateId,
         createAttempt: createAttempt,
-        UploadCoordinator: UploadCoordinator
+        UploadCoordinator: UploadCoordinator,
+        IncrementalSha256: IncrementalSha256,
+        formatBytes: formatBytes,
+        validateFileConstraints: validateFileConstraints,
+        HASH_NAVIGATION_CANCELLED: HASH_NAVIGATION_CANCELLED,
+        HASH_ABORTED: HASH_ABORTED
     };
 });

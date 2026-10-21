@@ -2,10 +2,14 @@ const { describe, test } = require('node:test');
 const assert = require('node:assert');
 const {
     PART_SIZE,
+    MAX_VIDEO_SIZE_BYTES,
     MAX_BROWSER_SMOKE_SIZE,
     UploadPhase,
     createAttempt,
-    UploadCoordinator
+    UploadCoordinator,
+    IncrementalSha256,
+    formatBytes,
+    validateFileConstraints
 } = require('../../../main/resources/static/js/screen/screen-video-uploader.js');
 
 describe('MS-08E2 Offline Browser E2E Upload Contract & Lifecycle Tests', () => {
@@ -819,5 +823,312 @@ describe('MS-08E2 Offline Browser E2E Upload Contract & Lifecycle Tests', () => 
         assert.ok(result.error.includes('Xung đột video'));
         assert.ok(capturedError, 'onError callback must be invoked');
         assert.ok(capturedError.message.includes('Xung đột video'));
+    });
+
+    // =========================================================================
+    // MS-08E3-S2 LARGE FILE E2E, MEMORY BOUNDS & PROGRESS SEPARATION TESTS
+    // =========================================================================
+
+    test('12. MS-08E3-S2 Synthetic 50 GiB Contract Test: Mocked file hash, slicing, and backend/B2 network responses (not real browser/B2 transfer) with bounded memory slice traversal and complete playback URL', async () => {
+        const coordinator = new UploadCoordinator();
+        const callTrace = [];
+        const progressTrace = [];
+        let capturedInitPayload = null;
+        let capturedCompletePayload = null;
+        let capturedCsrfTokens = [];
+
+        // 50 GiB synthetic file (2048 parts of 25 MiB)
+        // Mocks file hash and network responses; does not execute real browser or live B2 transfer.
+        const mock50GiBFile = {
+            name: 'epic-movie-4k-50gib.mp4',
+            size: MAX_VIDEO_SIZE_BYTES, // 53,687,091,200 bytes
+            slice: function (start, end) {
+                return {
+                    start: start,
+                    end: end,
+                    size: end - start,
+                    name: `slice-${start}-${end}`,
+                    arrayBuffer: async () => new ArrayBuffer(end - start)
+                };
+            }
+        };
+
+        // DOM-level validation
+        const constraints = validateFileConstraints(mock50GiBFile);
+        assert.strictEqual(constraints.valid, true);
+        assert.strictEqual(constraints.expectedParts, 2048);
+        assert.strictEqual(constraints.formattedSize, '50.00 GiB');
+
+        const fakeFetch = async (url, options = {}) => {
+            callTrace.push({ url, method: options.method || 'GET' });
+
+            if (options.headers && options.headers['X-CSRF-TOKEN']) {
+                capturedCsrfTokens.push({ url, token: options.headers['X-CSRF-TOKEN'] });
+            }
+
+            if (url === `/admin/screen/titles/${titleId}/entries/${entryId}/video/upload-session` && options.method === 'POST') {
+                capturedInitPayload = JSON.parse(options.body);
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        sessionId: 'sess-50gib-approved-001',
+                        expectedPartCount: 2048,
+                        partSizeBytes: PART_SIZE
+                    })
+                };
+            }
+
+            if (url.includes(`/parts/`) && url.endsWith('/url')) {
+                const match = url.match(/\/parts\/(\d+)\/url/);
+                const partNum = match[1];
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        uploadUrl: `https://b2.test/bucket-kiemlai/video-50gib/part-${partNum}`
+                    })
+                };
+            }
+
+            if (url.startsWith('https://b2.test/bucket-kiemlai/video-50gib/part-')) {
+                assert.strictEqual(options.method, 'PUT');
+                const match = url.match(/\/part-(\d+)/);
+                const partNum = match[1];
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: {
+                        get: (h) => (h.toLowerCase() === 'etag' ? `"b2-etag-part-${partNum}"` : null)
+                    }
+                };
+            }
+
+            if (url === `/admin/screen/titles/${titleId}/entries/${entryId}/video/upload-session/sess-50gib-approved-001/complete` && options.method === 'POST') {
+                capturedCompletePayload = JSON.parse(options.body);
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        videoMediaAssetId: 'asset-50gib-registered-uuid',
+                        playbackUrl: `/admin/screen/titles/${titleId}/entries/${entryId}/video/content`,
+                        status: 'COMPLETED',
+                        message: 'Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry.'
+                    })
+                };
+            }
+
+            throw new Error('Unhandled E2E URL: ' + url);
+        };
+
+        const validMockSha256 = '50000000000000000000000000000000000000000000000000000000000050ab';
+
+        const result = await coordinator.startAttempt({
+            file: mock50GiBFile,
+            titleId: titleId,
+            entryId: entryId,
+            fetchFn: fakeFetch,
+            getCsrfHeaders: getCsrfHeaders,
+            cryptoFn: async () => validMockSha256,
+            callbacks: {
+                onProgress: (pct, msg) => { progressTrace.push({ pct, msg }); }
+            }
+        });
+
+        assert.strictEqual(result.phase, UploadPhase.COMPLETED);
+        assert.strictEqual(result.isSettled, true);
+        assert.strictEqual(result.registeredAssetId, 'asset-50gib-registered-uuid');
+        assert.strictEqual(result.playbackUrl, `/admin/screen/titles/${titleId}/entries/${entryId}/video/content`);
+
+        // Check initiation payload
+        assert.strictEqual(capturedInitPayload.declaredSizeBytes, MAX_VIDEO_SIZE_BYTES);
+        assert.strictEqual(capturedInitPayload.originalFilename, 'epic-movie-4k-50gib.mp4');
+
+        // Check completion manifest: exactly 2048 parts
+        assert.strictEqual(capturedCompletePayload.parts.length, 2048);
+        assert.strictEqual(capturedCompletePayload.parts[0].partNumber, 1);
+        assert.strictEqual(capturedCompletePayload.parts[0].eTag, '"b2-etag-part-1"');
+        assert.strictEqual(capturedCompletePayload.parts[2047].partNumber, 2048);
+        assert.strictEqual(capturedCompletePayload.parts[2047].eTag, '"b2-etag-part-2048"');
+        assert.strictEqual(capturedCompletePayload.declaredContentHash, validMockSha256);
+    });
+
+    test('13. MS-08E3-S2 Large File UX: Progressive hashing updates distinct from multipart upload progress', async () => {
+        const coordinator = new UploadCoordinator();
+        const progressSteps = [];
+
+        const syntheticFile = {
+            name: 'ux-test.mp4',
+            size: 6 * 1024 * 1024, // 6 MiB -> 3 chunks of 2 MiB
+            slice: (start, end) => ({
+                size: end - start,
+                arrayBuffer: async () => new ArrayBuffer(end - start)
+            })
+        };
+
+        const fakeFetch = async (url) => {
+            if (url.endsWith('/video/upload-session')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        sessionId: 'sess-ux-test',
+                        expectedPartCount: 1,
+                        partSizeBytes: 6 * 1024 * 1024
+                    })
+                };
+            }
+            if (url.includes('/parts/1/url')) {
+                return { ok: true, json: async () => ({ uploadUrl: 'https://b2.test/part-1' }) };
+            }
+            if (url === 'https://b2.test/part-1') {
+                return { ok: true, headers: { get: () => '"etag-ux"' } };
+            }
+            if (url.endsWith('/complete')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        videoMediaAssetId: 'asset-ux',
+                        playbackUrl: '/admin/screen/video/content'
+                    })
+                };
+            }
+            throw new Error('Unhandled: ' + url);
+        };
+
+        await coordinator.startAttempt({
+            file: syntheticFile,
+            titleId: 'title-ux',
+            entryId: 'entry-ux',
+            fetchFn: fakeFetch,
+            callbacks: {
+                onProgress: (pct, msg) => {
+                    progressSteps.push({ pct, msg });
+                }
+            }
+        });
+
+        // Filter hashing vs upload messages
+        const hashingMessages = progressSteps.filter(p => p.msg.includes('mã băm SHA-256'));
+        const uploadMessages = progressSteps.filter(p => p.msg.includes('Backblaze B2'));
+
+        assert.ok(hashingMessages.length >= 3, 'Hashing must report progressive updates across chunks');
+        assert.ok(uploadMessages.length >= 1, 'Upload must report progressive part uploads');
+        assert.ok(progressSteps[progressSteps.length - 1].pct === 100, 'Final step must be 100%');
+    });
+
+    test('14. MS-08E3-S2 Fail-Closed: Zero-byte file rejected prior to session initiation', async () => {
+        const coordinator = new UploadCoordinator();
+        let fetchCalled = false;
+        let capturedError = null;
+
+        const emptyFile = {
+            name: 'zero.mp4',
+            size: 0
+        };
+
+        const fakeFetch = async () => {
+            fetchCalled = true;
+            return { ok: true };
+        };
+
+        await assert.rejects(
+            async () => {
+                await coordinator.startAttempt({
+                    file: emptyFile,
+                    titleId: 'title-zero',
+                    entryId: 'entry-zero',
+                    fetchFn: fakeFetch,
+                    callbacks: {
+                        onError: (err) => { capturedError = err; }
+                    }
+                });
+            },
+            /File video không được để trống \(0 byte\)/
+        );
+
+        assert.strictEqual(fetchCalled, false, 'Fetch must never be called for zero-byte file');
+        assert.ok(capturedError !== null);
+        assert.strictEqual(capturedError.code, 'ZERO_SIZE_FILE');
+    });
+
+    test('15. MS-08E3-S2 Fail-Closed: File exceeding 50 GiB rejected prior to session initiation', async () => {
+        const coordinator = new UploadCoordinator();
+        let fetchCalled = false;
+        let capturedError = null;
+
+        const oversizedFile = {
+            name: 'too-big.mp4',
+            size: MAX_VIDEO_SIZE_BYTES + 1
+        };
+
+        const fakeFetch = async () => {
+            fetchCalled = true;
+            return { ok: true };
+        };
+
+        await assert.rejects(
+            async () => {
+                await coordinator.startAttempt({
+                    file: oversizedFile,
+                    titleId: 'title-huge',
+                    entryId: 'entry-huge',
+                    fetchFn: fakeFetch,
+                    callbacks: {
+                        onError: (err) => { capturedError = err; }
+                    }
+                });
+            },
+            /vượt quá giới hạn tối đa cho phép \(50 GiB\)/
+        );
+
+        assert.strictEqual(fetchCalled, false, 'Fetch must never be called for file exceeding 50 GiB');
+        assert.ok(capturedError !== null);
+        assert.strictEqual(capturedError.code, 'FILE_EXCEEDS_MAX_SIZE');
+    });
+
+    test('16. MS-08E3-S2 Abort during incremental hashing terminates hashing cleanly without server side-effects', async () => {
+        const coordinator = new UploadCoordinator();
+        let fetchCalled = false;
+        let abortedCallbackInvoked = false;
+
+        const syntheticFile = {
+            name: 'abort-during-hash.mp4',
+            size: 20 * 1024 * 1024,
+            slice: (start, end) => ({
+                size: end - start,
+                arrayBuffer: async () => {
+                    // Trigger abort during hashing slice read
+                    if (start > 0) {
+                        await coordinator.abortAttempt({
+                            titleId: 'title-abort',
+                            entryId: 'entry-abort',
+                            fetchFn: async () => ({ ok: true }),
+                            callbacks: {
+                                onAborted: () => { abortedCallbackInvoked = true; }
+                            }
+                        });
+                    }
+                    return new ArrayBuffer(end - start);
+                }
+            })
+        };
+
+        const fakeFetch = async () => {
+            fetchCalled = true;
+            return { ok: true };
+        };
+
+        const result = await coordinator.startAttempt({
+            file: syntheticFile,
+            titleId: 'title-abort',
+            entryId: 'entry-abort',
+            fetchFn: fakeFetch
+        });
+
+        assert.strictEqual(result.phase, UploadPhase.ABORTED);
+        assert.strictEqual(result.isSettled, true);
+        assert.strictEqual(result.sessionId, null);
+        assert.strictEqual(fetchCalled, false, 'Server session must never be initiated when aborted during hashing');
+        assert.strictEqual(abortedCallbackInvoked, true, 'onAborted callback must be invoked');
     });
 });
