@@ -48,6 +48,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -240,6 +241,45 @@ class AdminScreenEntryViewRenderingTest {
                 .andExpect(content().string(containsString("Lưu trữ")))
                 .andExpect(content().string(containsString("Chỉnh sửa")))
                 .andExpect(content().string(containsString("href=\"/admin/screen/titles\" class=\"sidebar-link  active\"")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-detail page renders MS-08E3-S3 video recovery panel and scripts")
+    void shouldRenderEntryDetailPageWithVideoRecoveryPanel() throws Exception {
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(sampleEntry);
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"videoRecoveryPanel\"")))
+                .andExpect(content().string(containsString("Quản lý phiên tải lên & Khôi phục video")))
+                .andExpect(content().string(containsString("id=\"refreshRecoveryBtn\"")))
+                .andExpect(content().string(containsString("id=\"recoveryAlertBox\"")))
+                .andExpect(content().string(containsString("id=\"recoveryLoadingSpinner\"")))
+                .andExpect(content().string(containsString("id=\"recoveryEmptyMessage\"")))
+                .andExpect(content().string(containsString("id=\"recoverySessionList\"")))
+                .andExpect(content().string(containsString("/js/screen/screen-video-uploader.js")))
+                .andExpect(content().string(containsString("/js/screen/screen-video-recovery.js")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-detail page does not expose video detach form when entry is PUBLISHED (C5)")
+    void shouldNotRenderVideoDetachFormWhenEntryIsPublished() throws Exception {
+        ScreenEntryDTO publishedEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế",
+                "Tóm tắt tập 1...", UUID.randomUUID(), UUID.randomUUID(), 1200L, ScreenPublicationStatus.PUBLISHED,
+                null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(publishedEntry);
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Tập phim đang ở trạng thái PUBLISHED")))
+                .andExpect(content().string(containsString("Thay thế video")))
+                .andExpect(content().string(not(containsString("/video/detach"))));
     }
 
     @Test

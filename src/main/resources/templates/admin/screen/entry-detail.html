@@ -341,12 +341,47 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Recovery & Session Management Panel (MS-08E3-S3) -->
+                <div id="videoRecoveryPanel" style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #dadce0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <h4 style="margin: 0; font-size: 15px; font-weight: 600; color: #202124;">
+                                Quản lý phiên tải lên & Khôi phục video
+                            </h4>
+                            <span style="font-size: 12px; color: #5f6368;">
+                                Khám phá các phiên tải lên video đã hoàn tất nhưng chưa gắn hoặc cần xử lý an toàn cho tập phim này.
+                            </span>
+                        </div>
+                        <button type="button" id="refreshRecoveryBtn" class="admin-secondary-button"
+                                style="padding: 6px 14px; font-size: 13px; cursor: pointer;">
+                            Làm mới danh sách ⟳
+                        </button>
+                    </div>
+
+                    <!-- Recovery Alert message container -->
+                    <div id="recoveryAlertBox" style="display: none; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13px;"></div>
+
+                    <!-- Recovery Loading State -->
+                    <div id="recoveryLoadingSpinner" style="display: none; color: #5f6368; font-size: 13px; padding: 12px 0;">
+                        Đang kiểm tra các phiên tải lên từ máy chủ...
+                    </div>
+
+                    <!-- Recovery Empty State -->
+                    <div id="recoveryEmptyMessage" style="display: none; color: #5f6368; font-size: 13px; font-style: italic; padding: 12px 16px; background: #f8f9fa; border: 1px dashed #dadce0; border-radius: 6px;">
+                        Không có phiên tải lên nào cần khôi phục cho tập phim này.
+                    </div>
+
+                    <!-- Recovery Session List Container -->
+                    <div id="recoverySessionList" style="display: flex; flex-direction: column; gap: 12px;"></div>
+                </div>
             </section>
         </section>
     </main>
 </div>
 
 <script th:src="@{/js/screen/screen-video-uploader.js}"></script>
+<script th:src="@{/js/screen/screen-video-recovery.js}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const uploadView = document.getElementById('uploadVideoView');
@@ -400,6 +435,94 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const coordinator = new Uploader.UploadCoordinator();
     const STORAGE_KEY = 'screen_video_attempt_' + entryId;
+
+    const Recovery = window.ScreenVideoRecovery || window.KiemLai?.ScreenVideoRecovery;
+    let recoveryRenderer = null;
+    let recoveryCoordinator = null;
+
+    if (Recovery) {
+        const initialAttachedAssetId = uploadView.getAttribute('data-expected-video-asset-id') || null;
+
+        function checkCanAttach(session, isReplacement) {
+            const isUploaderActiveFn = Recovery.isUploaderActive || function (uCoord) {
+                const active = uCoord ? uCoord.getCurrentAttempt() : null;
+                return Boolean(active && !active.isSettled);
+            };
+            if (isUploaderActiveFn(coordinator)) {
+                return {
+                    allowed: false,
+                    reason: 'Không thể gắn hoặc thay thế video từ phiên khôi phục trong khi một tiến trình tải lên video khác đang được thực hiện. Vui lòng chờ tiến trình hoàn tất hoặc hủy tiến trình trước khi thao tác.'
+                };
+            }
+            return { allowed: true };
+        }
+
+        recoveryCoordinator = new Recovery.RecoveryCoordinator({
+            titleId: titleId,
+            entryId: entryId,
+            currentAttachedAssetId: initialAttachedAssetId,
+            getCsrfHeaders: getCsrfHeaders,
+            uploaderCoordinator: coordinator,
+            canAttach: checkCanAttach
+        });
+
+        recoveryRenderer = new Recovery.RecoveryViewRenderer({
+            sessionListContainer: document.getElementById('recoverySessionList'),
+            emptyMessage: document.getElementById('recoveryEmptyMessage'),
+            loadingSpinner: document.getElementById('recoveryLoadingSpinner'),
+            refreshBtn: document.getElementById('refreshRecoveryBtn'),
+            alertBox: document.getElementById('recoveryAlertBox')
+        }, recoveryCoordinator, {
+            canAttach: checkCanAttach,
+            onAttached: function (completeData, session) {
+                // Clear only matching saved attempt (preserve active upload attempts belonging to another session)
+                if (session && session.sessionId) {
+                    clearMatchingSavedAttempt(session.sessionId);
+                }
+
+                // Dismiss uploader attempt ONLY if it matches the attached session
+                const currentAttempt = coordinator.getCurrentAttempt();
+                if (currentAttempt && currentAttempt.sessionId === session?.sessionId) {
+                    coordinator.dismissSettledAttempt();
+                }
+
+                // Authoritative page reload after validated server-confirmed attach/replace:
+                // Thymeleaf SSR renders attachedVideoView, toggleReplaceBtn, publication lifecycle and detach rules.
+                window.location.reload();
+            },
+            onDiscarded: function (discardData, session) {
+                // Clear only matching saved attempt
+                if (session && session.sessionId) {
+                    clearMatchingSavedAttempt(session.sessionId);
+                }
+
+                // Dismiss uploader attempt ONLY if it matches the discarded session
+                const currentAttempt = coordinator.getCurrentAttempt();
+                if (currentAttempt && currentAttempt.sessionId === session?.sessionId) {
+                    coordinator.dismissSettledAttempt();
+                }
+            }
+        });
+
+        // Query server for recoverable sessions on page load
+        recoveryRenderer.load();
+    }
+
+    function clearMatchingSavedAttempt(targetSessionId) {
+        if (Recovery && typeof Recovery.clearMatchingLocalAttempt === 'function') {
+            return Recovery.clearMatchingLocalAttempt(sessionStorage, entryId, targetSessionId);
+        }
+        try {
+            const raw = sessionStorage.getItem(STORAGE_KEY);
+            if (!raw) return false;
+            const attempt = JSON.parse(raw);
+            if (attempt && attempt.sessionId && attempt.sessionId === targetSessionId) {
+                sessionStorage.removeItem(STORAGE_KEY);
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
 
     function saveAttempt(attempt) {
         try {
@@ -482,6 +605,13 @@ document.addEventListener('DOMContentLoaded', function () {
         hideAlert();
         retryInitBtn.style.display = 'none';
 
+        if (recoveryCoordinator && recoveryCoordinator.isMutating) {
+            showAlert('warning', 'Một thao tác gắn hoặc hủy phiên video đang được thực hiện. Vui lòng chờ phản hồi từ máy chủ trước khi chọn file mới.');
+            fileInput.value = '';
+            startUploadBtn.disabled = true;
+            return;
+        }
+
         const active = coordinator.getCurrentAttempt();
         if (active && !active.isSettled) {
             showAlert('error', 'Một phiên tải lên trước đó vẫn đang hoạt động hoặc chưa được giải quyết (Trạng thái: '
@@ -552,6 +682,15 @@ document.addEventListener('DOMContentLoaded', function () {
             completedDirectLink.href = completeData.playbackUrl;
             completedContainer.style.display = 'block';
 
+            uploadView.setAttribute('data-is-replacement', 'true');
+            uploadView.setAttribute('data-expected-video-asset-id', completeData.videoMediaAssetId);
+            if (recoveryCoordinator) {
+                recoveryCoordinator.currentAttachedAssetId = completeData.videoMediaAssetId;
+            }
+            if (recoveryRenderer) {
+                recoveryRenderer.load();
+            }
+
             const successMsg = completeData.status === 'REPLACED'
                     ? 'Video đã được tải lên Backblaze B2 và thay thế thành công trên Screen Entry. Bạn có thể phát video mới ngay bên dưới.'
                     : 'Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry. Bạn có thể phát video ngay bên dưới.';
@@ -615,6 +754,11 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        if (recoveryCoordinator && recoveryCoordinator.isMutating) {
+            showAlert('warning', 'Một thao tác gắn hoặc hủy phiên video đang được thực hiện. Vui lòng chờ phản hồi từ máy chủ trước khi bắt đầu tải lên video mới.');
+            return;
+        }
+
         hideAlert();
         retryInitBtn.style.display = 'none';
         fileInput.disabled = true;
@@ -647,6 +791,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     retryInitBtn.addEventListener('click', async function () {
+        if (recoveryCoordinator && recoveryCoordinator.isMutating) {
+            showAlert('warning', 'Một thao tác gắn hoặc hủy phiên video đang được thực hiện. Vui lòng chờ phản hồi từ máy chủ trước khi thử lại.');
+            return;
+        }
+
         hideAlert();
         retryInitBtn.style.display = 'none';
         fileInput.disabled = true;
@@ -681,6 +830,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 onAborted: function (data) {
                     clearSavedAttempt();
                     coordinator.dismissSettledAttempt();
+                    if (recoveryRenderer) {
+                        recoveryRenderer.load();
+                    }
 
                     showAlert('warning', 'Phiên tải lên đã được đánh dấu hủy trên hệ thống (' + (data.status || 'ABORTED') + '). Session ID: ' + (attempt.sessionId || 'N/A') + '. Lưu ý: Quá trình dọn dẹp B2 từ xa tuân thủ hợp đồng bảo vệ cách ly.');
                     progressContainer.style.display = 'none';
