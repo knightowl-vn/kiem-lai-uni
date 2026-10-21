@@ -38,6 +38,7 @@ import com.universe.screen.application.exceptions.ScreenVideoAlreadyReferencedEx
 import com.universe.screen.application.exceptions.ScreenVideoDiscardAccessDeniedException;
 import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.FindRecoverableScreenVideoUploadsUseCase;
+import com.universe.screen.infrastructure.media.ScreenMediaAssetReferenceCheckAdapter;
 import com.universe.screen.infrastructure.media.ScreenMediaValidationAdapter;
 import com.universe.shared.time.ClockPort;
 import com.universe.test.TestDatabaseSupport;
@@ -138,6 +139,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         MediaUploadSessionPersistenceAdapter.class,
         ScreenTitlePersistenceAdapter.class,
         ScreenEntryPersistenceAdapter.class,
+        ScreenMediaAssetReferenceCheckAdapter.class,
         ScreenMediaValidationAdapter.class,
         DiscardScreenEntryVideoUploadUseCase.class,
         FindRecoverableScreenVideoUploadsUseCase.class,

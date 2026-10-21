@@ -8,6 +8,8 @@ import com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeys
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
+import com.universe.media.application.asset.LockAndInspectMediaAssetUseCase;
+import com.universe.media.application.asset.LockAndValidateActiveMediaAssetUseCase;
 import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.RasterContentSignatureValidator;
 import com.universe.media.application.asset.RegisterMediaAssetUseCase;
@@ -132,6 +134,8 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
         MediaStorageCutoverBarrier.class,
         StorageKeyAllocationPersistenceAdapter.class,
         MediaFacade.class,
+        LockAndValidateActiveMediaAssetUseCase.class,
+        LockAndInspectMediaAssetUseCase.class,
         MediaUploadIntegrationTest.TestConfig.class
 })
 class MediaUploadIntegrationTest {

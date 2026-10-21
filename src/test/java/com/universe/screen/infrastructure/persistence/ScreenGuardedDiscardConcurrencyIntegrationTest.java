@@ -44,6 +44,7 @@ import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
+import com.universe.screen.infrastructure.media.ScreenMediaAssetReferenceCheckAdapter;
 import com.universe.screen.infrastructure.media.ScreenMediaValidationAdapter;
 import com.universe.shared.time.ClockPort;
 import com.universe.test.TestDatabaseSupport;
@@ -155,6 +156,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         MediaUploadSessionPersistenceAdapter.class,
         ScreenTitlePersistenceAdapter.class,
         ScreenEntryPersistenceAdapter.class,
+        ScreenMediaAssetReferenceCheckAdapter.class,
         ScreenMediaValidationAdapter.class,
         DiscardScreenEntryVideoUploadUseCase.class,
         AttachScreenEntryVideoUseCase.class,
