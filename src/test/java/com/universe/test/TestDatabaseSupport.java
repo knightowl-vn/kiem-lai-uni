@@ -2,7 +2,9 @@ package com.universe.test;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
 
+import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -23,6 +25,42 @@ public final class TestDatabaseSupport {
     private static final Pattern SAFE_HOST_PATTERN = Pattern.compile(
             "^(localhost|127\\.0\\.0\\.1)(:\\d+)?$",
             Pattern.CASE_INSENSITIVE
+    );
+
+    private static final Pattern STRICT_LOOPBACK_PATTERN = Pattern.compile(
+            "^(localhost|127\\.0\\.0\\.1)(?::(\\d+))?$",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    /**
+     * Explicit allowlist of approved test database schemas permitted for destructive reset.
+     * Prevents arbitrary or unauthorized local schemas ending with '_test' from being dropped.
+     */
+    private static final Set<String> ALLOWED_DESTRUCTIVE_RESET_DATABASES = Set.of(
+            "kiemlai_test",
+            "kiemlai_community_posts_schema_test",
+            "kiemlai_identity_schema_test",
+            "kiemlai_interaction_comment_schema_test",
+            "kiemlai_interaction_report_schema_test",
+            "kiemlai_interaction_schema_test",
+            "kiemlai_media_client_tag_schema_test",
+            "kiemlai_media_schema_test",
+            "kiemlai_media_image_variant_schema_test",
+            "kiemlai_media_v89_schema_test",
+            "kiemlai_notification_schema_test",
+            "kiemlai_novel_narration_audio_failure_schema_test",
+            "kiemlai_novel_narration_audio_schema_test",
+            "kiemlai_novel_narration_segment_schema_test",
+            "kiemlai_novel_chapter_bookmark_schema_test",
+            "kiemlai_novel_reading_history_schema_test",
+            "kiemlai_novel_reading_progress_schema_test",
+            "kiemlai_novel_chapter_revision_schema_test",
+            "kiemlai_novel_managed_voice_schema_test",
+            "kiemlai_screen_schema_test",
+            "kiemlai_wiki_appreciation_schema_test",
+            "kiemlai_wiki_cover_schema_test",
+            "kiemlai_wiki_image_schema_test",
+            "kiemlai_wiki_saved_article_schema_test"
     );
 
     private TestDatabaseSupport() {
@@ -126,6 +164,61 @@ public final class TestDatabaseSupport {
         }
     }
 
+    /**
+     * Strict guard for destructive database operations (DROP DATABASE).
+     * Enforces loopback host, standard port 3306, and an explicit allowlist of authorized test schemas.
+     */
+    public static void validateDestructiveResetTarget(String host, String dbName) {
+        if (host == null || host.isBlank()) {
+            throw new IllegalStateException("CRITICAL TEST DATABASE SAFETY VIOLATION: Database host cannot be null or blank");
+        }
+        if (dbName == null || dbName.isBlank()) {
+            throw new IllegalStateException("CRITICAL TEST DATABASE SAFETY VIOLATION: Database name cannot be null or blank");
+        }
+
+        String trimmedHost = host.trim();
+        Matcher matcher = STRICT_LOOPBACK_PATTERN.matcher(trimmedHost);
+        if (!matcher.matches()) {
+            throw new IllegalStateException(
+                    "CRITICAL TEST DATABASE SAFETY VIOLATION: Refusing destructive database reset on non-loopback host: '"
+                            + trimmedHost + "'. Host must be localhost or 127.0.0.1."
+            );
+        }
+
+        String portGroup = matcher.group(2);
+        if (portGroup != null) {
+            int port;
+            try {
+                port = Integer.parseInt(portGroup);
+            } catch (NumberFormatException e) {
+                throw new IllegalStateException("CRITICAL TEST DATABASE SAFETY VIOLATION: Malformed port in host: '" + trimmedHost + "'");
+            }
+            if (port != 3306) {
+                throw new IllegalStateException(
+                        "CRITICAL TEST DATABASE SAFETY VIOLATION: Refusing destructive database reset on non-standard port: "
+                                + port + ". Port must be strictly 3306."
+                );
+            }
+        }
+
+        String trimmedDb = dbName.trim();
+        if (!SAFE_DATABASE_PATTERN.matcher(trimmedDb).matches()) {
+            throw new IllegalStateException(
+                    "CRITICAL TEST DATABASE SAFETY VIOLATION: "
+                            + "Refusing to execute integration test against unsafe database name: '"
+                            + dbName
+                            + "'. Database name must contain only letters, digits, underscores "
+                            + "and end with '_test'."
+            );
+        }
+        if (!ALLOWED_DESTRUCTIVE_RESET_DATABASES.contains(trimmedDb)) {
+            throw new IllegalStateException(
+                    "CRITICAL TEST DATABASE SAFETY VIOLATION: Refusing destructive database reset on unapproved database: '"
+                            + trimmedDb + "'. Database must be an explicitly allowlisted test schema, not merely matching generic '*_test'."
+            );
+        }
+    }
+
     public static String resolveJdbcUrl() {
         String host = resolveHost();
         String dbName = resolveDatabaseName();
@@ -134,11 +227,19 @@ public final class TestDatabaseSupport {
     }
 
     public static void configureDynamicProperties(DynamicPropertyRegistry registry) {
-        String host = resolveHost();
-        String dbName = resolveDatabaseName();
+        configureDynamicProperties(registry, System::getProperty, System::getenv);
+    }
+
+    public static void configureDynamicProperties(
+            DynamicPropertyRegistry registry,
+            Function<String, String> sysProps,
+            Function<String, String> envVars
+    ) {
+        String host = resolveHost(sysProps, envVars);
+        String dbName = resolveDatabaseName(sysProps, envVars);
         validateSafety(host, dbName);
-        String password = resolvePassword();
-        String user = resolveUser();
+        String password = resolvePassword(sysProps, envVars);
+        String user = resolveUser(sysProps, envVars);
         String url = "jdbc:mysql://" + host + "/" + dbName + "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
 
         registry.add("spring.datasource.url", () -> url);
@@ -147,6 +248,12 @@ public final class TestDatabaseSupport {
         registry.add("spring.datasource.driver-class-name", () -> DRIVER_CLASS_NAME);
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> 4);
         registry.add("spring.datasource.hikari.minimum-idle", () -> 1);
+
+        // Pin Flyway to the exact same validated target URL and credentials as the datasource
+        registry.add("spring.flyway.url", () -> url);
+        registry.add("spring.flyway.user", () -> user);
+        registry.add("spring.flyway.password", () -> password);
+        registry.add("spring.flyway.driver-class-name", () -> DRIVER_CLASS_NAME);
     }
 
     public static javax.sql.DataSource createTestDataSource(String dbName) {
@@ -163,7 +270,8 @@ public final class TestDatabaseSupport {
 
     public static void resetTestDatabase(String dbName) {
         String host = resolveHost();
-        validateSafety(host, dbName);
+        validateDestructiveResetTarget(host, dbName);
+        String trimmedDb = dbName.trim();
         org.springframework.jdbc.datasource.DriverManagerDataSource rootDs =
                 new org.springframework.jdbc.datasource.DriverManagerDataSource();
         rootDs.setDriverClassName(DRIVER_CLASS_NAME);
@@ -173,7 +281,7 @@ public final class TestDatabaseSupport {
 
         org.springframework.jdbc.core.JdbcTemplate rootJdbc =
                 new org.springframework.jdbc.core.JdbcTemplate(rootDs);
-        rootJdbc.execute("DROP DATABASE IF EXISTS " + dbName);
-        rootJdbc.execute("CREATE DATABASE " + dbName + " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        rootJdbc.execute("DROP DATABASE IF EXISTS `" + trimmedDb + "`");
+        rootJdbc.execute("CREATE DATABASE `" + trimmedDb + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     }
 }

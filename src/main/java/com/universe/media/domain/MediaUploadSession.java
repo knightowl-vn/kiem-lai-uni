@@ -433,6 +433,37 @@ public final class MediaUploadSession {
         validateInvariants();
     }
 
+    public void releaseInitiationClaim(String expectedClaimToken, Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        requireNonBlank(expectedClaimToken, "expectedClaimToken");
+        if (this.status != MediaUploadSessionStatus.ALLOCATED) {
+            throw new IllegalStateException("Cannot release initiation claim on session with status: " + this.status);
+        }
+        if (isCleanupLeaseHeld()) {
+            throw new IllegalStateException("Cannot release initiation claim while cleanup lease is held: " + this.leaseOwner);
+        }
+        if (this.leaseOwner == null || !this.leaseOwner.equals(expectedClaimToken)) {
+            throw new IllegalStateException(String.format(
+                    "Cannot release initiation claim: expected owner '%s' but found '%s'",
+                    expectedClaimToken, this.leaseOwner));
+        }
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
+        this.updatedAt = now;
+        validateInvariants();
+    }
+
+    public void releaseInitiationClaim(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (this.status != MediaUploadSessionStatus.ALLOCATED) {
+            throw new IllegalStateException("Cannot release initiation claim on session with status: " + this.status);
+        }
+        if (this.leaseOwner == null) {
+            throw new IllegalStateException("Cannot release initiation claim when leaseOwner is null.");
+        }
+        releaseInitiationClaim(this.leaseOwner, now);
+    }
+
     /**
      * Determines whether the supplied token strictly conforms to the cleanup claim format {@code CLEANUP_CLAIM:<UUID>}.
      */

@@ -1,7 +1,9 @@
 package com.universe.media.infrastructure.storage.b2;
 
 import com.universe.media.application.exceptions.StorageAmbiguousCompletionException;
+import com.universe.media.application.exceptions.StorageAmbiguousInitiationException;
 import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.exceptions.StorageInitiationRejectedException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.exceptions.StorageUploadNotFoundException;
@@ -793,8 +795,24 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         try {
             CreateMultipartUploadResponse response = s3Client.createMultipartUpload(createRequestBuilder.build());
             return response.uploadId();
+        } catch (S3Exception e) {
+            if (isDefinitiveInitiationRejection(e)) {
+                String errorCode = (e.awsErrorDetails() != null) ? e.awsErrorDetails().errorCode() : "Rejected";
+                throw new StorageInitiationRejectedException("Failed to initiate multipart upload: provider definitively rejected initiation [errorCode=" + errorCode + "]", e);
+            }
+            if (isTimeoutOrTransportException(e)) {
+                throw new StorageAmbiguousInitiationException("Failed to initiate multipart upload: provider initiation timed out or connection was interrupted", e);
+            }
+            if (is5xx(e)) {
+                throw new StorageAmbiguousInitiationException("Failed to initiate multipart upload: provider server error (" + e.statusCode() + ")", e);
+            }
+            String errorCode = (e.awsErrorDetails() != null) ? e.awsErrorDetails().errorCode() : "Unknown";
+            throw new StorageAmbiguousInitiationException("Failed to initiate multipart upload: ambiguous provider failure (status " + e.statusCode() + ", code " + errorCode + ")", e);
         } catch (AwsServiceException | SdkClientException e) {
-            throw new StorageException("Failed to initiate multipart upload for key: " + key.value(), e);
+            if (isTimeoutOrTransportException(e)) {
+                throw new StorageAmbiguousInitiationException("Failed to initiate multipart upload: provider initiation timed out or connection was interrupted", e);
+            }
+            throw new StorageAmbiguousInitiationException("Failed to initiate multipart upload: ambiguous SDK client failure", e);
         }
     }
 
@@ -1922,6 +1940,29 @@ public class B2StorageAdapter implements BinaryStoragePort, MultipartStoragePort
         if (ownsS3Presigner && s3Presigner != null) {
             s3Presigner.close();
         }
+    }
+
+    private static boolean isDefinitiveInitiationRejection(S3Exception e) {
+        if (e == null) {
+            return false;
+        }
+        if (is5xx(e) || isTimeoutOrTransportException(e)) {
+            return false;
+        }
+        if (isNoSuchBucket(e)) {
+            return true;
+        }
+        String errorCode = (e.awsErrorDetails() != null) ? e.awsErrorDetails().errorCode() : null;
+        if (errorCode == null || errorCode.isBlank()) {
+            return false;
+        }
+        return "InvalidAccessKeyId".equalsIgnoreCase(errorCode)
+                || "MalformedAccessKeyId".equalsIgnoreCase(errorCode)
+                || "SignatureDoesNotMatch".equalsIgnoreCase(errorCode)
+                || "InvalidSecurity".equalsIgnoreCase(errorCode)
+                || "InvalidToken".equalsIgnoreCase(errorCode)
+                || "InvalidBucketName".equalsIgnoreCase(errorCode)
+                || "NoSuchBucket".equalsIgnoreCase(errorCode);
     }
 
     private static boolean isPreconditionFailed(S3Exception e) {

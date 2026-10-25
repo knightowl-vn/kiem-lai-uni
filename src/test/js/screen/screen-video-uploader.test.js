@@ -13,7 +13,8 @@ const {
     UploadCoordinator,
     IncrementalSha256,
     formatBytes,
-    validateFileConstraints
+    validateFileConstraints,
+    handleUploadError
 } = require('../../../main/resources/static/js/screen/screen-video-uploader.js');
 
 describe('MS-08E2 Screen Video Upload Lifecycle & Browser Safety Tests', () => {
@@ -3115,5 +3116,348 @@ describe('MS-08E2 Screen Video Upload Lifecycle & Browser Safety Tests', () => {
         assert.strictEqual(attempt2ProgressCalls, initialAttempt2Progress, 'Stale Attempt 1 callbacks must not trigger Attempt 2 onProgress');
         assert.strictEqual(coordinator.getCurrentAttempt(), attempt2Result, 'Current attempt must remain Attempt 2');
         assert.strictEqual(attempt2Result.registeredAssetId, 'asset-t13-ok');
+    });
+
+    describe('MS-08E3-S4 Backend Error Code Alignment & UI Callback Tests (B1 - B8)', () => {
+
+        const testFile = {
+            name: 'test-contract.mp4',
+            size: 26214400, // 25 MiB -> 1 part
+            slice: (start, end) => ({ size: end - start })
+        };
+        const mockCryptoFn = async () => 'test-sha256-hash-b1-b8';
+
+        function createMockUi() {
+            const alerts = [];
+            return {
+                alerts: alerts,
+                showAlert: function (type, message) {
+                    alerts.push({ type, message });
+                },
+                retryInitBtn: { style: { display: 'none' } },
+                startUploadBtn: { disabled: false },
+                fileInput: { disabled: false },
+                abortUploadBtn: { style: { display: 'none' }, disabled: false }
+            };
+        }
+
+        test('B1: MEDIA_STORAGE_INITIATION_REJECTED (HTTP 502) preserves attempt/key and enables same-key retry in UI', async () => {
+            const coordinator = new UploadCoordinator();
+            const ui = createMockUi();
+
+            const fakeFetch = async (url, options) => {
+                if (url.includes('/video/upload-session')) {
+                    return {
+                        ok: false,
+                        status: 502,
+                        json: async () => ({
+                            errorCode: 'MEDIA_STORAGE_INITIATION_REJECTED',
+                            message: 'Nhà cung cấp lưu trữ từ chối yêu cầu khởi tạo do cấu hình hoặc quyền truy cập không hợp lệ.'
+                        })
+                    };
+                }
+                throw new Error('Unexpected URL: ' + url);
+            };
+
+            const result = await coordinator.startAttempt({
+                file: testFile,
+                titleId: 'title-b1',
+                entryId: 'entry-b1',
+                fetchFn: fakeFetch,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(result.phase, UploadPhase.FAILED);
+            assert.strictEqual(result.isSettled, false, 'Attempt must remain unsettled to protect against concurrent new attempts');
+            assert.strictEqual(result.errorCode, 'MEDIA_STORAGE_INITIATION_REJECTED');
+            assert.strictEqual(result.errorStatus, 502);
+            assert.ok(result.idempotencyKey.startsWith('screen-entry-entry-b1'));
+            assert.strictEqual(ui.retryInitBtn.style.display, 'inline-block', 'Retry button must be visible for safe same-key retry');
+            assert.strictEqual(ui.startUploadBtn.disabled, true, 'Start upload button must be disabled');
+            assert.strictEqual(ui.fileInput.disabled, true, 'File input must be disabled');
+            assert.strictEqual(ui.alerts.length, 1);
+            assert.strictEqual(ui.alerts[0].type, 'error');
+            assert.ok(ui.alerts[0].message.includes('từ chối yêu cầu khởi tạo'));
+            assert.ok(ui.alerts[0].message.includes(result.idempotencyKey));
+        });
+
+        test('B2: MEDIA_UPLOAD_INITIATION_IN_PROGRESS (HTTP 409) explains concurrent initiation and prevents click storms', async () => {
+            const coordinator = new UploadCoordinator();
+            const ui = createMockUi();
+
+            const fakeFetch = async (url, options) => {
+                return {
+                    ok: false,
+                    status: 409,
+                    json: async () => ({
+                        errorCode: 'MEDIA_UPLOAD_INITIATION_IN_PROGRESS',
+                        message: 'Phiên tải lên đang được khởi tạo bởi một tiến trình khác.'
+                    })
+                };
+            };
+
+            const result = await coordinator.startAttempt({
+                file: testFile,
+                titleId: 'title-b2',
+                entryId: 'entry-b2',
+                fetchFn: fakeFetch,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(result.phase, UploadPhase.FAILED);
+            assert.strictEqual(result.isSettled, false);
+            assert.strictEqual(result.errorCode, 'MEDIA_UPLOAD_INITIATION_IN_PROGRESS');
+            assert.strictEqual(ui.retryInitBtn.style.display, 'none', 'Retry button must NOT be shown for concurrent in-progress initiation');
+            assert.strictEqual(ui.startUploadBtn.disabled, true);
+            assert.strictEqual(ui.fileInput.disabled, true);
+            assert.strictEqual(ui.alerts.length, 1);
+            assert.strictEqual(ui.alerts[0].type, 'warning');
+            assert.ok(ui.alerts[0].message.includes('tiến trình khác'));
+            assert.ok(ui.alerts[0].message.includes(result.idempotencyKey));
+        });
+
+        test('B3: MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM (HTTP 409) suppresses retry button and requires reconciliation', async () => {
+            const coordinator = new UploadCoordinator();
+            const ui = createMockUi();
+
+            const fakeFetch = async (url, options) => {
+                return {
+                    ok: false,
+                    status: 409,
+                    json: async () => ({
+                        errorCode: 'MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM',
+                        message: 'Phiên tải lên tồn tại yêu cầu khởi tạo chưa xác nhận kết quả.'
+                    })
+                };
+            };
+
+            const result = await coordinator.startAttempt({
+                file: testFile,
+                titleId: 'title-b3',
+                entryId: 'entry-b3',
+                fetchFn: fakeFetch,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(result.phase, UploadPhase.FAILED);
+            assert.strictEqual(result.isSettled, false);
+            assert.strictEqual(result.errorCode, 'MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM');
+            assert.strictEqual(ui.retryInitBtn.style.display, 'none', 'Actionable retry button must NOT be displayed for unconfirmed claims');
+            assert.strictEqual(ui.startUploadBtn.disabled, true);
+            assert.strictEqual(ui.fileInput.disabled, true);
+            assert.strictEqual(ui.alerts.length, 1);
+            assert.strictEqual(ui.alerts[0].type, 'error');
+            assert.ok(ui.alerts[0].message.includes('đối soát'));
+            assert.ok(ui.alerts[0].message.includes(result.idempotencyKey));
+        });
+
+        test('B4: MEDIA_STORAGE_INITIATION_AMBIGUOUS (HTTP 504) surfaces reconciliation guidance and hides retry button', async () => {
+            const coordinator = new UploadCoordinator();
+            const ui = createMockUi();
+
+            const fakeFetch = async (url, options) => {
+                return {
+                    ok: false,
+                    status: 504,
+                    json: async () => ({
+                        errorCode: 'MEDIA_STORAGE_INITIATION_AMBIGUOUS',
+                        message: 'Yêu cầu khởi tạo tải lên nhiều phần tới nhà cung cấp lưu trữ chưa được xác nhận hoặc bị gián đoạn.'
+                    })
+                };
+            };
+
+            const result = await coordinator.startAttempt({
+                file: testFile,
+                titleId: 'title-b4',
+                entryId: 'entry-b4',
+                fetchFn: fakeFetch,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(result.phase, UploadPhase.FAILED);
+            assert.strictEqual(result.isSettled, false);
+            assert.strictEqual(result.errorCode, 'MEDIA_STORAGE_INITIATION_AMBIGUOUS');
+            assert.strictEqual(ui.retryInitBtn.style.display, 'none', 'Retry button must NOT be shown for ambiguous initiation');
+            assert.strictEqual(ui.startUploadBtn.disabled, true);
+            assert.strictEqual(ui.fileInput.disabled, true);
+            assert.strictEqual(ui.alerts.length, 1);
+            assert.strictEqual(ui.alerts[0].type, 'error');
+            assert.ok(ui.alerts[0].message.includes('đối soát trạng thái'));
+            assert.ok(ui.alerts[0].message.includes(result.idempotencyKey));
+        });
+
+        test('B5: Lost network response preserves uncertain initiation protections without fabricating server error code', async () => {
+            const coordinator = new UploadCoordinator();
+            const ui = createMockUi();
+
+            const fakeFetch = async (url, options) => {
+                throw new TypeError('Failed to fetch (network drop)');
+            };
+
+            const result = await coordinator.startAttempt({
+                file: testFile,
+                titleId: 'title-b5',
+                entryId: 'entry-b5',
+                fetchFn: fakeFetch,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        assert.strictEqual(err.isLostResponse, true);
+                        assert.strictEqual(err.errorCode, undefined, 'Must not fabricate a server error code on lost network response');
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(result.phase, UploadPhase.FAILED);
+            assert.strictEqual(result.isSettled, false);
+            assert.strictEqual(result.errorCode, null, 'Attempt errorCode must remain null when no server response was received');
+            assert.strictEqual(ui.retryInitBtn.style.display, 'inline-block', 'Retry button displayed for network drop with same key');
+            assert.strictEqual(ui.startUploadBtn.disabled, true);
+            assert.strictEqual(ui.fileInput.disabled, true);
+            assert.strictEqual(ui.alerts.length, 1);
+            assert.ok(ui.alerts[0].message.includes('Phản hồi từ máy chủ bị gián đoạn'));
+            assert.ok(ui.alerts[0].message.includes(result.idempotencyKey));
+        });
+
+        test('B6: Successful verified same-key retry after B1 continues upload normally to completion', async () => {
+            const coordinator = new UploadCoordinator();
+            const ui = createMockUi();
+            let initAttempts = 0;
+            let sentKeys = [];
+
+            const fakeFetch = async (url, options) => {
+                if (url.endsWith('/video/upload-session') && options && options.method === 'POST') {
+                    initAttempts++;
+                    const body = JSON.parse(options.body);
+                    sentKeys.push(body.idempotencyKey);
+                    if (initAttempts === 1) {
+                        return {
+                            ok: false,
+                            status: 502,
+                            json: async () => ({
+                                errorCode: 'MEDIA_STORAGE_INITIATION_REJECTED',
+                                message: 'Provider rejected'
+                            })
+                        };
+                    }
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            sessionId: 'sess-b6-success',
+                            expectedPartCount: 1,
+                            partSizeBytes: 26214400
+                        })
+                    };
+                }
+                if (url.includes('/parts/1/url')) {
+                    return { ok: true, json: async () => ({ uploadUrl: 'https://b2.test/part-1' }) };
+                }
+                if (url === 'https://b2.test/part-1') {
+                    return { ok: true, headers: { get: (name) => name === 'ETag' ? '"etag-1"' : null } };
+                }
+                if (url.endsWith('/complete')) {
+                    return { ok: true, json: async () => ({ videoMediaAssetId: 'asset-b6', playbackUrl: '/media/b6' }) };
+                }
+                throw new Error('Unexpected URL: ' + url);
+            };
+
+            // 1. Initial attempt fails with 502
+            const attempt1 = await coordinator.startAttempt({
+                file: testFile,
+                titleId: 'title-b6',
+                entryId: 'entry-b6',
+                fetchFn: fakeFetch,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(attempt1.phase, UploadPhase.FAILED);
+            assert.strictEqual(attempt1.errorCode, 'MEDIA_STORAGE_INITIATION_REJECTED');
+            assert.strictEqual(ui.retryInitBtn.style.display, 'inline-block');
+
+            // 2. Verified same-key retry succeeds and completes upload
+            const retryResult = await coordinator.retryInitiation({
+                titleId: 'title-b6',
+                entryId: 'entry-b6',
+                fetchFn: fakeFetch,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(initAttempts, 2);
+            assert.strictEqual(sentKeys.length, 2);
+            assert.strictEqual(sentKeys[0], sentKeys[1], 'Retry must reuse the exact same idempotencyKey');
+            assert.strictEqual(retryResult.phase, UploadPhase.COMPLETED);
+            assert.strictEqual(retryResult.isSettled, true);
+            assert.strictEqual(retryResult.registeredAssetId, 'asset-b6');
+            assert.strictEqual(retryResult.errorCode, null, 'ErrorCode must be reset after successful retry');
+        });
+
+        test('B7: Unknown non-JSON (e.g. 500 HTML) or unknown JSON server errors fail conservatively and hide retry button', async () => {
+            const coordinator = new UploadCoordinator();
+            const ui = createMockUi();
+
+            const fakeFetchHtml500 = async (url, options) => {
+                return {
+                    ok: false,
+                    status: 500,
+                    json: async () => {
+                        throw new SyntaxError('Unexpected token < in JSON at position 0');
+                    }
+                };
+            };
+
+            const result = await coordinator.startAttempt({
+                file: testFile,
+                titleId: 'title-b7',
+                entryId: 'entry-b7',
+                fetchFn: fakeFetchHtml500,
+                cryptoFn: mockCryptoFn,
+                callbacks: {
+                    onError: (err, attempt) => {
+                        handleUploadError(err, attempt, ui);
+                    }
+                }
+            });
+
+            assert.strictEqual(result.phase, UploadPhase.FAILED);
+            assert.strictEqual(result.isSettled, false);
+            assert.strictEqual(result.errorCode, null, 'Non-JSON server error must not have an errorCode');
+            assert.strictEqual(ui.retryInitBtn.style.display, 'none', 'Retry button must NOT be shown for unclassified server errors');
+            assert.strictEqual(ui.startUploadBtn.disabled, true);
+            assert.strictEqual(ui.fileInput.disabled, true);
+            assert.strictEqual(ui.alerts.length, 1);
+            assert.strictEqual(ui.alerts[0].type, 'error');
+            assert.ok(ui.alerts[0].message.includes('Cần kiểm tra hệ thống hoặc đối soát'));
+        });
     });
 });

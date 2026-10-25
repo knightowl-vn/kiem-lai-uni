@@ -1,9 +1,14 @@
 package com.universe.media.application.storage;
 
 import com.universe.media.application.exceptions.DuplicateStorageLocationException;
+import com.universe.media.application.exceptions.StorageAmbiguousCompletionException;
+import com.universe.media.application.exceptions.StorageAmbiguousInitiationException;
 import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.exceptions.StorageInitiationRejectedException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.exceptions.StorageUploadNotFoundException;
+import com.universe.media.application.exceptions.UploadSessionInitiationConflictException;
+import com.universe.media.application.exceptions.UploadSessionUnconfirmedInitiationException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaUploadSessionPage;
@@ -525,6 +530,46 @@ public class MediaUploadSessionService {
                     MimeType.of(claimedSession.getDeclaredMimeType()),
                     metadata
             );
+        } catch (StorageInitiationRejectedException rejectionEx) {
+            log.warn("Multipart initiation definitively rejected by provider for session {}. Releasing initiation claim to permit retry. error={}",
+                    sessionId, rejectionEx.getMessage());
+            InitiationClaimCompensationOutcome outcome;
+            try {
+                outcome = txTemplate.execute(status -> releaseInitiationClaimOnDefinitiveRejection(
+                        sessionId,
+                        claimedSession.getLeaseOwner(),
+                        rejectionEx.getMessage()
+                ));
+            } catch (RuntimeException compensationEx) {
+                log.error("Failed to commit initiation claim compensation after definitive rejection for session {}. Claim preserved as unconfirmed.",
+                        sessionId, compensationEx);
+                UploadSessionUnconfirmedInitiationException unconfirmedEx = new UploadSessionUnconfirmedInitiationException(
+                        sessionId,
+                        claimedSession.getLeaseOwner(),
+                        String.format("Provider rejected initiation for upload session %s, but claim compensation transaction failed (%s). Claim preserved as unconfirmed pending reconciliation.",
+                                sessionId, compensationEx.getMessage()),
+                        compensationEx
+                );
+                unconfirmedEx.addSuppressed(rejectionEx);
+                throw unconfirmedEx;
+            }
+
+            if (outcome != InitiationClaimCompensationOutcome.COMPENSATED) {
+                log.error("Initiation claim compensation rejected for session {} (outcome: {}). Claim preserved as unconfirmed.",
+                        sessionId, outcome);
+                UploadSessionUnconfirmedInitiationException unconfirmedEx = new UploadSessionUnconfirmedInitiationException(
+                        sessionId,
+                        claimedSession.getLeaseOwner(),
+                        String.format("Provider rejected initiation for upload session %s, but claim compensation could not be applied (outcome: %s). Claim preserved as unconfirmed pending reconciliation.",
+                                sessionId, outcome)
+                );
+                unconfirmedEx.addSuppressed(rejectionEx);
+                throw unconfirmedEx;
+            }
+
+            log.info("Successfully compensated initiation claim for session {} following provider definitive rejection. Session is safely retryable.",
+                    sessionId);
+            throw rejectionEx;
         } catch (RuntimeException providerException) {
             // "Never assume remote initiation failed merely because providerUploadId was not persisted."
             // "Unknown outcomes must remain recoverable/reconcilable, without speculative provider deletion."
@@ -581,7 +626,9 @@ public class MediaUploadSessionService {
 
         // 4. Validate initiation claims and guard against duplicate remote initiation
         if (session.hasActiveInitiationLease(now)) {
-            throw new IllegalStateException(
+            throw new UploadSessionInitiationConflictException(
+                    sessionId,
+                    session.getLeaseOwner(),
                     String.format("Concurrent initiation in progress for upload session %s (lease held by %s)",
                             sessionId, session.getLeaseOwner())
             );
@@ -590,7 +637,9 @@ public class MediaUploadSessionService {
             // "Distinguish expired lease from confirmed worker termination."
             // "Never assume remote initiation failed merely because providerUploadId was not persisted."
             // "Never automatically create a second multipart upload under the same reserved storage key while an earlier initiation may have succeeded."
-            throw new IllegalStateException(
+            throw new UploadSessionUnconfirmedInitiationException(
+                    sessionId,
+                    session.getLeaseOwner(),
                     String.format("Upload session %s has an unconfirmed earlier initiation claim with missing providerUploadId. Cannot initiate a second multipart upload without reconciliation.",
                             sessionId)
             );
@@ -607,6 +656,30 @@ public class MediaUploadSessionService {
         session.claimInitiation(claimToken, leaseExpiresAt, now);
 
         return sessionRepositoryPort.save(session);
+    }
+
+    public enum InitiationClaimCompensationOutcome {
+        COMPENSATED,
+        TOKEN_MISMATCH,
+        INVALID_STATUS
+    }
+
+    private InitiationClaimCompensationOutcome releaseInitiationClaimOnDefinitiveRejection(UUID sessionId, String expectedClaimToken, String errorDetail) {
+        MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
+                .orElseThrow(() -> new IllegalStateException("Upload session not found for ID: " + sessionId));
+        if (session.getStatus() != MediaUploadSessionStatus.ALLOCATED) {
+            log.warn("Cannot release initiation claim on session {} because status is {}", sessionId, session.getStatus());
+            return InitiationClaimCompensationOutcome.INVALID_STATUS;
+        }
+        if (session.getLeaseOwner() == null || !session.getLeaseOwner().equals(expectedClaimToken)) {
+            log.warn("Cannot release initiation claim on session {} because lease owner changed or token mismatched",
+                    sessionId);
+            return InitiationClaimCompensationOutcome.TOKEN_MISMATCH;
+        }
+        Instant now = clockPort.now();
+        session.releaseInitiationClaim(expectedClaimToken, now);
+        sessionRepositoryPort.save(session);
+        return InitiationClaimCompensationOutcome.COMPENSATED;
     }
 
     /**

@@ -4,10 +4,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.context.DynamicPropertyRegistry;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -136,5 +137,113 @@ class TestDatabaseSupportTest {
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("CRITICAL TEST DATABASE SAFETY VIOLATION").hasMessageContaining(
 						"Refusing to execute integration test against unsafe database name: 'kiemlai_universe'");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"arbitrary_test",
+			"unapproved_module_test",
+			"customer_data_test",
+			"prod_backup_test",
+			"random_test",
+			"other_test",
+			"my_special_test"
+	})
+	@DisplayName("9. validateDestructiveResetTarget rejects unapproved databases even if ending in _test")
+	void shouldRejectUnapprovedDatabasesInDestructiveReset(String unapprovedDb) {
+		assertThatThrownBy(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", unapprovedDb))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("CRITICAL TEST DATABASE SAFETY VIOLATION")
+				.hasMessageContaining("Refusing destructive database reset on unapproved database: '" + unapprovedDb + "'")
+				.hasMessageContaining("must be an explicitly allowlisted test schema");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"db; DROP TABLE users;--_test",
+			"db`DROP`_test",
+			"db\\_test",
+			"test db_test",
+			"db'--_test",
+			"db/*comment*/_test"
+	})
+	@DisplayName("10. validateDestructiveResetTarget rejects SQL injection and invalid characters")
+	void shouldRejectSqlInjectionInDestructiveReset(String maliciousDb) {
+		assertThatThrownBy(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", maliciousDb))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("CRITICAL TEST DATABASE SAFETY VIOLATION")
+				.hasMessageContaining("Refusing to execute integration test against unsafe database name");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"localhost:3307",
+			"127.0.0.1:3307",
+			"localhost:8080",
+			"127.0.0.1:21303"
+	})
+	@DisplayName("11. validateDestructiveResetTarget rejects non-standard ports for destructive reset")
+	void shouldRejectNonStandardPortInDestructiveReset(String hostWithNonStandardPort) {
+		assertThatThrownBy(() -> TestDatabaseSupport.validateDestructiveResetTarget(hostWithNonStandardPort, "kiemlai_test"))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("CRITICAL TEST DATABASE SAFETY VIOLATION")
+				.hasMessageContaining("Port must be strictly 3306");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"remote.mysql.internal:3306",
+			"192.168.1.100:3306",
+			"10.0.0.1:3306"
+	})
+	@DisplayName("12. validateDestructiveResetTarget rejects remote hosts for destructive reset")
+	void shouldRejectRemoteHostsInDestructiveReset(String remoteHost) {
+		assertThatThrownBy(() -> TestDatabaseSupport.validateDestructiveResetTarget(remoteHost, "kiemlai_test"))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("CRITICAL TEST DATABASE SAFETY VIOLATION")
+				.hasMessageContaining("Refusing destructive database reset on non-loopback host");
+	}
+
+	@Test
+	@DisplayName("13. validateDestructiveResetTarget accepts allowlisted test databases on loopback:3306")
+	void shouldAcceptAllowlistedTestDatabasesInDestructiveReset() {
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", "kiemlai_test"))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("127.0.0.1:3306", "kiemlai_test"))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost", "kiemlai_test"))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", "kiemlai_screen_schema_test"))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("127.0.0.1:3306", "kiemlai_community_posts_schema_test"))
+				.doesNotThrowAnyException();
+	}
+
+	@Test
+	@DisplayName("14. configureDynamicProperties with functional lookups pins Flyway without mutating System properties")
+	void shouldPinFlywayPropertiesWithoutMutatingSystemProperties() {
+		Map<String, Supplier<Object>> props = new HashMap<>();
+		DynamicPropertyRegistry registry = props::put;
+
+		Map<String, String> sysProps = Map.of(
+				"test.mysql.host", "localhost:3306",
+				"test.mysql.db", "kiemlai_test",
+				"test.mysql.user", "custom_user",
+				"test.mysql.pass", "custom_pass"
+		);
+
+		TestDatabaseSupport.configureDynamicProperties(registry, sysProps::get, key -> null);
+
+		String dsUrl = (String) props.get("spring.datasource.url").get();
+		String flywayUrl = (String) props.get("spring.flyway.url").get();
+		String dsUser = (String) props.get("spring.datasource.username").get();
+		String flywayUser = (String) props.get("spring.flyway.user").get();
+		String dsPass = (String) props.get("spring.datasource.password").get();
+		String flywayPass = (String) props.get("spring.flyway.password").get();
+
+		assertThat(flywayUrl).isEqualTo(dsUrl).contains("localhost:3306/kiemlai_test");
+		assertThat(flywayUser).isEqualTo(dsUser).isEqualTo("custom_user");
+		assertThat(flywayPass).isEqualTo(dsPass).isEqualTo("custom_pass");
+		assertThat(props.get("spring.flyway.driver-class-name").get()).isEqualTo("com.mysql.cj.jdbc.Driver");
 	}
 }

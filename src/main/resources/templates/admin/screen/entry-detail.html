@@ -698,48 +698,14 @@ document.addEventListener('DOMContentLoaded', function () {
         },
         onError: function (err, attempt) {
             console.error('Upload failed:', err);
-            const failurePhase = (attempt && attempt.failedAtPhase) ? attempt.failedAtPhase : (attempt ? attempt.phase : null);
-
-            if (err.isLostResponse || err.isUncertainInitiation || (attempt && !attempt.sessionId && (failurePhase === Uploader.UploadPhase.INITIATING || failurePhase === Uploader.UploadPhase.FAILED))) {
-                showAlert('error', err.message + '. Trạng thái trên máy chủ chưa xác định. Vui lòng bấm "Thử lại khởi tạo" để tiếp tục an toàn với cùng khóa phiên bảo vệ (Idempotency Key: ' + attempt.idempotencyKey + '), không tạo phiên trùng lặp.');
-                retryInitBtn.style.display = 'inline-block';
-                startUploadBtn.disabled = true;
-                fileInput.disabled = true;
-                abortUploadBtn.style.display = 'none';
-            } else if (attempt && attempt.sessionId && failurePhase === Uploader.UploadPhase.UPLOADING_PARTS) {
-                showAlert('error', 'Lỗi trong quá trình truyền chunk lên B2: ' + err.message + '. Session ID: ' + attempt.sessionId + '. Bạn có thể bấm "Hủy tải lên" để hủy phiên trên hệ thống, hoặc kiểm tra kết nối mạng/CORS trước khi thử lại.');
-                abortUploadBtn.style.display = 'inline-block';
-                abortUploadBtn.disabled = false;
-                startUploadBtn.disabled = true;
-                fileInput.disabled = true;
-                retryInitBtn.style.display = 'none';
-            } else if (attempt && failurePhase === Uploader.UploadPhase.COMPLETING) {
-                showAlert('error', 'Lỗi khi xác nhận hoàn tất phiên tải trên B2: ' + err.message + '. Session ID: ' + (attempt.sessionId || 'N/A') + '. CẢNH BÁO: Trạng thái gộp file trên B2 chưa xác định. Vui lòng KHÔNG bắt đầu tải file mới ngay để tránh xung đột dữ liệu. Bạn có thể làm mới trang để kiểm tra xem video đã được gắn hay chưa.');
-                abortUploadBtn.style.display = 'none';
-                startUploadBtn.disabled = true;
-                fileInput.disabled = true;
-                retryInitBtn.style.display = 'none';
-            } else if (failurePhase === Uploader.UploadPhase.HASHING) {
-                showAlert('error', 'Lỗi trước khi tạo phiên: ' + err.message);
-                startUploadBtn.disabled = false;
-                fileInput.disabled = false;
-                abortUploadBtn.style.display = 'none';
-                retryInitBtn.style.display = 'none';
-            } else {
-                showAlert('error', 'Lỗi: ' + err.message + (attempt && attempt.sessionId ? (' (Session ID: ' + attempt.sessionId + ')') : '') + '.');
-                if (attempt && !attempt.isSettled) {
-                    startUploadBtn.disabled = true;
-                    fileInput.disabled = true;
-                    if (attempt.sessionId) {
-                        abortUploadBtn.style.display = 'inline-block';
-                        abortUploadBtn.disabled = false;
-                    }
-                } else {
-                    startUploadBtn.disabled = false;
-                    fileInput.disabled = false;
-                    abortUploadBtn.style.display = 'none';
-                }
-                retryInitBtn.style.display = 'none';
+            if (Uploader && typeof Uploader.handleUploadError === 'function') {
+                Uploader.handleUploadError(err, attempt, {
+                    retryInitBtn: retryInitBtn,
+                    startUploadBtn: startUploadBtn,
+                    fileInput: fileInput,
+                    abortUploadBtn: abortUploadBtn,
+                    showAlert: showAlert
+                });
             }
         }
     };

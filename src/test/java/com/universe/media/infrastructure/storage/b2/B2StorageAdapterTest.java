@@ -1,7 +1,9 @@
 package com.universe.media.infrastructure.storage.b2;
 
 import com.universe.media.application.exceptions.StorageAmbiguousCompletionException;
+import com.universe.media.application.exceptions.StorageAmbiguousInitiationException;
 import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.exceptions.StorageInitiationRejectedException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.exceptions.StorageUploadNotFoundException;
@@ -32,6 +34,7 @@ import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.core.exception.ApiCallTimeoutException;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.AbortableInputStream;
@@ -77,6 +80,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -1211,6 +1215,222 @@ class B2StorageAdapterTest {
                 assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
                         .isInstanceOf(StorageException.class)
                         .hasMessageContaining("Failed to initiate multipart upload");
+            }
+
+            // -----------------------------------------------------------------------------------------
+            // Task A: B2 SDK Exception Classification Matrix Tests (A1 - A10)
+            // -----------------------------------------------------------------------------------------
+
+            @Test
+            @DisplayName("A1: initiate maps MalformedAccessKeyId (403) to StorageInitiationRejectedException")
+            void shouldMapMalformedAccessKeyIdToStorageInitiationRejectedException() {
+                StorageKey key = StorageKey.of("videos/init-a1.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(403)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("MalformedAccessKeyId").errorMessage("Malformed Access Key Id").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageInitiationRejectedException.class)
+                        .hasMessageContaining("MalformedAccessKeyId");
+            }
+
+            @Test
+            @DisplayName("A2: initiate maps InvalidAccessKeyId (403) to StorageInitiationRejectedException")
+            void shouldMapInvalidAccessKeyIdToStorageInitiationRejectedException() {
+                StorageKey key = StorageKey.of("videos/init-a2.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(403)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("InvalidAccessKeyId").errorMessage("The AWS Access Key Id you provided does not exist in our records.").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageInitiationRejectedException.class)
+                        .hasMessageContaining("InvalidAccessKeyId");
+            }
+
+            @Test
+            @DisplayName("A3: initiate maps SignatureDoesNotMatch (403) to StorageInitiationRejectedException")
+            void shouldMapSignatureDoesNotMatchToStorageInitiationRejectedException() {
+                StorageKey key = StorageKey.of("videos/init-a3.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(403)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("SignatureDoesNotMatch").errorMessage("The request signature we calculated does not match.").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageInitiationRejectedException.class)
+                        .hasMessageContaining("SignatureDoesNotMatch");
+            }
+
+            @Test
+            @DisplayName("A4: initiate maps NoSuchBucket (404) to StorageInitiationRejectedException")
+            void shouldMapNoSuchBucketToStorageInitiationRejectedException() {
+                StorageKey key = StorageKey.of("videos/init-a4.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(404)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("NoSuchBucket").errorMessage("The specified bucket does not exist").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageInitiationRejectedException.class)
+                        .hasMessageContaining("NoSuchBucket");
+            }
+
+            @Test
+            @DisplayName("A5: initiate maps unknown HTTP 403 (e.g. AccessDenied) to StorageAmbiguousInitiationException")
+            void shouldMapUnknown403ToStorageAmbiguousInitiationException() {
+                StorageKey key = StorageKey.of("videos/init-a5.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(403)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDenied").errorMessage("Access Denied").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageAmbiguousInitiationException.class)
+                        .isNotInstanceOf(StorageInitiationRejectedException.class)
+                        .hasMessageContaining("ambiguous provider failure")
+                        .hasMessageContaining("403")
+                        .hasMessageContaining("AccessDenied")
+                        .hasCause(s3Ex);
+            }
+
+            @ParameterizedTest
+            @ValueSource(ints = {500, 503})
+            @DisplayName("A6: initiate maps HTTP 500/503 to StorageAmbiguousInitiationException")
+            void shouldMapHttp5xxToStorageAmbiguousInitiationException(int statusCode) {
+                StorageKey key = StorageKey.of("videos/init-a6.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(statusCode)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode(statusCode == 500 ? "InternalError" : "SlowDown").errorMessage("Provider Error").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageAmbiguousInitiationException.class)
+                        .hasMessageContaining("server error")
+                        .hasMessageContaining(String.valueOf(statusCode))
+                        .hasCause(s3Ex);
+            }
+
+            @Test
+            @DisplayName("A7: initiate maps SDK ApiCallTimeoutException to StorageAmbiguousInitiationException")
+            void shouldMapSdkTimeoutToStorageAmbiguousInitiationException() {
+                StorageKey key = StorageKey.of("videos/init-a7.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                ApiCallTimeoutException timeoutEx = ApiCallTimeoutException.create("API call exceeded timeout", new TimeoutException("timeout"));
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(timeoutEx);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageAmbiguousInitiationException.class)
+                        .hasMessageContaining("timed out or connection was interrupted")
+                        .hasCause(timeoutEx);
+            }
+
+            @Test
+            @DisplayName("A8: initiate maps transport failure to StorageAmbiguousInitiationException")
+            void shouldMapTransportFailureToStorageAmbiguousInitiationException() {
+                StorageKey key = StorageKey.of("videos/init-a8.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                SdkClientException transportEx = SdkClientException.create(
+                        "Unable to execute HTTP request: Read timed out",
+                        new java.net.SocketTimeoutException("Read timed out")
+                );
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(transportEx);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageAmbiguousInitiationException.class)
+                        .hasMessageContaining("timed out or connection was interrupted")
+                        .hasCause(transportEx);
+            }
+
+            @Test
+            @DisplayName("A9: initiate maps unknown service exception (HTTP 400) to StorageAmbiguousInitiationException")
+            void shouldMapUnknownServiceExceptionToStorageAmbiguousInitiationException() {
+                StorageKey key = StorageKey.of("videos/init-a9.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(400)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("InvalidParameter").errorMessage("Invalid parameter value").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageAmbiguousInitiationException.class)
+                        .isNotInstanceOf(StorageInitiationRejectedException.class)
+                        .hasMessageContaining("ambiguous provider failure")
+                        .hasMessageContaining("400")
+                        .hasMessageContaining("InvalidParameter")
+                        .hasCause(s3Ex);
+            }
+
+            @Test
+            @DisplayName("A10: initiate successfully returns valid provider upload ID")
+            void shouldReturnValidProviderUploadIdOnSuccessfulInitiation() {
+                StorageKey key = StorageKey.of("videos/init-a10.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class)))
+                        .thenReturn(CreateMultipartUploadResponse.builder().uploadId("b2-upload-init-a10-success").build());
+
+                String uploadId = adapter.initiateMultipartUpload(key, mime);
+                assertThat(uploadId).isEqualTo("b2-upload-init-a10-success");
+            }
+
+            @Test
+            @DisplayName("A11: initiate maps unknown SdkClientException to StorageAmbiguousInitiationException")
+            void shouldMapUnknownSdkClientExceptionToStorageAmbiguousInitiationException() {
+                StorageKey key = StorageKey.of("videos/init-a11.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                SdkClientException clientEx = SdkClientException.create("Failed to unmarshal XML response");
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(clientEx);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageAmbiguousInitiationException.class)
+                        .hasMessageContaining("ambiguous SDK client failure")
+                        .hasCause(clientEx);
+            }
+
+            @Test
+            @DisplayName("A12: initiate maps unexpected S3 error code to StorageAmbiguousInitiationException")
+            void shouldMapUnexpectedS3ErrorCodeToStorageAmbiguousInitiationException() {
+                StorageKey key = StorageKey.of("videos/init-a12.mp4");
+                MimeType mime = MimeType.of("video/mp4");
+                S3Exception s3Ex = (S3Exception) S3Exception.builder()
+                        .statusCode(409)
+                        .awsErrorDetails(AwsErrorDetails.builder().errorCode("BucketAlreadyOwnedByYou").errorMessage("Bucket already owned").build())
+                        .build();
+
+                when(s3Client.createMultipartUpload(any(CreateMultipartUploadRequest.class))).thenThrow(s3Ex);
+
+                assertThatThrownBy(() -> adapter.initiateMultipartUpload(key, mime))
+                        .isInstanceOf(StorageAmbiguousInitiationException.class)
+                        .isNotInstanceOf(StorageInitiationRejectedException.class)
+                        .hasMessageContaining("ambiguous provider failure")
+                        .hasMessageContaining("409")
+                        .hasMessageContaining("BucketAlreadyOwnedByYou")
+                        .hasCause(s3Ex);
             }
 
             @Test

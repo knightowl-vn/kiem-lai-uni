@@ -1,6 +1,10 @@
 package com.universe.screen.entry.admin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.universe.media.application.exceptions.StorageAmbiguousInitiationException;
+import com.universe.media.application.exceptions.StorageInitiationRejectedException;
+import com.universe.media.application.exceptions.UploadSessionInitiationConflictException;
+import com.universe.media.application.exceptions.UploadSessionUnconfirmedInitiationException;
 import com.universe.media.contracts.dto.AllocateUploadSessionRequestDTO;
 import com.universe.media.contracts.dto.ClaimCompletionIntentRequestDTO;
 import com.universe.media.contracts.dto.CompleteMultipartUploadRequestDTO;
@@ -192,6 +196,94 @@ class AdminScreenEntryVideoControllerTest {
 
         // When session is already INITIATED, initiateUploadSession is not called again
         org.mockito.Mockito.verify(mediaContract, org.mockito.Mockito.never()).initiateUploadSession(any(), any());
+    }
+
+    @Test
+    @DisplayName("POST /upload-session: maps StorageInitiationRejectedException to HTTP 502 MEDIA_STORAGE_INITIATION_REJECTED")
+    void shouldMapStorageInitiationRejectedExceptionTo502() throws Exception {
+        stubTitleAndEntry(null);
+        MediaUploadSessionResponseDTO allocated = new MediaUploadSessionResponseDTO(
+                sessionId, "ALLOCATED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                52428800L, 26214400L, 2, "video.mp4", "screen-video", null, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.allocateUploadSession(any())).thenReturn(allocated);
+        when(mediaContract.initiateUploadSession(eq(sessionId), eq("admin")))
+                .thenThrow(new StorageInitiationRejectedException("Provider definitively rejected multipart initiation [errorCode=MalformedAccessKeyId]"));
+
+        InitiateVideoUploadSessionRequest req = new InitiateVideoUploadSessionRequest(52428800L, "video.mp4", "idem-key");
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session", titleId, entryId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("MEDIA_STORAGE_INITIATION_REJECTED"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Nhà cung cấp lưu trữ từ chối yêu cầu khởi tạo")));
+    }
+
+    @Test
+    @DisplayName("POST /upload-session: maps StorageAmbiguousInitiationException to HTTP 504 MEDIA_STORAGE_INITIATION_AMBIGUOUS")
+    void shouldMapStorageAmbiguousInitiationExceptionTo504() throws Exception {
+        stubTitleAndEntry(null);
+        MediaUploadSessionResponseDTO allocated = new MediaUploadSessionResponseDTO(
+                sessionId, "ALLOCATED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                52428800L, 26214400L, 2, "video.mp4", "screen-video", null, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.allocateUploadSession(any())).thenReturn(allocated);
+        when(mediaContract.initiateUploadSession(eq(sessionId), eq("admin")))
+                .thenThrow(new StorageAmbiguousInitiationException("Provider multipart initiation timed out"));
+
+        InitiateVideoUploadSessionRequest req = new InitiateVideoUploadSessionRequest(52428800L, "video.mp4", "idem-key");
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session", titleId, entryId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.error").value("MEDIA_STORAGE_INITIATION_AMBIGUOUS"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("chưa được xác nhận hoặc bị gián đoạn")));
+    }
+
+    @Test
+    @DisplayName("POST /upload-session: maps UploadSessionInitiationConflictException to HTTP 409 MEDIA_UPLOAD_INITIATION_IN_PROGRESS")
+    void shouldMapUploadSessionInitiationConflictExceptionTo409() throws Exception {
+        stubTitleAndEntry(null);
+        MediaUploadSessionResponseDTO allocated = new MediaUploadSessionResponseDTO(
+                sessionId, "ALLOCATED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                52428800L, 26214400L, 2, "video.mp4", "screen-video", null, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.allocateUploadSession(any())).thenReturn(allocated);
+        when(mediaContract.initiateUploadSession(eq(sessionId), eq("admin")))
+                .thenThrow(new UploadSessionInitiationConflictException(sessionId, "INITIATION_CLAIM:worker-1", "Concurrent initiation"));
+
+        InitiateVideoUploadSessionRequest req = new InitiateVideoUploadSessionRequest(52428800L, "video.mp4", "idem-key");
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session", titleId, entryId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("MEDIA_UPLOAD_INITIATION_IN_PROGRESS"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("đang được khởi tạo bởi một tiến trình khác")));
+    }
+
+    @Test
+    @DisplayName("POST /upload-session: maps UploadSessionUnconfirmedInitiationException to HTTP 409 MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM")
+    void shouldMapUploadSessionUnconfirmedInitiationExceptionTo409() throws Exception {
+        stubTitleAndEntry(null);
+        MediaUploadSessionResponseDTO allocated = new MediaUploadSessionResponseDTO(
+                sessionId, "ALLOCATED", "admin", "screen", "SCREEN_ENTRY", entryId,
+                52428800L, 26214400L, 2, "video.mp4", "screen-video", null, now, now.plusSeconds(86400)
+        );
+        when(mediaContract.allocateUploadSession(any())).thenReturn(allocated);
+        when(mediaContract.initiateUploadSession(eq(sessionId), eq("admin")))
+                .thenThrow(new UploadSessionUnconfirmedInitiationException(sessionId, "INITIATION_CLAIM:worker-1", "Unconfirmed claim"));
+
+        InitiateVideoUploadSessionRequest req = new InitiateVideoUploadSessionRequest(52428800L, "video.mp4", "idem-key");
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session", titleId, entryId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req))
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("chưa xác nhận kết quả. Cần thực hiện đối soát")));
     }
 
     @Test

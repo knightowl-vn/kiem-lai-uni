@@ -306,6 +306,8 @@
             registeredAssetId: null,
             playbackUrl: null,
             error: null,
+            errorCode: null,
+            errorStatus: null,
             partsManifest: [],
             isReplacement: options.isReplacement || false,
             expectedCurrentVideoMediaAssetId: options.expectedCurrentVideoMediaAssetId || null
@@ -764,6 +766,8 @@
             }
 
             attempt.error = err.message;
+            attempt.errorCode = (err && err.errorCode) || attempt.errorCode || null;
+            attempt.errorStatus = (err && err.status) || attempt.errorStatus || null;
             attempt.failedAtPhase = attempt.phase;
 
             const isNavCancelled = err && (err.code === HASH_NAVIGATION_CANCELLED || err.isCancellation === true);
@@ -929,9 +933,13 @@
             attempt.partSizeBytes = sessionData.partSizeBytes;
         } else {
             let errMsg = 'HTTP ' + initResp.status;
+            let errCode = null;
+            let rawData = null;
             try {
                 const errData = await initResp.json();
+                rawData = errData;
                 if (errData && errData.message) errMsg = errData.message;
+                if (errData && errData.errorCode) errCode = errData.errorCode;
             } catch (e) { /* ignore JSON parse error on HTTP errors */ }
 
             // Recheck generation and cancellation after async error body read
@@ -941,7 +949,13 @@
             if (attempt.isCancelled) {
                 return;
             }
-            throw new Error('Khởi tạo upload session thất bại: ' + errMsg);
+            const initErr = new Error('Khởi tạo upload session thất bại: ' + errMsg);
+            initErr.status = initResp.status;
+            initErr.errorCode = errCode;
+            initErr.serverError = rawData;
+            attempt.errorCode = errCode;
+            attempt.errorStatus = initResp.status;
+            throw initErr;
         }
 
         if (this.isStale(attempt, requestGen)) {
@@ -985,6 +999,8 @@
         // 3. Reset cancellation and failure state for the new attempt generation
         attempt.isCancelled = false;
         attempt.error = null;
+        attempt.errorCode = null;
+        attempt.errorStatus = null;
         attempt.failedAtPhase = null;
 
         try {
@@ -1021,6 +1037,8 @@
                 return attempt;
             }
             attempt.error = err.message;
+            attempt.errorCode = (err && err.errorCode) || attempt.errorCode || null;
+            attempt.errorStatus = (err && err.status) || attempt.errorStatus || null;
             attempt.failedAtPhase = attempt.phase;
             const isNavCancelled = err && (err.code === HASH_NAVIGATION_CANCELLED || err.isCancellation === true);
             const isAborted = attempt.isCancelled || (attempt.abortController && attempt.abortController.signal && attempt.abortController.signal.aborted) || (err && err.code === HASH_ABORTED);
@@ -1297,6 +1315,143 @@
     };
 
     /**
+     * Standard error handler aligning UI state and controls with structured backend error codes
+     * and upload lifecycle failure phases.
+     *
+     * Invariants enforced:
+     * - MEDIA_STORAGE_INITIATION_REJECTED (HTTP 502): safe to retry with identical idempotencyKey; show retry button.
+     * - MEDIA_UPLOAD_INITIATION_IN_PROGRESS (HTTP 409): concurrent initiation; hide retry button; prevent storm.
+     * - MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM (HTTP 409): unconfirmed claim; hide retry button; reconciliation required.
+     * - MEDIA_STORAGE_INITIATION_AMBIGUOUS (HTTP 504): ambiguous provider outcome; hide retry button; reconciliation required.
+     * - Lost network response (isLostResponse / isUncertainInitiation): safe to retry initiation with same key.
+     * - Unknown JSON / non-JSON server errors: fail closed; hide retry button; prevent unsafe retry assertions.
+     */
+    function handleUploadError(err, attempt, ui) {
+        ui = ui || {};
+        const showAlert = (typeof ui.showAlert === 'function') ? ui.showAlert.bind(ui) : function () {};
+        const retryInitBtn = ui.retryInitBtn || { style: {} };
+        const startUploadBtn = ui.startUploadBtn || {};
+        const fileInput = ui.fileInput || {};
+        const abortUploadBtn = ui.abortUploadBtn || { style: {} };
+
+        const failurePhase = (attempt && attempt.failedAtPhase) ? attempt.failedAtPhase : (attempt ? attempt.phase : null);
+        const errorCode = (err && err.errorCode) || (attempt && attempt.errorCode) || null;
+        const key = (attempt && attempt.idempotencyKey) ? attempt.idempotencyKey : 'N/A';
+        const isInitiationFailure = (attempt && !attempt.sessionId && (failurePhase === UploadPhase.INITIATING || failurePhase === UploadPhase.FAILED));
+
+        // B1: Definitive provider rejection (HTTP 502) - safe to retry with same key
+        if (errorCode === 'MEDIA_STORAGE_INITIATION_REJECTED') {
+            const msg = (err && err.message) ? err.message : 'Nhà cung cấp lưu trữ từ chối yêu cầu khởi tạo do cấu hình hoặc quyền truy cập không hợp lệ.';
+            showAlert('error', msg + ' Khóa phiên được bảo lưu (Idempotency Key: ' + key + '). Bạn có thể bấm "Thử lại khởi tạo" với cùng khóa phiên sau khi kiểm tra lại cấu hình lưu trữ.');
+            retryInitBtn.style.display = 'inline-block';
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            abortUploadBtn.style.display = 'none';
+            return;
+        }
+
+        // B2: Concurrent initiation in progress (HTTP 409) - prevent repeat-click storms
+        if (errorCode === 'MEDIA_UPLOAD_INITIATION_IN_PROGRESS') {
+            const msg = (err && err.message) ? err.message : 'Phiên tải lên đang được khởi tạo bởi một tiến trình khác.';
+            showAlert('warning', msg + ' Vui lòng chờ trong giây lát và không gửi yêu cầu liên tục. Khóa phiên bảo lưu: ' + key);
+            retryInitBtn.style.display = 'none';
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            abortUploadBtn.style.display = 'none';
+            return;
+        }
+
+        // B3: Unconfirmed claim exists on server (HTTP 409) - reconciliation required, no retry button
+        if (errorCode === 'MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM') {
+            const msg = (err && err.message) ? err.message : 'Phiên tải lên tồn tại yêu cầu khởi tạo chưa xác nhận kết quả.';
+            showAlert('error', msg + ' Cần thực hiện đối soát trên hệ thống trước khi tiếp tục. Không thể tự động thử lại để đảm bảo an toàn dữ liệu. Khóa phiên: ' + key);
+            retryInitBtn.style.display = 'none';
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            abortUploadBtn.style.display = 'none';
+            return;
+        }
+
+        // B4: Ambiguous provider initiation (HTTP 504) - reconciliation required, no retry button
+        if (errorCode === 'MEDIA_STORAGE_INITIATION_AMBIGUOUS') {
+            const msg = (err && err.message) ? err.message : 'Yêu cầu khởi tạo tới nhà cung cấp lưu trữ bị gián đoạn hoặc không thể xác nhận kết quả.';
+            showAlert('error', msg + ' Kết quả khởi tạo chưa được xác nhận và cần đối soát trạng thái trước khi thử lại. Khóa phiên: ' + key);
+            retryInitBtn.style.display = 'none';
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            abortUploadBtn.style.display = 'none';
+            return;
+        }
+
+        // B5: Lost network response or pre-response cancel without fabricated server error code
+        if (err && (err.isLostResponse || err.isUncertainInitiation)) {
+            showAlert('error', (err.message || 'Lỗi kết nối khi gửi yêu cầu khởi tạo') + '. Trạng thái trên máy chủ chưa xác định. Vui lòng bấm "Thử lại khởi tạo" để tiếp tục an toàn với cùng khóa phiên bảo vệ (Idempotency Key: ' + key + '), không tạo phiên trùng lặp.');
+            retryInitBtn.style.display = 'inline-block';
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            abortUploadBtn.style.display = 'none';
+            return;
+        }
+
+        // B7: Other initiation failure (unknown JSON / non-JSON server error 500, 400 Bad Request, etc.)
+        if (isInitiationFailure) {
+            showAlert('error', 'Khởi tạo upload session thất bại: ' + (err && err.message ? err.message : 'Lỗi máy chủ không xác định') + '. Khóa phiên: ' + key + '. Cần kiểm tra hệ thống hoặc đối soát trước khi tiếp tục.');
+            retryInitBtn.style.display = 'none';
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            abortUploadBtn.style.display = 'none';
+            return;
+        }
+
+        // Chunk upload phase failure
+        if (attempt && attempt.sessionId && failurePhase === UploadPhase.UPLOADING_PARTS) {
+            showAlert('error', 'Lỗi trong quá trình truyền chunk lên B2: ' + (err && err.message ? err.message : '') + '. Session ID: ' + attempt.sessionId + '. Bạn có thể bấm "Hủy tải lên" để hủy phiên trên hệ thống, hoặc kiểm tra kết nối mạng/CORS trước khi thử lại.');
+            abortUploadBtn.style.display = 'inline-block';
+            abortUploadBtn.disabled = false;
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            retryInitBtn.style.display = 'none';
+            return;
+        }
+
+        // Completion phase failure
+        if (attempt && failurePhase === UploadPhase.COMPLETING) {
+            showAlert('error', 'Lỗi khi xác nhận hoàn tất phiên tải trên B2: ' + (err && err.message ? err.message : '') + '. Session ID: ' + (attempt.sessionId || 'N/A') + '. CẢNH BÁO: Trạng thái gộp file trên B2 chưa xác định. Vui lòng KHÔNG bắt đầu tải file mới ngay để tránh xung đột dữ liệu. Bạn có thể làm mới trang để kiểm tra xem video đã được gắn hay chưa.');
+            abortUploadBtn.style.display = 'none';
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            retryInitBtn.style.display = 'none';
+            return;
+        }
+
+        // Pre-initiation hashing phase failure
+        if (failurePhase === UploadPhase.HASHING) {
+            showAlert('error', 'Lỗi trước khi tạo phiên: ' + (err && err.message ? err.message : ''));
+            startUploadBtn.disabled = false;
+            fileInput.disabled = false;
+            abortUploadBtn.style.display = 'none';
+            retryInitBtn.style.display = 'none';
+            return;
+        }
+
+        // Generic / fallback error
+        showAlert('error', 'Lỗi: ' + (err && err.message ? err.message : '') + (attempt && attempt.sessionId ? (' (Session ID: ' + attempt.sessionId + ')') : '') + '.');
+        if (attempt && !attempt.isSettled) {
+            startUploadBtn.disabled = true;
+            fileInput.disabled = true;
+            if (attempt.sessionId) {
+                abortUploadBtn.style.display = 'inline-block';
+                abortUploadBtn.disabled = false;
+            }
+        } else {
+            startUploadBtn.disabled = false;
+            fileInput.disabled = false;
+            abortUploadBtn.style.display = 'none';
+        }
+        retryInitBtn.style.display = 'none';
+    }
+
+    /**
      * Clears settled attempt so a clean new attempt can be created.
      */
     UploadCoordinator.prototype.dismissSettledAttempt = function () {
@@ -1319,6 +1474,7 @@
         IncrementalSha256: IncrementalSha256,
         formatBytes: formatBytes,
         validateFileConstraints: validateFileConstraints,
+        handleUploadError: handleUploadError,
         HASH_NAVIGATION_CANCELLED: HASH_NAVIGATION_CANCELLED,
         HASH_ABORTED: HASH_ABORTED
     };

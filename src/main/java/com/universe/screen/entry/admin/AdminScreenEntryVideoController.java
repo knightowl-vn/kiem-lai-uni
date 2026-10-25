@@ -52,6 +52,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.exceptions.StorageAmbiguousInitiationException;
+import com.universe.media.application.exceptions.StorageInitiationRejectedException;
+import com.universe.media.application.exceptions.UploadSessionInitiationConflictException;
+import com.universe.media.application.exceptions.UploadSessionUnconfirmedInitiationException;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaAssetStreamDTO;
@@ -1142,6 +1146,42 @@ public class AdminScreenEntryVideoController {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
                 "BAD_REQUEST",
                 "Thiếu tham số yêu cầu bắt buộc: " + ex.getParameterName()
+        ));
+    }
+
+    @ExceptionHandler(UploadSessionInitiationConflictException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleInitiationConflict(UploadSessionInitiationConflictException ex) {
+        log.warn("Initiation conflict in Screen Video Controller: session={}, error={}", ex.getSessionId(), ex.getErrorCode());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                "Phiên tải lên đang được khởi tạo bởi một tiến trình khác. Vui lòng thử lại sau giây lát."
+        ));
+    }
+
+    @ExceptionHandler(UploadSessionUnconfirmedInitiationException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleUnconfirmedInitiation(UploadSessionUnconfirmedInitiationException ex) {
+        log.warn("Unconfirmed initiation claim in Screen Video Controller: session={}, error={}", ex.getSessionId(), ex.getErrorCode());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                "Phiên tải lên tồn tại yêu cầu khởi tạo trước đó chưa xác nhận kết quả. Cần thực hiện đối soát an toàn trước khi có thể thử lại."
+        ));
+    }
+
+    @ExceptionHandler(StorageInitiationRejectedException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleStorageInitiationRejected(StorageInitiationRejectedException ex) {
+        log.error("Storage provider rejected multipart initiation in Screen Video Controller: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                "Nhà cung cấp lưu trữ từ chối yêu cầu khởi tạo tải lên nhiều phần do cấu hình hoặc quyền truy cập không hợp lệ. Vui lòng kiểm tra cấu hình lưu trữ."
+        ));
+    }
+
+    @ExceptionHandler(StorageAmbiguousInitiationException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleStorageAmbiguousInitiation(StorageAmbiguousInitiationException ex) {
+        log.error("Storage provider initiation timed out or returned ambiguous error in Screen Video Controller: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                "Yêu cầu khởi tạo tải lên nhiều phần tới nhà cung cấp lưu trữ chưa được xác nhận hoặc bị gián đoạn. Cần đối soát trạng thái trước khi thử lại."
         ));
     }
 
