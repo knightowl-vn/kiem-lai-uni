@@ -65,14 +65,22 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.context.request.async.AsyncWebRequest;
+import org.springframework.web.context.request.async.WebAsyncManager;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import com.universe.screen.entry.admin.dto.ScreenVideoErrorResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -2089,6 +2097,392 @@ class AdminScreenEntryVideoControllerTest {
                 .andExpect(status().isMethodNotAllowed());
 
         verify(discardScreenEntryVideoUploadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("isClientDisconnect: correctly identifies client connection abort patterns and excludes storage errors")
+    void shouldCorrectlyIdentifyClientDisconnectExceptions() {
+        // Must match client disconnect signatures
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("An established connection was aborted by the software in your host machine"))).isTrue();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("Broken pipe"))).isTrue();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("Connection reset by peer"))).isTrue();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("Software caused connection abort: socket write error"))).isTrue();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("connection was aborted"))).isTrue();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("connection closed"))).isTrue();
+
+        // Must match wrapped/nested cause
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new RuntimeException(new IOException("broken pipe")))).isTrue();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new Exception("Outer", new RuntimeException("Inner", new IOException("connection reset"))))).isTrue();
+
+        // Must NOT match storage or unexpected errors (fail-closed)
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(null)).isFalse();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("Mid-stream B2 connection drop"))).isFalse();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("Disk quota exceeded"))).isFalse();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IOException("Read timed out"))).isFalse();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new RuntimeException("Something went wrong"))).isFalse();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new NullPointerException())).isFalse();
+        assertThat(AdminScreenEntryVideoController.isClientDisconnect(
+                new IllegalArgumentException("invalid argument"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: client disconnect returns null without error response body or converter error")
+    void shouldHandleClientDisconnectGracefullyReturningNull() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        request.setAttribute(AdminScreenEntryVideoController.STREAMING_ACTIVE_ATTR, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        IOException clientAbort = new IOException("An established connection was aborted by the software in your host machine");
+
+        ResponseEntity<ScreenVideoErrorResponse> result = controller.handleUnexpected(clientAbort, request, response);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: AsyncRequestTimeoutException before commit returns 503 without body")
+    void shouldHandleAsyncRequestTimeoutBeforeCommitWith503AndNoBody() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        request.setAttribute(AdminScreenEntryVideoController.STREAMING_ACTIVE_ATTR, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AsyncRequestTimeoutException timeoutEx = new AsyncRequestTimeoutException();
+
+        ResponseEntity<ScreenVideoErrorResponse> result = controller.handleUnexpected(timeoutEx, request, response);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(result.getBody()).isNull();
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: AsyncRequestTimeoutException after commit returns null without attempting write")
+    void shouldHandleAsyncRequestTimeoutAfterCommitReturningNull() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        request.setAttribute(AdminScreenEntryVideoController.STREAMING_ACTIVE_ATTR, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setCommitted(true);
+        AsyncRequestTimeoutException timeoutEx = new AsyncRequestTimeoutException();
+
+        ResponseEntity<ScreenVideoErrorResponse> result = controller.handleUnexpected(timeoutEx, request, response);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: unexpected exception on committed response returns null without attempting write")
+    void shouldHandleUnexpectedExceptionOnCommittedResponseReturningNull() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        request.setAttribute(AdminScreenEntryVideoController.STREAMING_ACTIVE_ATTR, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setCommitted(true);
+        RuntimeException ex = new RuntimeException("Stream write error after headers sent");
+
+        ResponseEntity<ScreenVideoErrorResponse> result = controller.handleUnexpected(ex, request, response);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: streaming request with uncommitted response rethrows exception cleanly")
+    void shouldRethrowExceptionForStreamingContentWhenUncommitted() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        request.setAttribute(AdminScreenEntryVideoController.STREAMING_ACTIVE_ATTR, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        IllegalStateException ex = new IllegalStateException("Storage cluster unreachable");
+
+        assertThatThrownBy(() -> controller.handleUnexpected(ex, request, response))
+                .isSameAs(ex);
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: non-streaming request with uncommitted response returns JSON 500 even on connection reset")
+    void shouldReturnJson500ForNonStreamingRequest() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/attach");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RuntimeException ex = new RuntimeException("Database connection failure", new IOException("Connection reset by peer"));
+
+        ResponseEntity<ScreenVideoErrorResponse> result = controller.handleUnexpected(ex, request, response);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(result.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+        assertThat(result.getBody()).isNotNull();
+        assertThat(result.getBody().error()).isEqualTo("INTERNAL_SERVER_ERROR");
+    }
+
+    @Test
+    @DisplayName("GET /content: configures WebAsyncManager timeout when AsyncWebRequest is present")
+    void shouldConfigureAsyncTimeoutWhenAsyncWebRequestIsPresent() {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        AsyncWebRequest asyncWebRequest = org.mockito.Mockito.mock(AsyncWebRequest.class);
+        WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+        asyncManager.setAsyncWebRequest(asyncWebRequest);
+
+        ResponseEntity<StreamingResponseBody> entity = controller.streamVideoContent(titleId, entryId, request);
+
+        assertThat(entity).isNotNull();
+        verify(asyncWebRequest).setTimeout(1_800_000L);
+    }
+
+    @Test
+    @DisplayName("isUpstreamStorageFailure: correctly identifies StorageStreamException in causal chain")
+    void shouldCorrectlyIdentifyUpstreamStorageFailures() {
+        assertThat(AdminScreenEntryVideoController.isUpstreamStorageFailure(
+                new AdminScreenEntryVideoController.StorageStreamException("open", new IOException("Connection reset")))).isTrue();
+        assertThat(AdminScreenEntryVideoController.isUpstreamStorageFailure(
+                new RuntimeException("wrapper", new AdminScreenEntryVideoController.StorageStreamException("read", new IOException("Connection reset"))))).isTrue();
+
+        assertThat(AdminScreenEntryVideoController.isUpstreamStorageFailure(null)).isFalse();
+        assertThat(AdminScreenEntryVideoController.isUpstreamStorageFailure(
+                new IOException("Connection reset by peer"))).isFalse();
+        assertThat(AdminScreenEntryVideoController.isUpstreamStorageFailure(
+                new IOException("An established connection was aborted by the software in your host machine"))).isFalse();
+    }
+
+    @Test
+    @DisplayName("GET /content: B2 stream opening failure with connection reset propagates as failure and is NOT swallowed")
+    void shouldPropagateB2StreamOpeningConnectionResetFailure() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        when(mediaContract.openStream(assetId)).thenAnswer(inv -> {
+            throw new IOException("Connection reset by peer");
+        });
+
+        MockHttpServletRequest directRequest = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, directRequest);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        // Must propagate as StorageStreamException, NOT swallow as client disconnect
+        assertThatThrownBy(() -> body.writeTo(new ByteArrayOutputStream()))
+                .isInstanceOf(AdminScreenEntryVideoController.StorageStreamException.class)
+                .hasMessageContaining("Connection reset by peer")
+                .hasCauseInstanceOf(IOException.class);
+    }
+
+    @Test
+    @DisplayName("GET /content: B2 stream read failure with connection reset propagates as failure and is NOT swallowed")
+    void shouldPropagateB2StreamReadConnectionResetFailure() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream b2ResetStream = new InputStream() {
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                throw new IOException("Connection reset by peer");
+            }
+            @Override
+            public int read() throws IOException {
+                throw new IOException("Connection reset by peer");
+            }
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", b2ResetStream
+        ));
+
+        MockHttpServletRequest directRequest = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, directRequest);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        // Must propagate as StorageStreamException and close storage stream, NOT swallow as client disconnect
+        assertThatThrownBy(() -> body.writeTo(new ByteArrayOutputStream()))
+                .isInstanceOf(AdminScreenEntryVideoController.StorageStreamException.class)
+                .hasMessageContaining("Connection reset by peer")
+                .hasCauseInstanceOf(IOException.class);
+
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("StreamingResponseBody: browser downstream OutputStream connection reset handled gracefully without rethrowing")
+    void shouldHandleDownstreamBrowserConnectionResetGracefully() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        AtomicInteger closeCount = new AtomicInteger(0);
+        InputStream goodStream = new ByteArrayInputStream("valid-video-bytes".getBytes()) {
+            @Override
+            public void close() throws IOException {
+                closeCount.incrementAndGet();
+                super.close();
+            }
+        };
+
+        when(mediaContract.openStream(assetId)).thenReturn(new MediaAssetStreamDTO(
+                assetId, 1, "video/mp4", 5000000L, "hash", goodStream
+        ));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, request);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        OutputStream clientOutputStream = new OutputStream() {
+            @Override
+            public void write(int b) throws IOException {
+                throw new IOException("Connection reset by peer");
+            }
+            @Override
+            public void write(byte[] b, int off, int len) throws IOException {
+                throw new IOException("Connection reset by peer");
+            }
+        };
+
+        // Downstream client cancellation must return cleanly and close upstream storage stream
+        body.writeTo(clientOutputStream);
+        assertThat(closeCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Non-streaming route: unrelated connection reset must return HTTP 500 JSON and NEVER be swallowed")
+    void shouldReturnHttp500ForNonStreamingOperationWithConnectionReset() throws Exception {
+        UUID mockSessionId = UUID.randomUUID();
+        when(discardScreenEntryVideoUploadUseCase.execute(any()))
+                .thenThrow(new RuntimeException("Database error", new IOException("Connection reset by peer")));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/upload-session/{sessionId}/discard",
+                        titleId, entryId, mockSessionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoMediaAssetId\":\"" + UUID.randomUUID() + "\"}")
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(header().string("Content-Type", org.hamcrest.Matchers.containsString("application/json")))
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"));
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: upstream storage failure with connection reset is rethrown when uncommitted")
+    void shouldRethrowUpstreamStorageFailureWithConnectionResetWhenUncommitted() {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        request.setAttribute(AdminScreenEntryVideoController.STREAMING_ACTIVE_ATTR, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AdminScreenEntryVideoController.StorageStreamException storageEx =
+                new AdminScreenEntryVideoController.StorageStreamException("Storage stream open failure",
+                        new IOException("Connection reset by peer"));
+
+        assertThatThrownBy(() -> controller.handleUnexpected(storageEx, request, response))
+                .isSameAs(storageEx);
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: upstream storage failure on committed response returns null without JSON body")
+    void shouldReturnNullForUpstreamStorageFailureOnCommittedResponse() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        request.setAttribute(AdminScreenEntryVideoController.STREAMING_ACTIVE_ATTR, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        response.setCommitted(true);
+        AdminScreenEntryVideoController.StorageStreamException storageEx =
+                new AdminScreenEntryVideoController.StorageStreamException("Storage stream read failure",
+                        new IOException("Connection reset by peer"));
+
+        ResponseEntity<ScreenVideoErrorResponse> result = controller.handleUnexpected(storageEx, request, response);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("handleUnexpected: /content request before streaming is active returns HTTP 500 JSON even on connection reset")
+    void shouldReturnJson500WhenStreamingPathFailsBeforeStreamingIsActive() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        RuntimeException ex = new RuntimeException("Pre-stream database failure", new IOException("Connection reset by peer"));
+
+        ResponseEntity<ScreenVideoErrorResponse> result = controller.handleUnexpected(ex, request, response);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(result.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+        assertThat(result.getBody()).isNotNull();
+        assertThat(result.getBody().error()).isEqualTo("INTERNAL_SERVER_ERROR");
+        assertThat(result.getBody().message()).isEqualTo("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video.");
+    }
+
+    @Test
+    @DisplayName("GET /content: pre-streaming metadata lookup failure with connection reset returns HTTP 500 JSON via MockMvc")
+    void shouldReturnHttp500WhenPreStreamingDependencyThrowsConnectionReset() throws Exception {
+        UUID nonExistentTitleId = UUID.randomUUID();
+        when(getScreenTitleDetailUseCase.execute(nonExistentTitleId))
+                .thenThrow(new RuntimeException("Database connection failure", new IOException("Connection reset by peer")));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/video/content", nonExistentTitleId, entryId))
+                .andExpect(status().isInternalServerError())
+                .andExpect(header().string("Content-Type", org.hamcrest.Matchers.containsString("application/json")))
+                .andExpect(jsonPath("$.error").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.message").value("Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."));
+    }
+
+    @Test
+    @DisplayName("StreamingResponseBody: when stream supplier returns null DTO, throws StorageStreamException")
+    void shouldThrowStorageStreamExceptionWhenStreamSupplierReturnsNullDto() {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        when(mediaContract.openStream(assetId)).thenReturn(null);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, request);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        assertThatThrownBy(() -> body.writeTo(new ByteArrayOutputStream()))
+                .isInstanceOf(AdminScreenEntryVideoController.StorageStreamException.class)
+                .hasMessageContaining("Storage stream is unavailable (null stream)");
+    }
+
+    @Test
+    @DisplayName("StreamingResponseBody: when DTO has null content stream, closes DTO and throws StorageStreamException")
+    void shouldCloseDtoAndThrowStorageStreamExceptionWhenContentStreamIsNull() throws Exception {
+        stubTitleAndEntry(assetId);
+        stubActiveVideoMediaAsset(5000000L);
+        MediaAssetStreamDTO mockDto = mock(MediaAssetStreamDTO.class);
+        when(mockDto.contentStream()).thenReturn(null);
+        when(mediaContract.openStream(assetId)).thenReturn(mockDto);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                "/admin/screen/titles/" + titleId + "/entries/" + entryId + "/video/content");
+        ResponseEntity<StreamingResponseBody> response = controller.streamVideoContent(titleId, entryId, request);
+        StreamingResponseBody body = response.getBody();
+        assertThat(body).isNotNull();
+
+        assertThatThrownBy(() -> body.writeTo(new ByteArrayOutputStream()))
+                .isInstanceOf(AdminScreenEntryVideoController.StorageStreamException.class)
+                .hasMessageContaining("Storage stream content is unavailable");
+
+        verify(mockDto).close();
     }
 
     private UUID stubActiveVideoMediaAsset(long sizeBytes) {

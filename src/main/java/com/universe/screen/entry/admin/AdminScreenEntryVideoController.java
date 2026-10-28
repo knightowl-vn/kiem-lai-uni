@@ -62,7 +62,11 @@ import com.universe.media.contracts.dto.MediaAssetStreamDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.context.request.async.WebAsyncManager;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -756,6 +760,14 @@ public class AdminScreenEntryVideoController {
             @PathVariable UUID entryId,
             HttpServletRequest request
     ) {
+        // Scoped asynchronous request timeout for video streaming (30 minutes)
+        if (request != null) {
+            WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+            if (asyncManager != null && asyncManager.getAsyncWebRequest() != null) {
+                asyncManager.getAsyncWebRequest().setTimeout(VIDEO_STREAMING_ASYNC_TIMEOUT_MS);
+            }
+        }
+
         getScreenTitleDetailUseCase.execute(titleId);
         ScreenEntryDTO entry = getScreenEntryDetailUseCase.execute(titleId, entryId);
 
@@ -792,6 +804,10 @@ public class AdminScreenEntryVideoController {
                     .header(HttpHeaders.CACHE_CONTROL, cacheControl)
                     .header(HttpHeaders.ETAG, eTag)
                     .build();
+        }
+
+        if (request != null) {
+            request.setAttribute(STREAMING_ACTIVE_ATTR, Boolean.TRUE);
         }
 
         String rangeHeader = request.getHeader(HttpHeaders.RANGE);
@@ -850,14 +866,45 @@ public class AdminScreenEntryVideoController {
                 .body(responseBody);
     }
 
-    private static final int STREAM_BUFFER_SIZE = 8192;
+    private static final int STREAM_BUFFER_SIZE = 32768; // 32 KiB standard streaming buffer
+    private static final long VIDEO_STREAMING_ASYNC_TIMEOUT_MS = 1_800_000L; // 30 minutes
+    static final String STREAMING_ACTIVE_ATTR = AdminScreenEntryVideoController.class.getName() + ".STREAMING_ACTIVE";
+
+    static boolean isStreamingActive(HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        return Boolean.TRUE.equals(request.getAttribute(STREAMING_ACTIVE_ATTR))
+                || request.isAsyncStarted();
+    }
 
     @FunctionalInterface
     private interface StreamSupplier {
         MediaAssetStreamDTO open() throws Exception;
     }
 
-    private static boolean isClientDisconnect(Throwable t) {
+    /**
+     * Internal marker exception identifying that an I/O failure originated from the upstream storage provider
+     * (B2/S3/MediaContract) during stream opening or reading, and must not be misinterpreted as a downstream client disconnect.
+     */
+    public static class StorageStreamException extends IOException {
+        public StorageStreamException(String message, Throwable cause) {
+            super(message + (cause != null && cause.getMessage() != null ? ": " + cause.getMessage() : ""), cause);
+        }
+    }
+
+    static boolean isUpstreamStorageFailure(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            if (current instanceof StorageStreamException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    static boolean isClientDisconnect(Throwable t) {
         Throwable current = t;
         while (current != null) {
             String className = current.getClass().getName();
@@ -866,7 +913,10 @@ public class AdminScreenEntryVideoController {
                     || msg.contains("broken pipe")
                     || msg.contains("connection reset")
                     || msg.contains("connection was aborted")
-                    || msg.contains("an established connection was aborted")) {
+                    || msg.contains("an established connection was aborted")
+                    || msg.contains("software caused connection abort")
+                    || msg.contains("socket write error")
+                    || msg.contains("connection closed")) {
                 return true;
             }
             current = current.getCause();
@@ -880,9 +930,24 @@ public class AdminScreenEntryVideoController {
             StreamSupplier streamSupplier
     ) {
         return outputStream -> {
-            try (MediaAssetStreamDTO streamDto = streamSupplier.open()) {
-                if (streamDto == null || streamDto.contentStream() == null) {
-                    return;
+            MediaAssetStreamDTO streamDto;
+            try {
+                streamDto = streamSupplier.open();
+            } catch (Exception openEx) {
+                log.error("Storage stream open failure for entry {} (asset {}): {}",
+                        entryId, videoAssetId, openEx.getMessage(), openEx);
+                throw new StorageStreamException("Storage stream open failure", openEx);
+            }
+
+            if (streamDto == null) {
+                log.error("Storage stream open returned null for entry {} (asset {})", entryId, videoAssetId);
+                throw new StorageStreamException("Storage stream is unavailable (null stream)", null);
+            }
+
+            try (streamDto) {
+                if (streamDto.contentStream() == null) {
+                    log.error("Storage stream content is null for entry {} (asset {})", entryId, videoAssetId);
+                    throw new StorageStreamException("Storage stream content is unavailable", null);
                 }
                 InputStream in = streamDto.contentStream();
                 byte[] buffer = new byte[STREAM_BUFFER_SIZE];
@@ -890,10 +955,14 @@ public class AdminScreenEntryVideoController {
                 while (true) {
                     try {
                         bytesRead = in.read(buffer);
-                    } catch (IOException e) {
+                    } catch (IOException readEx) {
                         log.error("Storage stream read failure for entry {} (asset {}): {}",
-                                entryId, videoAssetId, e.getMessage());
-                        throw e;
+                                entryId, videoAssetId, readEx.getMessage(), readEx);
+                        throw new StorageStreamException("Storage stream read failure", readEx);
+                    } catch (RuntimeException readRuntimeEx) {
+                        log.error("Storage stream runtime read failure for entry {} (asset {}): {}",
+                                entryId, videoAssetId, readRuntimeEx.getMessage(), readRuntimeEx);
+                        throw new StorageStreamException("Storage stream runtime read failure", readRuntimeEx);
                     }
 
                     if (bytesRead == -1) {
@@ -902,27 +971,23 @@ public class AdminScreenEntryVideoController {
 
                     try {
                         outputStream.write(buffer, 0, bytesRead);
-                    } catch (IOException e) {
-                        if (isClientDisconnect(e)) {
+                    } catch (IOException writeEx) {
+                        if (isClientDisconnect(writeEx)) {
                             log.debug("Client disconnected while writing video stream for entry {}: {}",
-                                    entryId, e.getMessage());
+                                    entryId, writeEx.getMessage());
                             return;
                         }
                         log.warn("Downstream client write failure for entry {} (asset {}): {}",
-                                entryId, videoAssetId, e.getMessage());
-                        throw e;
+                                entryId, videoAssetId, writeEx.getMessage());
+                        throw writeEx;
                     }
                 }
+            } catch (StorageStreamException e) {
+                throw e;
             } catch (IOException ioEx) {
                 throw ioEx;
             } catch (RuntimeException runtimeEx) {
-                log.error("Streaming runtime error for entry {} (asset {}): {}",
-                        entryId, videoAssetId, runtimeEx.getMessage());
                 throw runtimeEx;
-            } catch (Exception ex) {
-                log.error("Streaming error for entry {} (asset {}): {}",
-                        entryId, videoAssetId, ex.getMessage());
-                throw new IOException("Lỗi khi mở hoặc truyền dữ liệu video cho asset " + videoAssetId, ex);
             }
         };
     }
@@ -1186,15 +1251,72 @@ public class AdminScreenEntryVideoController {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ScreenVideoErrorResponse> handleUnexpected(Exception ex) {
+    public ResponseEntity<ScreenVideoErrorResponse> handleUnexpected(
+            Exception ex,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws Exception {
         if (ex instanceof AccessDeniedException) {
-            throw (AccessDeniedException) ex;
+            throw ex;
         }
-        log.error("Unexpected error in Screen Video Controller: {}", ex.getMessage(), ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ScreenVideoErrorResponse(
-                "INTERNAL_SERVER_ERROR",
-                "Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."
-        ));
+
+        boolean isStreamingRequest = request != null && request.getRequestURI() != null && request.getRequestURI().endsWith("/content");
+        boolean streamingActive = isStreamingRequest && isStreamingActive(request);
+
+        // 1. Unrelated non-streaming operations or pre-streaming setup failures must NEVER be treated as client disconnects
+        if (!streamingActive) {
+            log.error("Unexpected error in Screen Video Controller for {}: {}",
+                    request != null ? request.getRequestURI() : "unknown", ex.getMessage(), ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new ScreenVideoErrorResponse(
+                            "INTERNAL_SERVER_ERROR",
+                            "Đã xảy ra lỗi máy chủ không mong muốn trong quá trình xử lý video."
+                    ));
+        }
+
+        // 2. Upstream storage failure on streaming request (B2 stream open / read)
+        if (isUpstreamStorageFailure(ex)) {
+            if (response != null && response.isCommitted()) {
+                log.error("Upstream storage streaming failure after response commit for {}: {}",
+                        request.getRequestURI(), ex.getMessage(), ex);
+                return null;
+            }
+            log.error("Upstream storage streaming failure for {}: {}",
+                    request.getRequestURI(), ex.getMessage(), ex);
+            throw ex;
+        }
+
+        // 3. Downstream client disconnect during streaming
+        if (isClientDisconnect(ex)) {
+            log.debug("Client disconnected during video streaming request {}: {}",
+                    request.getRequestURI(), ex.getMessage());
+            return null;
+        }
+
+        // 4. Asynchronous request timeout during streaming
+        if (ex instanceof AsyncRequestTimeoutException) {
+            if (response != null && response.isCommitted()) {
+                log.debug("Async request timeout after response commit for {}: {}",
+                        request.getRequestURI(), ex.getMessage());
+                return null;
+            }
+            log.warn("Async request timeout before response commit for {}: {}",
+                    request.getRequestURI(), ex.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+
+        // 5. Any other unexpected failure after response commit: do not attempt JSON write
+        if (response != null && response.isCommitted()) {
+            log.error("Streaming failure after response commit for {}: {}",
+                    request.getRequestURI(), ex.getMessage(), ex);
+            return null;
+        }
+
+        // 6. Any other uncommitted streaming failure: rethrow so container/MockMvc propagates cleanly
+        log.error("Streaming failure during video content request for {}: {}",
+                request.getRequestURI(), ex.getMessage(), ex);
+        throw ex;
     }
 
     private MediaUploadSessionResponseDTO validateAndGetSessionForEntry(
