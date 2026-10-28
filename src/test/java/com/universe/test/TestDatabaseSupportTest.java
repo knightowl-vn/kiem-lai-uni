@@ -147,7 +147,9 @@ class TestDatabaseSupportTest {
 			"prod_backup_test",
 			"random_test",
 			"other_test",
-			"my_special_test"
+			"my_special_test",
+			"kiemlai_unknown_backfill_test",
+			"arbitrary_backfill_test"
 	})
 	@DisplayName("9. validateDestructiveResetTarget rejects unapproved databases even if ending in _test")
 	void shouldRejectUnapprovedDatabasesInDestructiveReset(String unapprovedDb) {
@@ -216,6 +218,96 @@ class TestDatabaseSupportTest {
 		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", "kiemlai_screen_schema_test"))
 				.doesNotThrowAnyException();
 		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("127.0.0.1:3306", "kiemlai_community_posts_schema_test"))
+				.doesNotThrowAnyException();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"kiemlai_test",
+			"kiemlai_community_posts_schema_test",
+			"kiemlai_identity_schema_test",
+			"kiemlai_interaction_comment_schema_test",
+			"kiemlai_interaction_report_schema_test",
+			"kiemlai_interaction_schema_test",
+			"kiemlai_media_client_tag_schema_test",
+			"kiemlai_media_schema_test",
+			"kiemlai_media_image_variant_schema_test",
+			"kiemlai_media_v89_schema_test",
+			"kiemlai_notification_schema_test",
+			"kiemlai_novel_narration_audio_failure_schema_test",
+			"kiemlai_novel_narration_audio_schema_test",
+			"kiemlai_novel_narration_segment_schema_test",
+			"kiemlai_novel_chapter_bookmark_schema_test",
+			"kiemlai_novel_reading_history_schema_test",
+			"kiemlai_novel_reading_progress_schema_test",
+			"kiemlai_novel_chapter_revision_schema_test",
+			"kiemlai_novel_managed_voice_schema_test",
+			"kiemlai_screen_schema_test",
+			"kiemlai_wiki_appreciation_schema_test",
+			"kiemlai_wiki_cover_schema_test",
+			"kiemlai_wiki_image_schema_test",
+			"kiemlai_wiki_saved_article_schema_test"
+	})
+	@DisplayName("13a. validateDestructiveResetTarget accepts all 24 baseline approved test databases on loopback:3306")
+	void shouldAcceptAll24BaselineApprovedTestDatabasesInDestructiveReset(String baselineSchema) {
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", baselineSchema))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("127.0.0.1:3306", baselineSchema))
+				.doesNotThrowAnyException();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"kiemlai_identity_v76_migration_test",
+			"kiemlai_identity_avatar_schema_test",
+			"kiemlai_interaction_comments_test",
+			"kiemlai_comments_backfill_test",
+			"kiemlai_interaction_reports_test",
+			"kiemlai_interaction_v72_test",
+			"kiemlai_interaction_v73_test",
+			"kiemlai_v78_migration_test",
+			"kiemlai_reactions_flyway_test",
+			"kiemlai_media_client_tag_v62_test",
+			"kiemlai_media_constraints_test",
+			"kiemlai_media_variant_schema_test",
+			"kiemlai_notification_v74_test",
+			"kiemlai_narration_failure_constraints_test",
+			"kiemlai_narration_failure_schema_test",
+			"kiemlai_narration_audio_constraints_test",
+			"kiemlai_narration_audio_schema_test",
+			"kiemlai_narration_segment_constraints_test",
+			"kiemlai_narration_segment_schema_test",
+			"kiemlai_chapter_bookmarks_constraints_test",
+			"kiemlai_chapter_bookmarks_schema_test",
+			"kiemlai_reading_history_constraints_test",
+			"kiemlai_reading_history_schema_test",
+			"kiemlai_reading_progress_constraints_test",
+			"kiemlai_reading_progress_schema_test",
+			"kiemlai_backfill_test",
+			"kiemlai_clean_test",
+			"kiemlai_integration_test",
+			"kiemlai_managed_voice_constraints_test",
+			"kiemlai_managed_voice_schema_test",
+			"kiemlai_wiki_appreciation_v57_v59_test",
+			"kiemlai_wiki_cover_v60_test",
+			"kiemlai_wiki_cover_v61_test",
+			"kiemlai_wiki_cover_orphan_v63_test",
+			"kiemlai_wiki_saved_articles_schema_test"
+	})
+	@DisplayName("13b. validateDestructiveResetTarget accepts all 35 approved migration test databases on loopback:3306")
+	void shouldAcceptAll35ApprovedMigrationTestDatabasesInDestructiveReset(String migrationSchema) {
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", migrationSchema))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("127.0.0.1:3306", migrationSchema))
+				.doesNotThrowAnyException();
+	}
+
+	@Test
+	@DisplayName("13c. validateDestructiveResetTarget accepts kiemlai_comments_backfill_test specifically on loopback:3306")
+	void shouldAcceptCommentsBackfillTestDatabaseSpecifically() {
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("localhost:3306", "kiemlai_comments_backfill_test"))
+				.doesNotThrowAnyException();
+		assertThatCode(() -> TestDatabaseSupport.validateDestructiveResetTarget("127.0.0.1:3306", "kiemlai_comments_backfill_test"))
 				.doesNotThrowAnyException();
 	}
 

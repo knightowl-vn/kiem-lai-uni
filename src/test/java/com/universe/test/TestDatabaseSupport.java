@@ -35,9 +35,13 @@ public final class TestDatabaseSupport {
     /**
      * Explicit allowlist of approved test database schemas permitted for destructive reset.
      * Prevents arbitrary or unauthorized local schemas ending with '_test' from being dropped.
+     * Every schema name corresponds to a source-verified, dedicated legacy migration test suite.
      */
     private static final Set<String> ALLOWED_DESTRUCTIVE_RESET_DATABASES = Set.of(
+            // Primary local test database
             "kiemlai_test",
+
+            // Baseline module schema test databases
             "kiemlai_community_posts_schema_test",
             "kiemlai_identity_schema_test",
             "kiemlai_interaction_comment_schema_test",
@@ -60,7 +64,61 @@ public final class TestDatabaseSupport {
             "kiemlai_wiki_appreciation_schema_test",
             "kiemlai_wiki_cover_schema_test",
             "kiemlai_wiki_image_schema_test",
-            "kiemlai_wiki_saved_article_schema_test"
+            "kiemlai_wiki_saved_article_schema_test",
+
+            // Verified legacy Flyway migration & constraint test databases (MS-08 regression allowlist)
+            // Identity
+            "kiemlai_identity_v76_migration_test",
+            "kiemlai_identity_avatar_schema_test",
+
+            // Interaction
+            "kiemlai_interaction_comments_test",
+            "kiemlai_comments_backfill_test",
+            "kiemlai_interaction_reports_test",
+            "kiemlai_interaction_v72_test",
+            "kiemlai_interaction_v73_test",
+            "kiemlai_v78_migration_test",
+            "kiemlai_reactions_flyway_test",
+
+            // Media
+            "kiemlai_media_client_tag_v62_test",
+            "kiemlai_media_constraints_test",
+            "kiemlai_media_variant_schema_test",
+
+            // Notification
+            "kiemlai_notification_v74_test",
+
+            // Novel - Narration
+            "kiemlai_narration_failure_constraints_test",
+            "kiemlai_narration_failure_schema_test",
+            "kiemlai_narration_audio_constraints_test",
+            "kiemlai_narration_audio_schema_test",
+            "kiemlai_narration_segment_constraints_test",
+            "kiemlai_narration_segment_schema_test",
+
+            // Novel - Reader
+            "kiemlai_chapter_bookmarks_constraints_test",
+            "kiemlai_chapter_bookmarks_schema_test",
+            "kiemlai_reading_history_constraints_test",
+            "kiemlai_reading_history_schema_test",
+            "kiemlai_reading_progress_constraints_test",
+            "kiemlai_reading_progress_schema_test",
+
+            // Novel - Revision
+            "kiemlai_backfill_test",
+            "kiemlai_clean_test",
+            "kiemlai_integration_test",
+
+            // Novel - Managed Voice
+            "kiemlai_managed_voice_constraints_test",
+            "kiemlai_managed_voice_schema_test",
+
+            // Wiki
+            "kiemlai_wiki_appreciation_v57_v59_test",
+            "kiemlai_wiki_cover_v60_test",
+            "kiemlai_wiki_cover_v61_test",
+            "kiemlai_wiki_cover_orphan_v63_test",
+            "kiemlai_wiki_saved_articles_schema_test"
     );
 
     private TestDatabaseSupport() {
