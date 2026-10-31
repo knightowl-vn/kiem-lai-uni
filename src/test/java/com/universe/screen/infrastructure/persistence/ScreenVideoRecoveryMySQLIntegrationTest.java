@@ -1103,10 +1103,7 @@ class ScreenVideoRecoveryMySQLIntegrationTest {
                     Mockito.mock(StorageKeyAllocationService.class),
                     Mockito.mock(MediaStorageRoutingService.class),
                     clockPort,
-                    transactionManager,
-                    null,
-                    null,
-                    null
+                    transactionManager
             );
         }
 

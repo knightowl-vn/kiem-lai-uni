@@ -83,6 +83,7 @@ class MediaUploadSessionInitiationRecoveryTest {
         when(clockPort.now()).thenReturn(NOW);
         when(transactionManager.getTransaction(any(TransactionDefinition.class)))
                 .thenReturn(new SimpleTransactionStatus());
+        org.mockito.Mockito.lenient().when(multipartStoragePort.providerId()).thenReturn(StorageProviderId.of("b2"));
 
         service = new MediaUploadSessionService(
                 sessionRepositoryPort,

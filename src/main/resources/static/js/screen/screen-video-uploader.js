@@ -1060,7 +1060,7 @@
     };
 
     /**
-     * Uploads each chunk to B2 via presigned URLs.
+     * Uploads each chunk to object storage via presigned URLs.
      */
     UploadCoordinator.prototype.performPartsUpload = async function (attempt, titleId, entryId, callbacks, fetchFn, getCsrfHeaders) {
         attempt.phase = UploadPhase.UPLOADING_PARTS;
@@ -1104,7 +1104,7 @@
             if (callbacks.onProgress && !this.isStale(attempt, currentGen)) {
                 callbacks.onProgress(
                     10 + Math.round(((partNumber - 0.5) / totalParts) * 70),
-                    'Đang truyền dữ liệu phần ' + partNumber + ' / ' + totalParts + ' lên Backblaze B2...',
+                    'Đang truyền dữ liệu phần ' + partNumber + ' / ' + totalParts + '...',
                     attempt
                 );
             }
@@ -1118,12 +1118,12 @@
                 });
             } catch (netErr) {
                 if (this.isStale(attempt, currentGen)) return;
-                throw new Error('Lỗi kết nối tới Backblaze B2 ở phần ' + partNumber + ': ' + netErr.message);
+                throw new Error('Lỗi kết nối khi truyền phần ' + partNumber + ': ' + netErr.message);
             }
 
             if (this.isStale(attempt, currentGen)) return;
             if (!putResp.ok) {
-                throw new Error('Backblaze B2 từ chối phần ' + partNumber + ': HTTP ' + putResp.status);
+                throw new Error('Máy chủ lưu trữ từ chối phần ' + partNumber + ': HTTP ' + putResp.status);
             }
 
             let rawETag = null;
@@ -1131,7 +1131,7 @@
                 rawETag = putResp.headers.get('ETag');
             }
             if (!rawETag) {
-                throw new Error('Backblaze B2 không trả về header ETag cho phần ' + partNumber + '.');
+                throw new Error('Máy chủ lưu trữ không trả về header ETag cho phần ' + partNumber + '.');
             }
 
             attempt.partsManifest.push({
@@ -1149,7 +1149,7 @@
         const currentGen = attempt.generation;
         attempt.phase = UploadPhase.COMPLETING;
         if (callbacks.onProgress && !this.isStale(attempt, currentGen)) {
-            callbacks.onProgress(85, 'Đang xác thực và hoàn tất multipart trên Backblaze B2...', attempt);
+            callbacks.onProgress(85, 'Đang xác thực và hoàn tất multipart...', attempt);
         }
 
         const signal = attempt.abortController ? attempt.abortController.signal : undefined;
@@ -1405,7 +1405,7 @@
 
         // Chunk upload phase failure
         if (attempt && attempt.sessionId && failurePhase === UploadPhase.UPLOADING_PARTS) {
-            showAlert('error', 'Lỗi trong quá trình truyền chunk lên B2: ' + (err && err.message ? err.message : '') + '. Session ID: ' + attempt.sessionId + '. Bạn có thể bấm "Hủy tải lên" để hủy phiên trên hệ thống, hoặc kiểm tra kết nối mạng/CORS trước khi thử lại.');
+            showAlert('error', 'Lỗi trong quá trình truyền dữ liệu multipart: ' + (err && err.message ? err.message : '') + '. Session ID: ' + attempt.sessionId + '. Bạn có thể bấm "Hủy tải lên" để hủy phiên trên hệ thống, hoặc kiểm tra kết nối mạng/CORS trước khi thử lại.');
             abortUploadBtn.style.display = 'inline-block';
             abortUploadBtn.disabled = false;
             startUploadBtn.disabled = true;
@@ -1416,7 +1416,7 @@
 
         // Completion phase failure
         if (attempt && failurePhase === UploadPhase.COMPLETING) {
-            showAlert('error', 'Lỗi khi xác nhận hoàn tất phiên tải trên B2: ' + (err && err.message ? err.message : '') + '. Session ID: ' + (attempt.sessionId || 'N/A') + '. CẢNH BÁO: Trạng thái gộp file trên B2 chưa xác định. Vui lòng KHÔNG bắt đầu tải file mới ngay để tránh xung đột dữ liệu. Bạn có thể làm mới trang để kiểm tra xem video đã được gắn hay chưa.');
+            showAlert('error', 'Lỗi khi xác nhận hoàn tất phiên tải: ' + (err && err.message ? err.message : '') + '. Session ID: ' + (attempt.sessionId || 'N/A') + '. CẢNH BÁO: Trạng thái gộp file trên máy chủ lưu trữ chưa xác định. Vui lòng KHÔNG bắt đầu tải file mới ngay để tránh xung đột dữ liệu. Bạn có thể làm mới trang để kiểm tra xem video đã được gắn hay chưa.');
             abortUploadBtn.style.display = 'none';
             startUploadBtn.disabled = true;
             fileInput.disabled = true;

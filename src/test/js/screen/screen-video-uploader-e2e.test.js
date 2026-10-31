@@ -9,7 +9,8 @@ const {
     UploadCoordinator,
     IncrementalSha256,
     formatBytes,
-    validateFileConstraints
+    validateFileConstraints,
+    handleUploadError
 } = require('../../../main/resources/static/js/screen/screen-video-uploader.js');
 
 describe('MS-08E2 Offline Browser E2E Upload Contract & Lifecycle Tests', () => {
@@ -913,7 +914,7 @@ describe('MS-08E2 Offline Browser E2E Upload Contract & Lifecycle Tests', () => 
                         videoMediaAssetId: 'asset-50gib-registered-uuid',
                         playbackUrl: `/admin/screen/titles/${titleId}/entries/${entryId}/video/content`,
                         status: 'COMPLETED',
-                        message: 'Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry.'
+                        message: 'Video đã được tải lên và gán thành công vào Screen Entry.'
                     })
                 };
             }
@@ -1009,7 +1010,7 @@ describe('MS-08E2 Offline Browser E2E Upload Contract & Lifecycle Tests', () => 
 
         // Filter hashing vs upload messages
         const hashingMessages = progressSteps.filter(p => p.msg.includes('mã băm SHA-256'));
-        const uploadMessages = progressSteps.filter(p => p.msg.includes('Backblaze B2'));
+        const uploadMessages = progressSteps.filter(p => p.msg.includes('Đang truyền dữ liệu phần'));
 
         assert.ok(hashingMessages.length >= 3, 'Hashing must report progressive updates across chunks');
         assert.ok(uploadMessages.length >= 1, 'Upload must report progressive part uploads');
@@ -1130,5 +1131,170 @@ describe('MS-08E2 Offline Browser E2E Upload Contract & Lifecycle Tests', () => 
         assert.strictEqual(result.sessionId, null);
         assert.strictEqual(fetchCalled, false, 'Server session must never be initiated when aborted during hashing');
         assert.strictEqual(abortedCallbackInvoked, true, 'onAborted callback must be invoked');
+    });
+
+    // =========================================================================
+    // 17. IDEMPOTENCY KEY ISOLATION & FRESH UPLOAD GUARANTEES (R2-02 LIVE FIX)
+    // =========================================================================
+
+    test('17. Fresh upload without explicit idempotencyKey generates distinct unique keys across independent attempts', async () => {
+        const coordinator = new UploadCoordinator();
+        const capturedKeys = [];
+
+        const fakeFetch = async (url, options) => {
+            if (url.endsWith('/video/upload-session') && options.method === 'POST') {
+                const body = JSON.parse(options.body);
+                capturedKeys.push(body.idempotencyKey);
+                return {
+                    ok: true,
+                    json: async () => ({
+                        sessionId: 'sess-' + capturedKeys.length,
+                        expectedPartCount: 1,
+                        partSizeBytes: 52428800
+                    })
+                };
+            }
+            if (url.includes('/parts/1/url')) {
+                return { ok: true, json: async () => ({ uploadUrl: 'https://r2.test/part-1' }) };
+            }
+            if (url === 'https://r2.test/part-1') {
+                return { ok: true, headers: { get: () => '"etag-1"' } };
+            }
+            if (url.endsWith('/complete')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        videoMediaAssetId: 'asset-fresh-' + capturedKeys.length,
+                        playbackUrl: '/media/assets/asset-fresh-' + capturedKeys.length + '/content'
+                    })
+                };
+            }
+            throw new Error('Unhandled URL: ' + url);
+        };
+
+        // Attempt 1: First fresh logical upload
+        await coordinator.startAttempt({
+            file: mockFile50MiB,
+            titleId: titleId,
+            entryId: entryId,
+            fetchFn: fakeFetch,
+            cryptoFn: mockCryptoFn
+        });
+
+        // Dismiss settled attempt 1 to permit attempt 2
+        coordinator.dismissSettledAttempt();
+
+        // Attempt 2: Second fresh logical upload with the EXACT same file
+        await coordinator.startAttempt({
+            file: mockFile50MiB,
+            titleId: titleId,
+            entryId: entryId,
+            fetchFn: fakeFetch,
+            cryptoFn: mockCryptoFn
+        });
+
+        assert.strictEqual(capturedKeys.length, 2);
+        assert.ok(capturedKeys[0].startsWith('screen-entry-' + entryId + '-upload-'));
+        assert.ok(capturedKeys[1].startsWith('screen-entry-' + entryId + '-upload-'));
+        assert.notStrictEqual(capturedKeys[0], capturedKeys[1], 'Consecutive fresh uploads must use distinct unique idempotency keys');
+    });
+
+    test('18. Explicit same-attempt retry preserves exact same idempotencyKey while fresh attempt uses a new key', async () => {
+        const coordinator = new UploadCoordinator();
+        const dispatchedKeys = [];
+        let shouldFailFirst = true;
+
+        const fakeFetch = async (url, options) => {
+            if (url.endsWith('/video/upload-session') && options.method === 'POST') {
+                const body = JSON.parse(options.body);
+                dispatchedKeys.push(body.idempotencyKey);
+                if (shouldFailFirst) {
+                    shouldFailFirst = false;
+                    throw new TypeError('Network connection reset');
+                }
+                return {
+                    ok: true,
+                    json: async () => ({
+                        sessionId: 'sess-retry-ok',
+                        expectedPartCount: 1,
+                        partSizeBytes: 52428800
+                    })
+                };
+            }
+            if (url.includes('/parts/1/url')) {
+                return { ok: true, json: async () => ({ uploadUrl: 'https://r2.test/part-1' }) };
+            }
+            if (url === 'https://r2.test/part-1') {
+                return { ok: true, headers: { get: () => '"etag-1"' } };
+            }
+            if (url.endsWith('/complete')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        videoMediaAssetId: 'asset-retry-ok',
+                        playbackUrl: '/media/assets/asset-retry-ok/content'
+                    })
+                };
+            }
+            throw new Error('Unhandled URL: ' + url);
+        };
+
+        // Dispatch initial attempt (fails with network error)
+        await coordinator.startAttempt({
+            file: mockFile50MiB,
+            titleId: titleId,
+            entryId: entryId,
+            fetchFn: fakeFetch,
+            cryptoFn: mockCryptoFn
+        });
+
+        const initialKey = coordinator.getCurrentAttempt().idempotencyKey;
+
+        // Controlled retry of SAME logical attempt via retryInitiation
+        await coordinator.retryInitiation({
+            titleId: titleId,
+            entryId: entryId,
+            fetchFn: fakeFetch,
+            cryptoFn: mockCryptoFn
+        });
+
+        assert.strictEqual(dispatchedKeys.length, 2);
+        assert.strictEqual(dispatchedKeys[0], initialKey);
+        assert.strictEqual(dispatchedKeys[1], initialKey, 'retryInitiation must preserve identical idempotency key');
+    });
+
+    test('19. MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM error handler suppresses retry and preserves unconfirmed fencing', () => {
+        const mockUi = {
+            retryInitBtn: { style: { display: 'inline-block' } },
+            startUploadBtn: { disabled: false },
+            fileInput: { disabled: false },
+            abortUploadBtn: { style: { display: 'inline-block' } },
+            alerts: [],
+            showAlert: function (type, msg) { this.alerts.push({ type, msg }); }
+        };
+
+        const mockAttempt = {
+            idempotencyKey: 'screen-entry-test-upload-unconfirmed-uuid',
+            phase: UploadPhase.FAILED,
+            failedAtPhase: UploadPhase.INITIATING,
+            sessionId: null,
+            errorCode: 'MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM'
+        };
+
+        const error = new Error('Upload session has an unconfirmed earlier initiation claim with missing providerUploadId.');
+        error.errorCode = 'MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM';
+        error.status = 409;
+
+        handleUploadError(error, mockAttempt, mockUi);
+
+        // Verification of invariant B3:
+        assert.strictEqual(mockUi.retryInitBtn.style.display, 'none', 'Retry button must be strictly hidden');
+        assert.strictEqual(mockUi.startUploadBtn.disabled, true, 'Start button must be disabled');
+        assert.strictEqual(mockUi.fileInput.disabled, true, 'File input must be disabled');
+        assert.strictEqual(mockUi.abortUploadBtn.style.display, 'none', 'Abort button must be hidden');
+        assert.strictEqual(mockUi.alerts.length, 1);
+        assert.strictEqual(mockUi.alerts[0].type, 'error');
+        assert.ok(mockUi.alerts[0].msg.includes('đối soát trên hệ thống trước khi tiếp tục'));
+        assert.ok(mockUi.alerts[0].msg.includes('Không thể tự động thử lại'));
     });
 });

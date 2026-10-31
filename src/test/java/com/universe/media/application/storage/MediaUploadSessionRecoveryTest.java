@@ -110,6 +110,7 @@ class MediaUploadSessionRecoveryTest {
         currentTime = new AtomicReference<>(NOW);
         clockPort = currentTime::get;
         transactionManager = createTestTransactionManager();
+        org.mockito.Mockito.lenient().when(multipartStoragePort.providerId()).thenReturn(StorageProviderId.of("b2"));
         service = new MediaUploadSessionService(
                 sessionRepositoryPort,
                 storageKeyAllocationService,

@@ -75,6 +75,7 @@ class MediaUploadSessionS2d1Test {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(multipartStoragePort.providerId()).thenReturn(StorageProviderId.of("b2"));
         service = new MediaUploadSessionService(
                 sessionRepositoryPort,
                 storageKeyAllocationService,

@@ -129,7 +129,7 @@ public class MediaUploadSessionJpaEntity implements Persistable<String> {
 
     @Column(
             name = "provider_upload_id",
-            length = 255
+            length = 1024
     )
     private String providerUploadId;
 

@@ -46,6 +46,9 @@ class MediaUploadSessionServiceTest {
     @Mock
     private MediaStorageRoutingService routingService;
 
+    @Mock
+    private com.universe.media.application.ports.storage.MultipartStoragePort multipartStoragePort;
+
     private ClockPort clockPort;
     private MediaUploadSessionService service;
 
@@ -57,11 +60,18 @@ class MediaUploadSessionServiceTest {
     @BeforeEach
     void setUp() {
         clockPort = () -> NOW;
+        org.mockito.Mockito.lenient().when(multipartStoragePort.providerId()).thenReturn(B2_PROVIDER);
+        org.mockito.Mockito.lenient().when(routingService.resolveWriteProvider(org.mockito.ArgumentMatchers.eq(com.universe.media.domain.MediaType.VIDEO), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(B2_PROVIDER);
+        org.mockito.Mockito.lenient().when(routingService.resolveWriteProvider(org.mockito.ArgumentMatchers.eq(com.universe.media.domain.MediaType.VIDEO), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(B2_PROVIDER);
         service = new MediaUploadSessionService(
                 sessionRepositoryPort,
                 storageKeyAllocationService,
                 routingService,
-                clockPort
+                clockPort,
+                null,
+                multipartStoragePort
         );
     }
 

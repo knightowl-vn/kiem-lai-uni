@@ -95,6 +95,7 @@ class MediaUploadSessionConcurrencyIntegrationTest {
         @Bean
         public MultipartStoragePort multipartStoragePort() {
             MultipartStoragePort mock = org.mockito.Mockito.mock(MultipartStoragePort.class);
+            org.mockito.Mockito.when(mock.providerId()).thenReturn(com.universe.media.domain.StorageProviderId.of("b2"));
             org.mockito.Mockito.when(mock.initiateMultipartUpload(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                     .thenAnswer(inv -> "b2-upload-" + java.util.UUID.randomUUID());
             return mock;
@@ -338,7 +339,8 @@ class MediaUploadSessionConcurrencyIntegrationTest {
                 allocationService,
                 routingService,
                 clockPort,
-                transactionManager
+                transactionManager,
+                multipartStoragePort
         );
 
         ExecutorService executor = Executors.newFixedThreadPool(2);

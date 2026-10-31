@@ -109,6 +109,9 @@ class MediaUploadSessionGuardedAbortTest {
         currentTime = new AtomicReference<>(T0);
         clockPort = currentTime::get;
         transactionManager = createTestTransactionManager();
+        lenient().when(multipartStoragePort.providerId()).thenReturn(B2_PROVIDER);
+        lenient().when(multipartStoragePort.configuredBucketName()).thenReturn(B2_BUCKET);
+        lenient().when(routingService.resolveBucketName(any())).thenReturn(B2_BUCKET);
         service = new MediaUploadSessionService(
                 sessionRepositoryPort,
                 storageKeyAllocationService,
@@ -119,9 +122,6 @@ class MediaUploadSessionGuardedAbortTest {
                 mediaAssetRepositoryPort,
                 mediaAssetVersionRepositoryPort
         );
-        lenient().when(multipartStoragePort.providerId()).thenReturn(B2_PROVIDER);
-        lenient().when(multipartStoragePort.configuredBucketName()).thenReturn(B2_BUCKET);
-        lenient().when(routingService.resolveBucketName(any())).thenReturn(B2_BUCKET);
     }
 
     @AfterEach

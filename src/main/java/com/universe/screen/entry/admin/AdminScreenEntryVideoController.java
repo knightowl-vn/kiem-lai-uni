@@ -438,7 +438,7 @@ public class AdminScreenEntryVideoController {
                     registeredAssetId,
                     playbackUrl,
                     "COMPLETED",
-                    "Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry."
+                    "Video đã được tải lên và gán thành công vào Screen Entry."
             ));
         } catch (ScreenEntryVideoAlreadyAttachedException ex) {
             log.warn("ScreenEntry video already attached after upload completion for session {} (asset {}): {}",

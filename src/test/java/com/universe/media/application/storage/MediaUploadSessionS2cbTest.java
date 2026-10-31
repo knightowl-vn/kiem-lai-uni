@@ -86,6 +86,7 @@ class MediaUploadSessionS2cbTest {
     void setUp() {
         clockPort = () -> NOW;
         transactionManager = createTestTransactionManager();
+        org.mockito.Mockito.lenient().when(multipartStoragePort.providerId()).thenReturn(StorageProviderId.of("b2"));
         service = new MediaUploadSessionService(
                 sessionRepositoryPort,
                 storageKeyAllocationService,

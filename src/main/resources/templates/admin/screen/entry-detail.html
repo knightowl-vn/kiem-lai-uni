@@ -205,10 +205,10 @@
                 </section>
             </div>
 
-            <!-- Video Playback & Upload Section (MS-08 Multipart Web-to-B2) -->
+            <!-- Video Playback & Upload Section (MS-08 Multipart Upload) -->
             <section class="admin-table-panel" style="padding: 24px; margin-top: 24px;" id="videoSection">
                 <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 8px;">
-                    Video phát sóng & Tải lên (Web-to-B2 Multipart)
+                    Video phát sóng & Tải lên (Multipart Upload)
                 </h3>
 
                 <!-- Case 1: Video is already attached -->
@@ -277,7 +277,7 @@
                     </div>
 
                     <p style="margin-top: 0; margin-bottom: 16px; color: #5f6368; font-size: 14px; line-height: 1.5;">
-                        Chọn file video MP4 để tải lên trực tiếp từ trình duyệt tới Backblaze B2 thông qua multipart upload.<br/>
+                        Chọn file video MP4 để tải lên trực tiếp từ trình duyệt thông qua multipart upload.<br/>
                         Giới hạn dung lượng tối đa: <strong>50 GiB</strong>. Kích thước phân đoạn (chunk): <strong>25 MiB</strong>. Quá trình tính toán mã băm SHA-256 và truyền tải được thực hiện phân đoạn với bộ nhớ kiểm soát.
                     </p>
 
@@ -290,7 +290,7 @@
                                 style="font-size: 14px; border: 1px solid #dadce0; padding: 8px 12px; border-radius: 4px; background: #fff;" />
                         <button type="button" id="startUploadBtn" class="admin-primary-button"
                                 style="padding: 10px 20px; font-size: 14px; cursor: pointer;" disabled>
-                            Bắt đầu tải lên B2
+                            Bắt đầu tải lên
                         </button>
                         <button type="button" id="retryInitBtn" class="admin-secondary-button"
                                 style="display: none; padding: 10px 20px; font-size: 14px; color: #1a73e8; border-color: #1a73e8; cursor: pointer;">
@@ -692,12 +692,18 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             const successMsg = completeData.status === 'REPLACED'
-                    ? 'Video đã được tải lên Backblaze B2 và thay thế thành công trên Screen Entry. Bạn có thể phát video mới ngay bên dưới.'
-                    : 'Video đã được tải lên Backblaze B2 và gán thành công vào Screen Entry. Bạn có thể phát video ngay bên dưới.';
+                    ? 'Video đã được thay thế thành công trên Screen Entry. Bạn có thể phát video mới ngay bên dưới.'
+                    : 'Video đã được tải lên và gán thành công vào Screen Entry. Bạn có thể phát video ngay bên dưới.';
             showAlert('success', successMsg);
         },
         onError: function (err, attempt) {
             console.error('Upload failed:', err);
+            // If the attempt encountered an unconfirmed initiation claim or terminal initiation error,
+            // purge the saved attempt from sessionStorage immediately so subsequent attempts are clean.
+            if (err && (err.errorCode === 'MEDIA_UPLOAD_INITIATION_UNCONFIRMED_CLAIM'
+                    || err.errorCode === 'MEDIA_STORAGE_INITIATION_AMBIGUOUS')) {
+                clearSavedAttempt();
+            }
             if (Uploader && typeof Uploader.handleUploadError === 'function') {
                 Uploader.handleUploadError(err, attempt, {
                     retryInitBtn: retryInitBtn,
@@ -734,12 +740,10 @@ document.addEventListener('DOMContentLoaded', function () {
         progressContainer.style.display = 'block';
         updateProgress(0, 'Đang chuẩn bị phiên tải lên...');
 
-        // Reuse stable idempotencyKey from sessionStorage if retrying same file after reload
-        let idempotencyKey;
-        const saved = getSavedAttempt();
-        if (saved && saved.fileName === file.name && saved.fileSize === file.size && saved.idempotencyKey) {
-            idempotencyKey = saved.idempotencyKey;
-        }
+        // Each explicit click on "Bắt đầu tải lên" initiates a genuinely fresh logical upload attempt
+        // with a brand-new unique idempotency key. Stale keys from historical failed sessions in sessionStorage
+        // are never blindly reused, preventing unconfirmed-claim lockouts while preserving the historical session.
+        clearSavedAttempt();
 
         const isReplacement = uploadView.getAttribute('data-is-replacement') === 'true';
         const expectedCurrentVideoMediaAssetId = uploadView.getAttribute('data-expected-video-asset-id') || null;
@@ -748,7 +752,6 @@ document.addEventListener('DOMContentLoaded', function () {
             file: file,
             titleId: titleId,
             entryId: entryId,
-            idempotencyKey: idempotencyKey,
             isReplacement: isReplacement,
             expectedCurrentVideoMediaAssetId: expectedCurrentVideoMediaAssetId,
             callbacks: uploadCallbacks,
@@ -800,7 +803,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         recoveryRenderer.load();
                     }
 
-                    showAlert('warning', 'Phiên tải lên đã được đánh dấu hủy trên hệ thống (' + (data.status || 'ABORTED') + '). Session ID: ' + (attempt.sessionId || 'N/A') + '. Lưu ý: Quá trình dọn dẹp B2 từ xa tuân thủ hợp đồng bảo vệ cách ly.');
+                    showAlert('warning', 'Phiên tải lên đã được đánh dấu hủy trên hệ thống (' + (data.status || 'ABORTED') + '). Session ID: ' + (attempt.sessionId || 'N/A') + '. Quá trình dọn dẹp dữ liệu từ xa tuân thủ hợp đồng bảo vệ cách ly.');
                     progressContainer.style.display = 'none';
                     abortUploadBtn.style.display = 'none';
                     startUploadBtn.disabled = false;

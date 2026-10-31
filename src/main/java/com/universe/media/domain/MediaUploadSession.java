@@ -3,6 +3,7 @@ package com.universe.media.domain;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -29,6 +30,8 @@ public final class MediaUploadSession {
     public static final long MAX_VIDEO_SIZE_BYTES = 53687091200L; // 50 GiB
     public static final String REQUIRED_MIME_TYPE = "video/mp4";
     public static final StorageProviderId REQUIRED_PROVIDER = StorageProviderId.of("b2");
+    public static final StorageProviderId R2_MOVIE_PROVIDER = StorageProviderId.of("r2-movie");
+    public static final Set<StorageProviderId> SUPPORTED_VIDEO_PROVIDERS = Set.of(REQUIRED_PROVIDER, R2_MOVIE_PROVIDER);
     public static final Pattern SHA256_PATTERN = Pattern.compile("^[0-9a-f]{64}$");
     public static final String CLEANUP_CLAIM_PREFIX = "CLEANUP_CLAIM:";
     public static final Pattern CLEANUP_CLAIM_PATTERN = Pattern.compile(
@@ -36,6 +39,7 @@ public final class MediaUploadSession {
     );
     public static final Duration MAX_CLEANUP_LEASE_DURATION = Duration.ofMinutes(5);
     public static final int MAX_CLEANUP_ERROR_DETAIL_LENGTH = 1000;
+    public static final int MAX_PROVIDER_UPLOAD_ID_LENGTH = 1024;
 
     private final UUID id;
     private final String initiatorPrincipalId;
@@ -119,7 +123,10 @@ public final class MediaUploadSession {
         this.storageBucketName = requireNonBlank(storageBucketName, "storageBucketName");
         this.storageKey = Objects.requireNonNull(storageKey, "storageKey cannot be null.");
         this.storageAllocationId = Objects.requireNonNull(storageAllocationId, "storageAllocationId cannot be null.");
-        this.providerUploadId = providerUploadId != null && !providerUploadId.isBlank() ? providerUploadId.trim() : null;
+        if (providerUploadId != null && providerUploadId.isBlank()) {
+            throw new IllegalArgumentException("Upload session field [providerUploadId] must not be blank.");
+        }
+        this.providerUploadId = providerUploadId;
         this.partSizeBytes = partSizeBytes;
         this.expectedPartCount = expectedPartCount;
         this.declaredContentHash = declaredContentHash != null && !declaredContentHash.isBlank() ? declaredContentHash.trim().toLowerCase() : null;
@@ -160,11 +167,11 @@ public final class MediaUploadSession {
         if (expectedPartCount != calculatedParts || expectedPartCount < 1 || expectedPartCount > 2048) {
             throw new IllegalArgumentException("Upload session expectedPartCount mismatch. Expected " + calculatedParts + ", got: " + expectedPartCount);
         }
-        if (!REQUIRED_PROVIDER.equals(storageProviderId)) {
-            throw new IllegalArgumentException("Upload session storageProviderId must be 'b2', got: " + storageProviderId.value());
+        if (!SUPPORTED_VIDEO_PROVIDERS.contains(storageProviderId)) {
+            throw new IllegalArgumentException("Upload session storageProviderId must be 'b2' or 'r2-movie', got: " + storageProviderId.value());
         }
         if (StorageKeyAllocation.CANONICAL_BUCKETLESS_SENTINEL.equalsIgnoreCase(storageBucketName) || storageBucketName.isBlank()) {
-            throw new IllegalArgumentException("B2 upload session requires an authentic non-sentinel bucket name.");
+            throw new IllegalArgumentException(storageProviderId.value() + " upload session requires an authentic non-sentinel bucket name.");
         }
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("updatedAt cannot be before createdAt.");
@@ -174,6 +181,17 @@ public final class MediaUploadSession {
         }
         if (manifestHash != null && !SHA256_PATTERN.matcher(manifestHash).matches()) {
             throw new IllegalArgumentException("manifestHash must be a 64-character lowercase hex string.");
+        }
+        if (providerUploadId != null) {
+            if (providerUploadId.isBlank()) {
+                throw new IllegalArgumentException("Upload session field [providerUploadId] must not be blank.");
+            }
+            if (providerUploadId.length() > MAX_PROVIDER_UPLOAD_ID_LENGTH) {
+                throw new IllegalArgumentException(String.format(
+                        "Upload session providerUploadId length (%d) exceeds maximum supported capacity of %d.",
+                        providerUploadId.length(), MAX_PROVIDER_UPLOAD_ID_LENGTH
+                ));
+            }
         }
         if (status == MediaUploadSessionStatus.INITIATED
                 || status == MediaUploadSessionStatus.COMPLETING
@@ -524,7 +542,10 @@ public final class MediaUploadSession {
         if (this.status != MediaUploadSessionStatus.ALLOCATED) {
             throw new IllegalStateException("Cannot initiate upload session with status: " + this.status);
         }
-        this.providerUploadId = requireNonBlank(providerUploadId, "providerUploadId");
+        if (providerUploadId == null || providerUploadId.isBlank()) {
+            throw new IllegalArgumentException("Upload session field [providerUploadId] must not be blank.");
+        }
+        this.providerUploadId = providerUploadId;
         this.status = MediaUploadSessionStatus.INITIATED;
         this.leaseOwner = null;
         this.leaseExpiresAt = null;

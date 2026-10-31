@@ -51,8 +51,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -81,7 +84,7 @@ public class MediaUploadSessionService {
     private final MediaStorageRoutingService mediaStorageRoutingService;
     private final ClockPort clockPort;
     private final PlatformTransactionManager transactionManager;
-    private final MultipartStoragePort multipartStoragePort;
+    private final Map<StorageProviderId, MultipartStoragePort> multipartStoragePorts;
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
 
@@ -91,8 +94,8 @@ public class MediaUploadSessionService {
             StorageKeyAllocationService storageKeyAllocationService,
             MediaStorageRoutingService mediaStorageRoutingService,
             ClockPort clockPort,
-            PlatformTransactionManager transactionManager,
-            @Autowired(required = false) MultipartStoragePort multipartStoragePort,
+            @Autowired(required = false) PlatformTransactionManager transactionManager,
+            List<MultipartStoragePort> multipartStoragePorts,
             @Autowired(required = false) MediaAssetRepositoryPort mediaAssetRepositoryPort,
             @Autowired(required = false) MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort
     ) {
@@ -101,9 +104,28 @@ public class MediaUploadSessionService {
         this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
         this.clockPort = Objects.requireNonNull(clockPort, "ClockPort cannot be null.");
         this.transactionManager = transactionManager;
-        this.multipartStoragePort = multipartStoragePort;
         this.mediaAssetRepositoryPort = mediaAssetRepositoryPort;
         this.mediaAssetVersionRepositoryPort = mediaAssetVersionRepositoryPort;
+
+        Map<StorageProviderId, MultipartStoragePort> map = new HashMap<>();
+        if (multipartStoragePorts != null) {
+            for (MultipartStoragePort port : multipartStoragePorts) {
+                if (port == null) {
+                    continue;
+                }
+                StorageProviderId providerId = port.providerId();
+                if (providerId == null || providerId.value() == null || providerId.value().isBlank()) {
+                    throw new IllegalStateException("MultipartStoragePort bean returned null or blank providerId: " + port.getClass().getName());
+                }
+                if (map.containsKey(providerId)) {
+                    throw new IllegalStateException(
+                            "Duplicate MultipartStoragePort registration detected for provider ID: " + providerId.value()
+                    );
+                }
+                map.put(providerId, port);
+            }
+        }
+        this.multipartStoragePorts = Collections.unmodifiableMap(map);
     }
 
     public MediaUploadSessionService(
@@ -112,9 +134,31 @@ public class MediaUploadSessionService {
             MediaStorageRoutingService mediaStorageRoutingService,
             ClockPort clockPort,
             PlatformTransactionManager transactionManager,
-            MultipartStoragePort multipartStoragePort
+            MultipartStoragePort singleMultipartStoragePort,
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort
     ) {
-        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, transactionManager, multipartStoragePort, null, null);
+        this(
+                sessionRepositoryPort,
+                storageKeyAllocationService,
+                mediaStorageRoutingService,
+                clockPort,
+                transactionManager,
+                singleMultipartStoragePort != null ? List.of(singleMultipartStoragePort) : Collections.emptyList(),
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort
+        );
+    }
+
+    public MediaUploadSessionService(
+            MediaUploadSessionRepositoryPort sessionRepositoryPort,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            ClockPort clockPort,
+            PlatformTransactionManager transactionManager,
+            MultipartStoragePort singleMultipartStoragePort
+    ) {
+        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, transactionManager, singleMultipartStoragePort, null, null);
     }
 
     public MediaUploadSessionService(
@@ -124,7 +168,7 @@ public class MediaUploadSessionService {
             ClockPort clockPort,
             PlatformTransactionManager transactionManager
     ) {
-        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, transactionManager, null, null, null);
+        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, transactionManager, Collections.emptyList(), null, null);
     }
 
     public MediaUploadSessionService(
@@ -133,7 +177,28 @@ public class MediaUploadSessionService {
             MediaStorageRoutingService mediaStorageRoutingService,
             ClockPort clockPort
     ) {
-        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, null, null, null, null);
+        this(sessionRepositoryPort, storageKeyAllocationService, mediaStorageRoutingService, clockPort, null, Collections.emptyList(), null, null);
+    }
+
+    private MultipartStoragePort resolveMultipartStoragePort(StorageProviderId providerId) {
+        if (providerId == null) {
+            throw new IllegalStateException("Storage provider ID cannot be null for multipart port resolution.");
+        }
+        MultipartStoragePort port = multipartStoragePorts.get(providerId);
+        if (port == null) {
+            throw new IllegalStateException("MultipartStoragePort is not configured or available for provider: " + providerId.value());
+        }
+        if (port.providerId() == null || !port.providerId().equals(providerId)) {
+            throw new IllegalStateException(
+                    String.format("MultipartStoragePort provider '%s' does not match session storage provider '%s'",
+                            port.providerId() != null ? port.providerId().value() : "null", providerId.value())
+            );
+        }
+        return port;
+    }
+
+    private boolean hasMultipartStoragePort() {
+        return !multipartStoragePorts.isEmpty();
     }
 
     /**
@@ -196,14 +261,26 @@ public class MediaUploadSessionService {
         }
 
         // 2. Reserve unique storage key for this upload session
-        StorageProviderId providerId = StorageProviderId.of("b2");
+        StorageProviderId providerId = mediaStorageRoutingService.resolveWriteProvider(
+                MediaType.VIDEO,
+                consumerContext,
+                normalizedClientTag
+        );
+        if (providerId == null) {
+            throw new IllegalStateException(
+                    "MediaStorageRoutingService resolved null provider for MediaType.VIDEO and tag: " + normalizedClientTag
+            );
+        }
+        // Verify destination multipart port is configured and available BEFORE reserving allocation
+        resolveMultipartStoragePort(providerId);
+
+        String bucketName = mediaStorageRoutingService.resolveBucketName(providerId);
         StorageKey storageKey = mediaStorageRoutingService.generateStorageKey(
                 MediaType.VIDEO,
                 normalizedClientTag,
                 null,
                 1
         );
-        String bucketName = mediaStorageRoutingService.resolveBucketName(providerId);
 
         UUID sessionId = UUID.randomUUID();
         Instant now = clockPort.now();
@@ -492,7 +569,7 @@ public class MediaUploadSessionService {
         Objects.requireNonNull(sessionId, "Session ID cannot be null.");
         requireNonBlank(requestingPrincipalId, "requestingPrincipalId");
 
-        if (multipartStoragePort == null) {
+        if (!hasMultipartStoragePort()) {
             throw new IllegalStateException("MultipartStoragePort is not configured or available.");
         }
         if (transactionManager == null) {
@@ -506,18 +583,18 @@ public class MediaUploadSessionService {
         txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         MediaUploadSession claimedSession = txTemplate.execute(status -> executeTxAClaim(sessionId, requestingPrincipalId));
 
-        // If the session was already INITIATED (idempotent retry), return directly without second B2 initiation
+        // If the session was already INITIATED (idempotent retry), return directly without second initiation
         if (claimedSession.getStatus() == MediaUploadSessionStatus.INITIATED) {
             return claimedSession;
         }
 
         // Defensive check: guarantee no ambient transaction is active before invoking remote provider
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            throw new IllegalStateException("B2 multipart upload cannot be invoked while a database transaction is active.");
+            throw new IllegalStateException("Multipart upload cannot be invoked while a database transaction is active.");
         }
 
         // =========================================================================
-        // B2 — Outside MySQL Transaction: Invoke CreateMultipartUpload with bound metadata
+        // Provider — Outside MySQL Transaction: Invoke CreateMultipartUpload with bound metadata
         // =========================================================================
         String providerUploadId;
         try {
@@ -525,7 +602,8 @@ public class MediaUploadSessionService {
                     METADATA_SESSION_ID, claimedSession.getId().toString(),
                     METADATA_ALLOCATION_ID, claimedSession.getStorageAllocationId().toString()
             );
-            providerUploadId = multipartStoragePort.initiateMultipartUpload(
+            MultipartStoragePort port = resolveMultipartStoragePort(claimedSession.getStorageProviderId());
+            providerUploadId = port.initiateMultipartUpload(
                     claimedSession.getStorageKey(),
                     MimeType.of(claimedSession.getDeclaredMimeType()),
                     metadata
@@ -588,8 +666,9 @@ public class MediaUploadSessionService {
             // Remote initiation succeeded, but MySQL persistence failed.
             // Preserves state in DB (status ALLOCATED, providerUploadId null, initiation claim recorded).
             // Do NOT delete from provider speculatively. Propagate exception.
-            log.error("TX-B persistence failed after successful provider initiation for session {}. providerUploadId={}. Preserving state for reconciliation.",
-                    sessionId, providerUploadId, txBException);
+            int uploadIdLength = providerUploadId != null ? providerUploadId.length() : 0;
+            log.error("TX-B persistence failed after successful provider initiation for session {}. providerId={}, operation=INITIATE_TX_B, failureCategory=PERSISTENCE_FAILURE, uploadIdLength={}. Preserving state for reconciliation.",
+                    sessionId, claimedSession.getStorageProviderId(), uploadIdLength, txBException);
             throw txBException;
         }
     }
@@ -949,17 +1028,15 @@ public class MediaUploadSessionService {
         validateAllocationBinding(allocation, session);
 
         // 8. Validate storage provider
-        if (!StorageProviderId.of("b2").equals(session.getStorageProviderId())) {
-            throw new IllegalStateException("Storage provider mismatch for upload session " + sessionId + ": expected 'b2', got " + session.getStorageProviderId().value());
+        if (!MediaUploadSession.SUPPORTED_VIDEO_PROVIDERS.contains(session.getStorageProviderId())) {
+            throw new IllegalStateException("Storage provider mismatch for upload session " + sessionId + ": expected supported video provider, got " + session.getStorageProviderId().value());
         }
 
         // 9. Delegate to multipartStoragePort
-        if (multipartStoragePort == null) {
-            throw new IllegalStateException("MultipartStoragePort is not configured or available.");
-        }
+        MultipartStoragePort port = resolveMultipartStoragePort(session.getStorageProviderId());
 
         try {
-            String presignedUrl = multipartStoragePort.generatePresignedPartUploadUrl(
+            String presignedUrl = port.generatePresignedPartUploadUrl(
                     session.getStorageKey(),
                     session.getProviderUploadId(),
                     partNumber,
@@ -1163,7 +1240,7 @@ public class MediaUploadSessionService {
         Objects.requireNonNull(sessionId, "Session ID cannot be null.");
         requireNonBlank(requestingPrincipalId, "requestingPrincipalId");
 
-        if (multipartStoragePort == null) {
+        if (!hasMultipartStoragePort()) {
             throw new IllegalStateException("MultipartStoragePort is not configured or available.");
         }
         if (transactionManager == null) {
@@ -1184,26 +1261,27 @@ public class MediaUploadSessionService {
                 executeTxACompletionClaim(sessionId, requestingPrincipalId, manifest, claimToken)
         );
 
-        // If the session was already COMPLETED (idempotent retry), return directly without second B2 completion
+        // If the session was already COMPLETED (idempotent retry), return directly without second completion
         if (claimedSession.getStatus() == MediaUploadSessionStatus.COMPLETED) {
             return claimedSession;
         }
 
         // Defensive check: guarantee no ambient transaction is active before invoking remote provider
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            throw new IllegalStateException("B2 multipart completion operations cannot be invoked while a database transaction is active.");
+            throw new IllegalStateException("Multipart completion operations cannot be invoked while a database transaction is active.");
         }
 
         // =========================================================================
-        // B2 Provider Verification & Complete — Outside MySQL Transaction
+        // Provider Verification & Complete — Outside MySQL Transaction
         // =========================================================================
+        MultipartStoragePort port = resolveMultipartStoragePort(claimedSession.getStorageProviderId());
         List<MultipartUploadedPart> providerParts = null;
         MultipartCompletedObject completedObject = null;
         MultipartObjectMetadata headMetadata = null;
         boolean providerReportedNoSuchUpload = false;
 
         try {
-            providerParts = multipartStoragePort.listUploadedParts(
+            providerParts = port.listUploadedParts(
                     claimedSession.getStorageKey(),
                     claimedSession.getProviderUploadId()
             );
@@ -1221,12 +1299,12 @@ public class MediaUploadSessionService {
             }
         }
 
-        // SCENARIO A: B2 Complete Succeeded, MySQL TX-B Failed or Interrupted
+        // SCENARIO A: Complete Succeeded, MySQL TX-B Failed or Interrupted
         // On retry, listUploadedParts returned provider-confirmed NoSuchUpload.
         // Perform a guarded HEAD inspection of the exact reserved object.
         if (providerReportedNoSuchUpload) {
             try {
-                headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+                headMetadata = port.inspectObjectMetadata(claimedSession.getStorageKey());
             } catch (StorageObjectNotFoundException headNotFoundEx) {
                 log.warn("NoSuchUpload on listParts and object missing on storage for session {}. Failing closed.", sessionId);
                 throw headNotFoundEx;
@@ -1282,7 +1360,7 @@ public class MediaUploadSessionService {
 
             // Complete remote multipart upload on provider
             try {
-                completedObject = multipartStoragePort.completeMultipartUpload(
+                completedObject = port.completeMultipartUpload(
                         claimedSession.getStorageKey(),
                         claimedSession.getProviderUploadId(),
                         partsToComplete
@@ -1292,7 +1370,7 @@ public class MediaUploadSessionService {
                 log.warn("CompleteMultipartUpload threw ambiguous completion error {} for session {}: probing storage to determine if object was assembled.",
                         ambiguousEx.getClass().getSimpleName(), sessionId);
                 try {
-                    headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+                    headMetadata = port.inspectObjectMetadata(claimedSession.getStorageKey());
                 } catch (Exception probeException) {
                     log.warn("CompleteMultipartUpload probe failed for session {} (error: {}). Preserving state for reconciliation.",
                             sessionId, probeException.getClass().getSimpleName());
@@ -1333,7 +1411,7 @@ public class MediaUploadSessionService {
         // =========================================================================
         if (headMetadata == null) {
             try {
-                headMetadata = multipartStoragePort.inspectObjectMetadata(claimedSession.getStorageKey());
+                headMetadata = port.inspectObjectMetadata(claimedSession.getStorageKey());
             } catch (RuntimeException headException) {
                 log.warn("inspectObjectMetadata failed after completion for session {} (error: {}). Preserving state for reconciliation.",
                         sessionId, headException.getClass().getSimpleName());
@@ -1631,20 +1709,36 @@ public class MediaUploadSessionService {
 
         // Version ID check: when nonblank versionId is expected from provider completion result,
         // missing/blank HEAD versionId or versionId mismatch must fail closed.
+        // Exception: Cloudflare R2 does not support S3 bucket object versioning and omits
+        // versionId on HeadObject. For R2 providers, an absent HEAD versionId is verified provider
+        // behavior and provenance is anchored by storage key, allocation metadata bindings,
+        // content length, and ETag. If HEAD versionId is present on R2, it must still match.
         if (expectedVersionId != null && !expectedVersionId.isBlank()) {
             if (headMetadata.versionId() == null || headMetadata.versionId().isBlank()) {
-                throw new IllegalStateException(
-                        String.format("Completed object versionId missing on HEAD metadata: expected %s, got null/blank",
-                                expectedVersionId)
-                );
-            }
-            if (!expectedVersionId.equals(headMetadata.versionId())) {
+                if (isProviderOmittingHeadVersionId(session.getStorageProviderId())) {
+                    log.info("Completed object versionId is omitted on HEAD metadata for provider {} (expected: {}). " +
+                                    "Provenance verified by storage key, allocation metadata bindings, content length, and ETag.",
+                            session.getStorageProviderId(), expectedVersionId);
+                } else {
+                    throw new IllegalStateException(
+                            String.format("Completed object versionId missing on HEAD metadata: expected %s, got null/blank",
+                                    expectedVersionId)
+                    );
+                }
+            } else if (!expectedVersionId.equals(headMetadata.versionId())) {
                 throw new IllegalStateException(
                         String.format("Completed object versionId mismatch (potential concurrent overwrite): expected %s, got %s",
                                 expectedVersionId, headMetadata.versionId())
                 );
             }
         }
+    }
+
+    static boolean isProviderOmittingHeadVersionId(StorageProviderId providerId) {
+        if (providerId == null || providerId.value() == null) {
+            return false;
+        }
+        return "r2-movie".equalsIgnoreCase(providerId.value().trim());
     }
 
     private static boolean isProviderConfirmedNoSuchUpload(Throwable ex) {
@@ -1886,25 +1980,7 @@ public class MediaUploadSessionService {
     }
 
     static boolean isValidScreenClientTag(String clientTag) {
-        if (clientTag == null || clientTag.isBlank()) {
-            return false;
-        }
-        if ("screen-video".equals(clientTag)) {
-            return true;
-        }
-        if (clientTag.startsWith("screen-replace:")) {
-            String rawUuid = clientTag.substring("screen-replace:".length()).trim();
-            if (rawUuid.length() != 36) {
-                return false;
-            }
-            try {
-                UUID parsed = UUID.fromString(rawUuid);
-                return parsed.toString().equalsIgnoreCase(rawUuid);
-            } catch (IllegalArgumentException e) {
-                return false;
-            }
-        }
-        return false;
+        return MediaStorageRoutingService.isValidScreenClientTag(clientTag);
     }
 
     static MediaVisibility resolveInitialVisibility(MediaUploadSession session) {
@@ -1985,7 +2061,7 @@ public class MediaUploadSessionService {
         }
         Objects.requireNonNull(sessionId, "Session ID cannot be null.");
 
-        if (multipartStoragePort == null) {
+        if (!hasMultipartStoragePort()) {
             throw new IllegalStateException("MultipartStoragePort is not configured or available.");
         }
         if (transactionManager == null) {
@@ -2017,7 +2093,8 @@ public class MediaUploadSessionService {
         Exception providerException = null;
 
         try {
-            abortResult = multipartStoragePort.abortMultipartUpload(context.storageKey(), context.providerUploadId());
+            MultipartStoragePort port = resolveMultipartStoragePort(context.storageProviderId());
+            abortResult = port.abortMultipartUpload(context.storageKey(), context.providerUploadId());
         } catch (Exception ex) {
             providerException = ex;
         }
@@ -2111,16 +2188,17 @@ public class MediaUploadSessionService {
         }
 
         // 6. Validate storage provider identity and authoritative configured bucket binding
-        if (!StorageProviderId.of("b2").equals(session.getStorageProviderId())) {
+        if (!MediaUploadSession.SUPPORTED_VIDEO_PROVIDERS.contains(session.getStorageProviderId())) {
             throw new IllegalStateException(
-                    String.format("Storage provider mismatch for upload session %s: expected 'b2', got '%s'",
+                    String.format("Storage provider mismatch for upload session %s: expected supported video provider, got '%s'",
                             sessionId, session.getStorageProviderId().value())
             );
         }
-        if (multipartStoragePort.providerId() == null || !multipartStoragePort.providerId().equals(session.getStorageProviderId())) {
+        MultipartStoragePort port = resolveMultipartStoragePort(session.getStorageProviderId());
+        if (port.providerId() == null || !port.providerId().equals(session.getStorageProviderId())) {
             throw new IllegalStateException(
                     String.format("MultipartStoragePort provider '%s' does not match session storage provider '%s' for session %s",
-                            multipartStoragePort.providerId() != null ? multipartStoragePort.providerId().value() : "null",
+                            port.providerId() != null ? port.providerId().value() : "null",
                             session.getStorageProviderId().value(), sessionId)
             );
         }
@@ -2136,11 +2214,11 @@ public class MediaUploadSessionService {
                             sessionId, session.getStorageBucketName(), configuredBucket)
             );
         }
-        String adapterBucket = multipartStoragePort.configuredBucketName();
+        String adapterBucket = port.configuredBucketName();
         if (adapterBucket == null || adapterBucket.isBlank()) {
             throw new IllegalStateException(
                     String.format("MultipartStoragePort provider '%s' has null or blank configured bucket name for session %s",
-                            multipartStoragePort.providerId().value(), sessionId)
+                            port.providerId().value(), sessionId)
             );
         }
         if (!adapterBucket.equals(configuredBucket)) {
@@ -2235,10 +2313,11 @@ public class MediaUploadSessionService {
                             context.sessionId(), context.storageBucketName(), session.getStorageBucketName())
             );
         }
-        if (multipartStoragePort.providerId() == null || !multipartStoragePort.providerId().equals(session.getStorageProviderId())) {
+        MultipartStoragePort port = resolveMultipartStoragePort(session.getStorageProviderId());
+        if (port.providerId() == null || !port.providerId().equals(session.getStorageProviderId())) {
             throw new IllegalStateException(
                     String.format("TX-B abort MultipartStoragePort provider '%s' does not match session provider '%s' for session %s",
-                            multipartStoragePort.providerId() != null ? multipartStoragePort.providerId().value() : "null", session.getStorageProviderId().value(), context.sessionId())
+                            port.providerId() != null ? port.providerId().value() : "null", session.getStorageProviderId().value(), context.sessionId())
             );
         }
         String configuredBucket = mediaStorageRoutingService.resolveBucketName(session.getStorageProviderId());
@@ -2248,11 +2327,11 @@ public class MediaUploadSessionService {
                             session.getStorageBucketName(), configuredBucket, context.sessionId())
             );
         }
-        String adapterBucket = multipartStoragePort.configuredBucketName();
+        String adapterBucket = port.configuredBucketName();
         if (adapterBucket == null || adapterBucket.isBlank()) {
             throw new IllegalStateException(
                     String.format("TX-B abort MultipartStoragePort provider '%s' has null or blank configured bucket name for session %s",
-                            multipartStoragePort.providerId().value(), context.sessionId())
+                            port.providerId().value(), context.sessionId())
             );
         }
         if (!adapterBucket.equals(configuredBucket)) {
@@ -2291,8 +2370,10 @@ public class MediaUploadSessionService {
         // 7. Verify provider upload ID remains unchanged
         if (!Objects.equals(session.getProviderUploadId(), context.providerUploadId())) {
             throw new IllegalStateException(
-                    String.format("TX-B abort provider upload ID changed for session %s: expected '%s', found '%s'",
-                            context.sessionId(), context.providerUploadId(), session.getProviderUploadId())
+                    String.format("TX-B abort provider upload ID changed for session %s: expectedLength=%d, foundLength=%d",
+                            context.sessionId(),
+                            context.providerUploadId() != null ? context.providerUploadId().length() : 0,
+                            session.getProviderUploadId() != null ? session.getProviderUploadId().length() : 0)
             );
         }
 
