@@ -40,6 +40,7 @@ public final class ScreenTitle {
     private Instant publishedAt;
     private final Instant createdAt;
     private Instant updatedAt;
+    private Integer totalEpisodeCount;
 
     /**
      * Canonical constructor for ScreenTitle.
@@ -57,7 +58,8 @@ public final class ScreenTitle {
             ScreenPublicationStatus status,
             Instant publishedAt,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            Integer totalEpisodeCount
     ) {
         this.id = Objects.requireNonNull(id, "Title ID cannot be null.");
         this.slug = ScreenSlugValidator.validate(slug);
@@ -66,6 +68,7 @@ public final class ScreenTitle {
         this.synopsis = normalizeOptionalText(synopsis);
         this.structure = Objects.requireNonNull(structure, "ScreenStructure cannot be null.");
         this.presentation = Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
+        this.totalEpisodeCount = validateTotalEpisodeCount(this.structure, totalEpisodeCount);
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
         this.status = Objects.requireNonNull(status, "ScreenPublicationStatus cannot be null.");
@@ -78,6 +81,76 @@ public final class ScreenTitle {
 
         validatePublicationState(this.status, publishedAt, this.createdAt, this.updatedAt);
         this.publishedAt = publishedAt;
+    }
+
+    /**
+     * Backwards-compatible constructor without totalEpisodeCount (defaults to null).
+     */
+    public ScreenTitle(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            ScreenPublicationStatus status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                null
+        );
+    }
+
+    /**
+     * Factory method to create a new ScreenTitle in DRAFT status with optional totalEpisodeCount.
+     */
+    public static ScreenTitle createDraft(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Instant createdAt,
+            Integer totalEpisodeCount
+    ) {
+        return new ScreenTitle(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                ScreenPublicationStatus.DRAFT,
+                null,
+                createdAt,
+                createdAt,
+                totalEpisodeCount
+        );
     }
 
     /**
@@ -95,7 +168,7 @@ public final class ScreenTitle {
             UUID backdropMediaAssetId,
             Instant createdAt
     ) {
-        return new ScreenTitle(
+        return createDraft(
                 id,
                 slug,
                 title,
@@ -105,10 +178,8 @@ public final class ScreenTitle {
                 presentation,
                 posterMediaAssetId,
                 backdropMediaAssetId,
-                ScreenPublicationStatus.DRAFT,
-                null,
                 createdAt,
-                createdAt
+                null
         );
     }
 
@@ -221,7 +292,8 @@ public final class ScreenTitle {
             ScreenPresentation presentation,
             UUID posterMediaAssetId,
             UUID backdropMediaAssetId,
-            Instant authoritativeUpdatedAt
+            Instant authoritativeUpdatedAt,
+            Integer totalEpisodeCount
     ) {
         Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
 
@@ -238,6 +310,7 @@ public final class ScreenTitle {
         String normalizedSynopsis = normalizeOptionalText(synopsis);
         ScreenStructure validatedStructure = Objects.requireNonNull(structure, "ScreenStructure cannot be null.");
         ScreenPresentation validatedPresentation = Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
+        Integer validatedTotalEpisodeCount = validateTotalEpisodeCount(validatedStructure, totalEpisodeCount);
 
         this.slug = validatedSlug;
         this.title = validatedTitle;
@@ -245,9 +318,35 @@ public final class ScreenTitle {
         this.synopsis = normalizedSynopsis;
         this.structure = validatedStructure;
         this.presentation = validatedPresentation;
+        this.totalEpisodeCount = validatedTotalEpisodeCount;
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
         this.updatedAt = authoritativeUpdatedAt;
+    }
+
+    public void updateDetails(
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Instant authoritativeUpdatedAt
+    ) {
+        updateDetails(
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                authoritativeUpdatedAt,
+                this.totalEpisodeCount
+        );
     }
 
     /**
@@ -310,6 +409,19 @@ public final class ScreenTitle {
             throw new IllegalArgumentException("Title cannot be blank.");
         }
         return trimmed;
+    }
+
+    private static Integer validateTotalEpisodeCount(ScreenStructure structure, Integer candidate) {
+        if (structure == ScreenStructure.FEATURE) {
+            if (candidate != null) {
+                throw new IllegalArgumentException("FEATURE structure cannot have a total episode count.");
+            }
+            return null;
+        }
+        if (candidate != null && candidate <= 0) {
+            throw new IllegalArgumentException("Total episode count must be a positive integer.");
+        }
+        return candidate;
     }
 
     private static String normalizeOptionalText(String candidate) {
@@ -393,6 +505,10 @@ public final class ScreenTitle {
         return updatedAt;
     }
 
+    public Integer getTotalEpisodeCount() {
+        return totalEpisodeCount;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -414,6 +530,7 @@ public final class ScreenTitle {
                 ", title='" + title + '\'' +
                 ", structure=" + structure +
                 ", presentation=" + presentation +
+                ", totalEpisodeCount=" + totalEpisodeCount +
                 ", status=" + status +
                 ", publishedAt=" + publishedAt +
                 ", createdAt=" + createdAt +

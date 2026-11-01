@@ -1,0 +1,402 @@
+/* ==========================================================================
+   Screen Public Catalog Styles — Kiếm Lai Universe (MS-08F1)
+   Minimalist Poster Grid Redesign
+   ========================================================================== */
+
+.screen-catalog-container {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 24px 20px 64px;
+}
+
+/* --- Compact Header --- */
+.screen-catalog-hero {
+    margin-bottom: 24px;
+}
+
+.screen-catalog-title {
+    font-size: 26px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+}
+
+.screen-catalog-subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.45;
+}
+
+/* --- Catalog Grid --- */
+.screen-catalog-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+/* --- Poster-First Screen Card --- */
+.screen-card {
+    display: flex;
+    flex-direction: column;
+    cursor: default;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    min-width: 0;
+}
+
+/* --- Card Poster Wrapper --- */
+.screen-card-poster-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    background: var(--surface-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px var(--shadow-color);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.screen-card:hover .screen-card-poster-wrap {
+    box-shadow: 0 4px 14px var(--shadow-color);
+    border-color: var(--border-color);
+}
+
+.screen-card-poster {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* --- Missing Poster Placeholder --- */
+.screen-card-poster-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-secondary);
+    color: var(--text-secondary);
+    padding: 16px;
+    text-align: center;
+}
+
+.screen-placeholder-icon {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 8px;
+    opacity: 0.55;
+}
+
+.screen-placeholder-text {
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0.8;
+    line-height: 1.3;
+}
+
+/* --- Episode / Format Badge Overlay (Top-Left) --- */
+.screen-card-episode-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    background: rgba(0, 0, 0, 0.48);
+    color: #ffffff;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.3rem 0.55rem;
+    border-radius: 6px;
+    line-height: 1.25;
+    letter-spacing: 0.01em;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+}
+
+/* --- Card Info (Centered by default, single-line with hover marquee for overflow) --- */
+.screen-card-info {
+    padding-top: 10px;
+    text-align: center;
+    width: 100%;
+    min-width: 0;
+}
+
+.screen-card-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.35;
+    margin: 0;
+    color: var(--text-primary);
+    text-align: center;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    position: relative;
+}
+
+.screen-card-original-title {
+    font-size: 0.925rem;
+    font-weight: 400;
+    line-height: 1.3;
+    margin: 3px 0 0 0;
+    color: var(--text-secondary);
+    text-align: center;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    position: relative;
+}
+
+/* Inner Text Span for Truncation and Marquee */
+.screen-card-title-text {
+    display: inline-block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+    transition: transform 0.4s ease-out;
+    will-change: transform;
+}
+
+/* --- Dynamic Overflow State: Align Left when text exceeds available width --- */
+.screen-card-title.is-overflowing,
+.screen-card-original-title.is-overflowing {
+    text-align: left;
+}
+
+/* --- Hover Reveal Marquee: Only on devices supporting hover, and ONLY when hovering the specific title --- */
+@media (hover: hover) and (pointer: fine) {
+    .screen-card-title.is-overflowing:hover .screen-card-title-text,
+    .screen-card-title.is-overflowing:focus-within .screen-card-title-text {
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
+        transform: translateX(calc(-1 * var(--overflow-dist, 0px)));
+        transition: transform var(--scroll-duration, 2s) cubic-bezier(0.25, 0.1, 0.25, 1) 0.25s;
+    }
+
+    .screen-card-original-title.is-overflowing:hover .screen-card-title-text,
+    .screen-card-original-title.is-overflowing:focus-within .screen-card-title-text {
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
+        transform: translateX(calc(-1 * var(--overflow-dist, 0px)));
+        transition: transform var(--scroll-duration, 2s) cubic-bezier(0.25, 0.1, 0.25, 1) 0.25s;
+    }
+}
+
+/* Accessible Reduced-Motion Support */
+@media (prefers-reduced-motion: reduce) {
+    .screen-card-title-text {
+        transition: none !important;
+        transform: none !important;
+    }
+}
+
+/* --- Empty State & Out-of-Range State --- */
+.screen-empty-state,
+.screen-out-of-range-state {
+    text-align: center;
+    padding: 64px 24px;
+    background: var(--surface-bg);
+    border: 1px dashed var(--border-color);
+    border-radius: 16px;
+    margin: 32px 0;
+}
+
+.screen-empty-icon,
+.screen-out-of-range-icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+    color: var(--text-secondary);
+    opacity: 0.5;
+}
+
+.screen-empty-title,
+.screen-out-of-range-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--text-primary);
+}
+
+.screen-empty-description,
+.screen-out-of-range-description {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 0 0 20px;
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.screen-empty-state .screen-empty-description {
+    margin-bottom: 0;
+}
+
+.screen-out-of-range-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.screen-out-of-range-btn:hover {
+    background: var(--surface-secondary);
+    border-color: #1a73e8;
+    color: var(--text-primary);
+}
+
+/* --- Pagination --- */
+.screen-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 32px;
+}
+
+.screen-pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.screen-pagination-btn:hover:not(.is-disabled) {
+    background: var(--surface-secondary);
+    border-color: #1a73e8;
+    color: var(--text-primary);
+}
+
+.screen-pagination-btn.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.screen-pagination-status {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.screen-pagination-status strong {
+    color: var(--text-primary);
+}
+
+/* --- Responsive Breakpoints --- */
+@media (max-width: 1200px) {
+    .screen-catalog-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 18px;
+    }
+}
+
+@media (max-width: 992px) {
+    .screen-catalog-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+    }
+
+    .screen-catalog-title {
+        font-size: 24px;
+    }
+}
+
+@media (max-width: 640px) {
+    .screen-catalog-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .screen-catalog-container {
+        padding: 16px 12px 48px;
+    }
+
+    .screen-card-info {
+        padding-top: 8px;
+    }
+
+    .screen-card-title {
+        font-size: 0.95rem;
+        white-space: normal;
+        overflow: visible;
+        word-break: break-word;
+        text-align: center;
+    }
+
+    .screen-card-original-title {
+        font-size: 0.85rem;
+        white-space: normal;
+        overflow: visible;
+        word-break: break-word;
+        text-align: center;
+    }
+
+    .screen-card-title.is-overflowing,
+    .screen-card-original-title.is-overflowing {
+        text-align: center;
+    }
+
+    .screen-card-title-text {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        transform: none !important;
+        transition: none !important;
+    }
+
+    .screen-card-episode-badge {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.45rem;
+        top: 6px;
+        left: 6px;
+        bottom: auto;
+        border-radius: 4px;
+    }
+
+    .screen-pagination-btn {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 360px) {
+    .screen-catalog-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 12px;
+    }
+}

@@ -576,4 +576,71 @@ class ScreenTitleTest {
         assertThat(t1.hashCode()).isEqualTo(t2.hashCode());
         assertThat(t1).isNotEqualTo(t3);
     }
+
+    @Test
+    @DisplayName("TotalEpisodeCount: accepts null and positive integer for SERIES")
+    void shouldAllowNullAndPositiveTotalEpisodeCountForSeries() {
+        UUID id = UUID.randomUUID();
+        ScreenTitle seriesNull = ScreenTitle.createDraft(
+                id, "series-null", "Series Null", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0, null
+        );
+        assertThat(seriesNull.getTotalEpisodeCount()).isNull();
+
+        ScreenTitle series24 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "series-24", "Series 24", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0, 24
+        );
+        assertThat(series24.getTotalEpisodeCount()).isEqualTo(24);
+    }
+
+    @Test
+    @DisplayName("TotalEpisodeCount: rejects zero and negative total for SERIES")
+    void shouldRejectNonPositiveTotalEpisodeCountForSeries() {
+        UUID id = UUID.randomUUID();
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                id, "series-zero", "Series Zero", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0, 0
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("positive integer");
+
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                id, "series-neg", "Series Negative", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0, -5
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("positive integer");
+    }
+
+    @Test
+    @DisplayName("TotalEpisodeCount: rejects non-null total for FEATURE")
+    void shouldRejectAnyTotalEpisodeCountForFeature() {
+        UUID id = UUID.randomUUID();
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                id, "movie-feat", "Movie Feat", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, null, null, T0, 1
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("FEATURE");
+    }
+
+    @Test
+    @DisplayName("TotalEpisodeCount: updates total and preserves on overload updateDetails")
+    void shouldUpdateAndPreserveTotalEpisodeCount() {
+        UUID id = UUID.randomUUID();
+        ScreenTitle title = ScreenTitle.createDraft(
+                id, "series-up", "Series Update", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0, 12
+        );
+        assertThat(title.getTotalEpisodeCount()).isEqualTo(12);
+
+        // Update to 24
+        title.updateDetails("series-up", "Series Update", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T1, 24);
+        assertThat(title.getTotalEpisodeCount()).isEqualTo(24);
+
+        // Update without total param preserves existing 24
+        title.updateDetails("series-up", "Series Update Renamed", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T2);
+        assertThat(title.getTitle()).isEqualTo("Series Update Renamed");
+        assertThat(title.getTotalEpisodeCount()).isEqualTo(24);
+    }
 }

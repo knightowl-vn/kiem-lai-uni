@@ -1,11 +1,15 @@
 package com.universe.screen.application.usecase;
 
 import com.universe.screen.application.dto.ScreenEntryDTO;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,15 +40,25 @@ public class PublishScreenEntryUseCase {
         Objects.requireNonNull(titleId, "Title ID cannot be null.");
         Objects.requireNonNull(entryId, "Entry ID cannot be null.");
 
-        if (!titleRepository.existsById(titleId)) {
-            throw new ScreenTitleNotFoundException(titleId);
-        }
+        ScreenTitle title = titleRepository.findByIdForUpdate(titleId)
+                .orElseThrow(() -> new ScreenTitleNotFoundException(titleId));
 
-        ScreenEntry entry = entryRepository.findById(entryId)
+        ScreenEntry entry = entryRepository.findByIdForUpdate(entryId)
                 .orElseThrow(() -> new ScreenEntryNotFoundException(entryId));
 
         if (!entry.getTitleId().equals(titleId)) {
             throw new ScreenEntryNotFoundException(entryId);
+        }
+
+        if (entry.getType() == ScreenEntryType.EPISODE && entry.getNumber() != null) {
+            if (title.getStructure() == ScreenStructure.SERIES && title.getTotalEpisodeCount() != null) {
+                if (entry.getNumber() > title.getTotalEpisodeCount()) {
+                    throw new InvalidScreenTitleTotalEpisodeCountException(
+                            "Không thể xuất bản tập " + entry.getNumber()
+                                    + " vượt quá tổng số tập dự kiến (" + title.getTotalEpisodeCount() + ") của Screen Title."
+                    );
+                }
+            }
         }
 
         Instant publishedAt = clockPort.now();

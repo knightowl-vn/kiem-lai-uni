@@ -1,6 +1,7 @@
 package com.universe.screen.infrastructure.persistence;
 
 import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
@@ -178,6 +179,23 @@ class ScreenTitlePersistenceAdapterTest {
     }
 
     @Test
+    @DisplayName("PersistenceAdapter: findByIdForUpdate retrieves and maps title via locking query")
+    void shouldFindByIdForUpdate() {
+        ScreenTitle title = ScreenTitle.createDraft(
+                id, "title-slug", "Title Display", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        ScreenTitleJpaEntity entity = ScreenTitlePersistenceMapper.toEntity(title);
+
+        when(repository.findByIdForUpdate(id.toString())).thenReturn(Optional.of(entity));
+
+        Optional<ScreenTitle> found = adapter.findByIdForUpdate(id);
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getId()).isEqualTo(id);
+        verify(repository).findByIdForUpdate(id.toString());
+    }
+
+    @Test
     @DisplayName("PersistenceAdapter: findBySlug normalizes slug and retrieves title")
     void shouldFindBySlug() {
         ScreenTitle title = ScreenTitle.createDraft(
@@ -235,5 +253,29 @@ class ScreenTitlePersistenceAdapterTest {
 
         assertThat(adapter.existsById(id)).isTrue();
         assertThat(adapter.existsBySlug("title-slug")).isTrue();
+    }
+
+    @Test
+    @DisplayName("PersistenceAdapter: findPublishedTitles queries repository with Pageable and maps to domain page")
+    void shouldFindPublishedTitlesPaged() {
+        ScreenTitle title = ScreenTitle.createDraft(
+                id, "title-slug", "Title Display", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        title.publish(now.plusSeconds(100));
+        ScreenTitleJpaEntity entity = ScreenTitlePersistenceMapper.toEntity(title);
+
+        org.springframework.data.domain.Page<ScreenTitleJpaEntity> pageResult =
+                new org.springframework.data.domain.PageImpl<>(List.of(entity), org.springframework.data.domain.PageRequest.of(0, 12), 1);
+
+        when(repository.findPublishedTitles(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(pageResult);
+
+        ScreenTitleRepositoryPort.ScreenTitlePage result = adapter.findPublishedTitles(0, 12);
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).getId()).isEqualTo(id);
+        assertThat(result.items().get(0).getStatus()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        assertThat(result.totalElements()).isEqualTo(1L);
+        assertThat(result.totalPages()).isEqualTo(1);
     }
 }

@@ -157,6 +157,7 @@ class AdminScreenTitleViewRenderingTest {
                 .andExpect(content().string(containsString("Quản lý Screen")))
                 .andExpect(content().string(containsString("Tiêu đề hiển thị")))
                 .andExpect(content().string(containsString("Slug URL")))
+                .andExpect(content().string(containsString("Tổng số tập dự kiến")))
                 .andExpect(content().string(containsString("SERIES")))
                 .andExpect(content().string(containsString("FEATURE")));
     }
@@ -178,7 +179,8 @@ class AdminScreenTitleViewRenderingTest {
                 ScreenPublicationStatus.DRAFT,
                 null,
                 Instant.now(),
-                Instant.now()
+                Instant.now(),
+                24
         );
         when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(dto);
 
@@ -187,6 +189,8 @@ class AdminScreenTitleViewRenderingTest {
                 .andExpect(content().string(containsString("Chi tiết Screen Title")))
                 .andExpect(content().string(containsString("Kiếm Lai Phần 1")))
                 .andExpect(content().string(containsString("kiem-lai-phan-1")))
+                .andExpect(content().string(containsString("Tổng số tập dự kiến")))
+                .andExpect(content().string(containsString("24 tập")))
                 .andExpect(content().string(containsString("Xuất bản")))
                 .andExpect(content().string(containsString("Lưu trữ")));
     }
@@ -208,7 +212,8 @@ class AdminScreenTitleViewRenderingTest {
                 ScreenPublicationStatus.PUBLISHED,
                 Instant.now(),
                 Instant.now(),
-                Instant.now()
+                Instant.now(),
+                24
         );
         when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(dto);
 
@@ -216,7 +221,8 @@ class AdminScreenTitleViewRenderingTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("Chỉnh sửa Screen Title")))
                 .andExpect(content().string(containsString("Kiếm Lai Phần 1")))
-                .andExpect(content().string(containsString("kiem-lai-phan-1")));
+                .andExpect(content().string(containsString("kiem-lai-phan-1")))
+                .andExpect(content().string(containsString("Tổng số tập dự kiến")));
     }
 
     @Test

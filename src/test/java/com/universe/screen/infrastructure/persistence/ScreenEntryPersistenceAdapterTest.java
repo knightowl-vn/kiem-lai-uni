@@ -28,7 +28,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -343,5 +345,51 @@ class ScreenEntryPersistenceAdapterTest {
                 .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
 
         verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("findLatestPublishedEpisodeNumbersByTitleIds returns empty map without DB interaction when input is null or empty")
+    void findLatestPublishedEpisodeNumbersByTitleIds_shouldReturnEmptyMapWhenInputIsNullOrEmpty() {
+        assertThat(adapter.findLatestPublishedEpisodeNumbersByTitleIds(null)).isEmpty();
+        assertThat(adapter.findLatestPublishedEpisodeNumbersByTitleIds(List.of())).isEmpty();
+        assertThat(adapter.findLatestPublishedEpisodeNumbersByTitleIds(Collections.singletonList(null))).isEmpty();
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("findLatestPublishedEpisodeNumbersByTitleIds maps JPA repository Object array rows to UUID -> Integer map")
+    void findLatestPublishedEpisodeNumbersByTitleIds_shouldMapRepositoryResultsToUuidMap() {
+        UUID titleId1 = UUID.randomUUID();
+        UUID titleId2 = UUID.randomUUID();
+
+        List<Object[]> rawRows = List.<Object[]>of(
+                new Object[]{titleId1.toString(), 24},
+                new Object[]{titleId2.toString(), 1}
+        );
+
+        when(repository.findLatestPublishedEpisodeNumbersByTitleIds(List.of(titleId1.toString(), titleId2.toString())))
+                .thenReturn(rawRows);
+
+        Map<UUID, Integer> latestEpisodes = adapter.findLatestPublishedEpisodeNumbersByTitleIds(List.of(titleId1, titleId2));
+
+        assertThat(latestEpisodes)
+                .hasSize(2)
+                .containsEntry(titleId1, 24)
+                .containsEntry(titleId2, 1);
+    }
+
+    @Test
+    @DisplayName("findLatestPublishedEpisodeNumberByTitleId delegates to repository")
+    void findLatestPublishedEpisodeNumberByTitleId_shouldDelegateToRepository() {
+        UUID titleId = UUID.randomUUID();
+        when(repository.findLatestPublishedEpisodeNumberByTitleId(titleId.toString())).thenReturn(18);
+
+        Integer result = adapter.findLatestPublishedEpisodeNumberByTitleId(titleId);
+
+        assertThat(result).isEqualTo(18);
+        verify(repository).findLatestPublishedEpisodeNumberByTitleId(titleId.toString());
+
+        assertThat(adapter.findLatestPublishedEpisodeNumberByTitleId(null)).isNull();
     }
 }

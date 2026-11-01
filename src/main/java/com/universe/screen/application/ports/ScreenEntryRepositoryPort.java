@@ -48,6 +48,23 @@ public interface ScreenEntryRepositoryPort {
      */
     List<ScreenEntry> findPublishedEpisodesByTitleId(UUID titleId);
 
+    /**
+     * Batch queries the maximum published episode number (type EPISODE, status PUBLISHED, number > 0)
+     * for a collection of title IDs in a single query.
+     *
+     * @param titleIds collection of title UUIDs to query
+     * @return map of title ID to latest published episode number (positive integer)
+     */
+    java.util.Map<UUID, Integer> findLatestPublishedEpisodeNumbersByTitleIds(java.util.Collection<UUID> titleIds);
+
+    /**
+     * Finds the maximum published episode number for a single title ID.
+     *
+     * @param titleId title UUID
+     * @return maximum published episode number, or null if no published episodes exist
+     */
+    Integer findLatestPublishedEpisodeNumberByTitleId(UUID titleId);
+
     boolean existsById(UUID id);
 
     boolean existsByTitleIdAndSlug(UUID titleId, String slug);

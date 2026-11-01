@@ -4,6 +4,7 @@ import com.universe.screen.application.commands.CreateScreenTitleCommand;
 import com.universe.screen.application.commands.UpdateScreenTitleCommand;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
@@ -125,6 +126,90 @@ class AdminScreenTitleCommandControllerTest {
         assertThat(captor.getValue().slug()).isNull();
         assertThat(captor.getValue().posterMediaAssetId()).isNull();
         assertThat(captor.getValue().backdropMediaAssetId()).isNull();
+    }
+
+    @Test
+    @DisplayName("Command: createTitle passes totalEpisodeCount to command for SERIES")
+    void shouldPassTotalEpisodeCountOnCreate() {
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Kiếm Lai Phần 1");
+        form.setStructure(ScreenStructure.SERIES);
+        form.setPresentation(ScreenPresentation.ANIMATION_3D);
+        form.setTotalEpisodeCount(24);
+
+        ScreenTitleDTO createdDto = new ScreenTitleDTO(
+                titleId, "kiem-lai-phan-1", "Kiếm Lai Phần 1", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now(), 24
+        );
+
+        org.mockito.ArgumentCaptor<CreateScreenTitleCommand> captor = org.mockito.ArgumentCaptor.forClass(CreateScreenTitleCommand.class);
+        when(createScreenTitleUseCase.execute(captor.capture())).thenReturn(createdDto);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+        assertThat(captor.getValue().totalEpisodeCount()).isEqualTo(24);
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects totalEpisodeCount for FEATURE")
+    void shouldRejectTotalEpisodeCountForFeatureOnCreate() {
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Kiếm Lai Movie");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setTotalEpisodeCount(1);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("FEATURE");
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects zero or negative totalEpisodeCount for SERIES")
+    void shouldRejectNonPositiveTotalEpisodeCountOnCreate() {
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Kiếm Lai S1");
+        form.setStructure(ScreenStructure.SERIES);
+        form.setPresentation(ScreenPresentation.ANIMATION_3D);
+        form.setTotalEpisodeCount(0);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("số nguyên dương");
+    }
+
+    @Test
+    @DisplayName("Command: createTitle validates totalEpisodeCount BEFORE any media upload")
+    void shouldValidateTotalEpisodeCountBeforeMediaUploadOnCreate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Kiếm Lai Pre-Upload Validation");
+        form.setStructure(ScreenStructure.SERIES);
+        form.setPresentation(ScreenPresentation.ANIMATION_3D);
+        form.setPosterFile(posterFile);
+        form.setTotalEpisodeCount(-5);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("số nguyên dương");
+        verify(screenImageMediaPort, org.mockito.Mockito.never())
+                .uploadPoster(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
+        verify(screenImageMediaPort, org.mockito.Mockito.never())
+                .uploadBackdrop(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
     }
 
     @Test
@@ -1766,5 +1851,56 @@ class AdminScreenTitleCommandControllerTest {
         assertThat(errorMessage).doesNotContain("INTERNAL_PROVIDER_DIAGNOSTIC");
         assertThat(errorMessage).doesNotContain("storage endpoint");
         assertThat(errorMessage).doesNotContain("internal-node");
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: preserves actionable message when totalEpisodeCount is rejected by UseCase with InvalidScreenTitleTotalEpisodeCountException")
+    void shouldPreserveActionableMessageWhenTotalEpisodeCountInvalidOnUpdate() {
+        ScreenTitleDTO existingDto = new ScreenTitleDTO(
+                titleId, "kiem-lai", "Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(existingDto);
+
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 5
+        );
+
+        when(updateScreenTitleUseCase.execute(any(UpdateScreenTitleCommand.class)))
+                .thenThrow(new InvalidScreenTitleTotalEpisodeCountException(5, 10));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+        String errorMessage = (String) redirectAttributes.getFlashAttributes().get("errorMessage");
+        assertThat(errorMessage).contains("Tổng số tập dự kiến (5) không thể nhỏ hơn số tập mới nhất đã xuất bản (10).");
+    }
+
+    @Test
+    @DisplayName("Command: updateTitle validates totalEpisodeCount BEFORE any media upload")
+    void shouldValidateTotalEpisodeCountBeforeMediaUploadOnUpdate() {
+        org.springframework.mock.web.MockMultipartFile newPoster = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "new-poster.jpg", "image/jpeg", new byte[]{9, 9}
+        );
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, -10
+        );
+        form.setPosterFile(newPoster);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("số nguyên dương");
+        verify(screenImageMediaPort, org.mockito.Mockito.never())
+                .uploadPoster(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
+        verify(screenImageMediaPort, org.mockito.Mockito.never())
+                .uploadBackdrop(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
     }
 }

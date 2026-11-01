@@ -590,4 +590,184 @@ class ScreenTitleJpaPersistenceIntegrationTest {
         assertThat(explainRows).extracting(row -> (String) row.get("table"))
                 .containsExactlyInAnyOrder("m", "t");
     }
+
+    @Test
+    @DisplayName("Should find published titles paged, strictly excluding DRAFT and ARCHIVED from results and count")
+    void shouldFindPublishedTitlesPagedExcludingDraftAndArchived() {
+        Instant t0 = Instant.parse("2026-10-06T10:00:00Z");
+        Instant t1 = Instant.parse("2026-10-06T11:00:00Z");
+        Instant t2 = Instant.parse("2026-10-06T12:00:00Z");
+
+        // 1. PUBLISHED title 1
+        ScreenTitle pub1 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "pub-1", "Pub 1", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+        );
+        pub1.publish(t1);
+        repositoryPort.save(pub1);
+
+        // 2. DRAFT title
+        ScreenTitle draft = ScreenTitle.createDraft(
+                UUID.randomUUID(), "draft-1", "Draft 1", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+        );
+        repositoryPort.save(draft);
+
+        // 3. ARCHIVED title
+        ScreenTitle archived = ScreenTitle.createDraft(
+                UUID.randomUUID(), "arch-1", "Archived 1", ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, t0
+        );
+        archived.publish(t1);
+        archived.archive(t2);
+        repositoryPort.save(archived);
+
+        // 4. PUBLISHED title 2
+        ScreenTitle pub2 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "pub-2", "Pub 2", ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D, t0
+        );
+        pub2.publish(t2);
+        repositoryPort.save(pub2);
+
+        ScreenTitleRepositoryPort.ScreenTitlePage page = repositoryPort.findPublishedTitles(0, 10);
+
+        assertThat(page.items()).hasSize(2);
+        assertThat(page.items()).extracting(ScreenTitle::getId)
+                .containsExactly(pub2.getId(), pub1.getId());
+        assertThat(page.totalElements()).isEqualTo(2L);
+        assertThat(page.totalPages()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Should order published titles by publishedAt DESC and use id ASC as deterministic tie-breaker")
+    void shouldOrderPublishedTitlesByPublishedAtDescAndIdAscTieBreaker() {
+        Instant t0 = Instant.parse("2026-10-06T10:00:00Z");
+        Instant tShared = Instant.parse("2026-10-06T12:00:00Z");
+        Instant tNewest = Instant.parse("2026-10-06T14:00:00Z");
+        Instant tOldest = Instant.parse("2026-10-06T10:30:00Z");
+
+        UUID tieHighId = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        UUID tieLowId = UUID.fromString("00000000-0000-0000-0000-000000000010");
+        UUID newestId = UUID.fromString("00000000-0000-0000-0000-000000000050");
+        UUID oldestId = UUID.fromString("00000000-0000-0000-0000-000000000040");
+
+        // 1. Newest title
+        ScreenTitle newest = ScreenTitle.createDraft(
+                newestId, "newest-title", "Newest Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+        );
+        newest.publish(tNewest);
+        repositoryPort.save(newest);
+
+        // 2. Tie High ID title (same publishedAt as tieLowId)
+        ScreenTitle tieHigh = ScreenTitle.createDraft(
+                tieHighId, "tie-high-title", "Tie High Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+        );
+        tieHigh.publish(tShared);
+        repositoryPort.save(tieHigh);
+
+        // 3. Tie Low ID title (same publishedAt as tieHighId)
+        ScreenTitle tieLow = ScreenTitle.createDraft(
+                tieLowId, "tie-low-title", "Tie Low Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+        );
+        tieLow.publish(tShared);
+        repositoryPort.save(tieLow);
+
+        // 4. Oldest title
+        ScreenTitle oldest = ScreenTitle.createDraft(
+                oldestId, "oldest-title", "Oldest Title", ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, t0
+        );
+        oldest.publish(tOldest);
+        repositoryPort.save(oldest);
+
+        ScreenTitleRepositoryPort.ScreenTitlePage page = repositoryPort.findPublishedTitles(0, 10);
+
+        assertThat(page.items()).hasSize(4);
+        assertThat(page.items()).extracting(ScreenTitle::getId)
+                .containsExactly(newestId, tieLowId, tieHighId, oldestId);
+    }
+
+    @Test
+    @DisplayName("Should correctly paginate published titles across multiple pages in real database")
+    void shouldPaginatePublishedTitlesAcrossMultiplePages() {
+        Instant t0 = Instant.parse("2026-10-06T10:00:00Z");
+
+        UUID id1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID id2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID id3 = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        UUID id4 = UUID.fromString("00000000-0000-0000-0000-000000000004");
+        UUID id5 = UUID.fromString("00000000-0000-0000-0000-000000000005");
+
+        // Insert 5 titles published 1 hour apart (id5 newest, id1 oldest)
+        for (int i = 1; i <= 5; i++) {
+            UUID id = UUID.fromString(String.format("00000000-0000-0000-0000-00000000000%d", i));
+            ScreenTitle title = ScreenTitle.createDraft(
+                    id, "paged-" + i, "Paged " + i, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t0
+            );
+            title.publish(t0.plusSeconds(i * 3600));
+            repositoryPort.save(title);
+        }
+
+        // Page 0 (size 2): newest 2 (id5, id4)
+        ScreenTitleRepositoryPort.ScreenTitlePage p0 = repositoryPort.findPublishedTitles(0, 2);
+        assertThat(p0.items()).hasSize(2);
+        assertThat(p0.items()).extracting(ScreenTitle::getId).containsExactly(id5, id4);
+        assertThat(p0.totalElements()).isEqualTo(5L);
+        assertThat(p0.totalPages()).isEqualTo(3);
+
+        // Page 1 (size 2): middle 2 (id3, id2)
+        ScreenTitleRepositoryPort.ScreenTitlePage p1 = repositoryPort.findPublishedTitles(1, 2);
+        assertThat(p1.items()).hasSize(2);
+        assertThat(p1.items()).extracting(ScreenTitle::getId).containsExactly(id3, id2);
+
+        // Page 2 (size 2): oldest 1 (id1)
+        ScreenTitleRepositoryPort.ScreenTitlePage p2 = repositoryPort.findPublishedTitles(2, 2);
+        assertThat(p2.items()).hasSize(1);
+        assertThat(p2.items()).extracting(ScreenTitle::getId).containsExactly(id1);
+
+        // Page 3 (size 2): out of range -> empty items
+        ScreenTitleRepositoryPort.ScreenTitlePage p3 = repositoryPort.findPublishedTitles(3, 2);
+        assertThat(p3.items()).isEmpty();
+        assertThat(p3.totalElements()).isEqualTo(5L);
+    }
+
+    @Test
+    @DisplayName("Should persist and rehydrate ScreenTitle with totalEpisodeCount in real MySQL")
+    void shouldPersistAndRehydrateTotalEpisodeCountInRealMySql() {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-06T10:00:00Z");
+
+        ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                id, "series-total-mysql", "Series Total MySQL", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 52
+        );
+        repositoryPort.save(seriesWithTotal);
+
+        Optional<ScreenTitle> found = repositoryPort.findById(id);
+        assertThat(found).isPresent();
+        assertThat(found.get().getTotalEpisodeCount()).isEqualTo(52);
+
+        // Update total to null
+        found.get().updateDetails("series-total-mysql", "Series Total MySQL", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now.plusSeconds(10), null);
+        repositoryPort.save(found.get());
+
+        Optional<ScreenTitle> updated = repositoryPort.findById(id);
+        assertThat(updated).isPresent();
+        assertThat(updated.get().getTotalEpisodeCount()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should execute findByIdForUpdate with PESSIMISTIC_WRITE lock on real MySQL")
+    void shouldFindByIdForUpdateWithPessimisticWriteLockInRealMySql() {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-06T10:00:00Z");
+
+        ScreenTitle series = ScreenTitle.createDraft(
+                id, "series-lock-mysql", "Series Lock MySQL", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+        );
+        repositoryPort.save(series);
+
+        Optional<ScreenTitle> locked = repositoryPort.findByIdForUpdate(id);
+        assertThat(locked).isPresent();
+        assertThat(locked.get().getId()).isEqualTo(id);
+        assertThat(locked.get().getTotalEpisodeCount()).isEqualTo(24);
+    }
 }

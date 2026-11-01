@@ -254,6 +254,7 @@
 .navbar-home-link,
 .navbar-wiki-link,
 .navbar-novel-link,
+.navbar-screen-link,
 .navbar-community-link {
     display: inline-flex;
     align-items: center;
@@ -271,6 +272,8 @@
 .navbar-wiki-link:focus-visible,
 .navbar-novel-link:hover,
 .navbar-novel-link:focus-visible,
+.navbar-screen-link:hover,
+.navbar-screen-link:focus-visible,
 .navbar-community-link:hover,
 .navbar-community-link:focus-visible {
     color: #ffffff;
@@ -279,10 +282,12 @@
 .navbar-home-link.active,
 .navbar-wiki-link.active,
 .navbar-novel-link.active,
+.navbar-screen-link.active,
 .navbar-community-link.active,
 .navbar-home-link[aria-current="page"],
 .navbar-wiki-link[aria-current="page"],
 .navbar-novel-link[aria-current="page"],
+.navbar-screen-link[aria-current="page"],
 .navbar-community-link[aria-current="page"] {
     color: #ffffff;
     font-weight: 700;
@@ -427,6 +432,7 @@
     .navbar-home-link,
     .navbar-wiki-link,
     .navbar-novel-link,
+    .navbar-screen-link,
     .navbar-community-link {
         display: inline-flex;
         align-items: center;

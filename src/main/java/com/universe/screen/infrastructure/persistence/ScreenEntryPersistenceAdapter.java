@@ -156,6 +156,38 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
     }
 
     @Override
+    public java.util.Map<UUID, Integer> findLatestPublishedEpisodeNumbersByTitleIds(java.util.Collection<UUID> titleIds) {
+        if (titleIds == null || titleIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        List<String> stringIds = titleIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (stringIds.isEmpty()) {
+            return java.util.Map.of();
+        }
+        List<Object[]> results = repository.findLatestPublishedEpisodeNumbersByTitleIds(stringIds);
+        java.util.Map<UUID, Integer> latestEpisodes = new java.util.HashMap<>();
+        for (Object[] row : results) {
+            String idStr = (String) row[0];
+            Number maxNum = (Number) row[1];
+            if (maxNum != null) {
+                latestEpisodes.put(UUID.fromString(idStr), maxNum.intValue());
+            }
+        }
+        return latestEpisodes;
+    }
+
+    @Override
+    public Integer findLatestPublishedEpisodeNumberByTitleId(UUID titleId) {
+        if (titleId == null) {
+            return null;
+        }
+        return repository.findLatestPublishedEpisodeNumberByTitleId(titleId.toString());
+    }
+
+    @Override
     public boolean existsById(UUID id) {
         if (id == null) {
             return false;

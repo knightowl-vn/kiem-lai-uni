@@ -55,6 +55,9 @@ public class ScreenTitleJpaEntity {
     )
     private String synopsis;
 
+    @Column(name = "total_episode_count")
+    private Integer totalEpisodeCount;
+
     @Column(
             name = "structure",
             nullable = false,
@@ -121,7 +124,8 @@ public class ScreenTitleJpaEntity {
             String status,
             Instant publishedAt,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            Integer totalEpisodeCount
     ) {
         this.id = id;
         this.slug = slug;
@@ -136,6 +140,40 @@ public class ScreenTitleJpaEntity {
         this.publishedAt = publishedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.totalEpisodeCount = totalEpisodeCount;
+    }
+
+    public ScreenTitleJpaEntity(
+            String id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            String structure,
+            String presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            String status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                null
+        );
     }
 
     public String getId() {
@@ -240,5 +278,13 @@ public class ScreenTitleJpaEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Integer getTotalEpisodeCount() {
+        return totalEpisodeCount;
+    }
+
+    public void setTotalEpisodeCount(Integer totalEpisodeCount) {
+        this.totalEpisodeCount = totalEpisodeCount;
     }
 }

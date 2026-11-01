@@ -3,6 +3,7 @@ package com.universe.screen.application.usecase;
 import com.universe.screen.application.commands.CreateScreenEntryCommand;
 import com.universe.screen.application.commands.UpdateScreenEntryCommand;
 import com.universe.screen.application.dto.ScreenEntryDTO;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
@@ -347,7 +348,7 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Should throw ScreenTitleNotFoundException when title does not exist")
         void shouldThrowWhenTitleNotFound() {
-            when(titleRepository.findById(seriesTitleId)).thenReturn(Optional.empty());
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.empty());
 
             UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
             UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null);
@@ -360,8 +361,8 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Should throw ScreenEntryNotFoundException when entry does not exist")
         void shouldThrowWhenEntryNotFound() {
-            when(titleRepository.findById(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
-            when(entryRepository.findById(entryId)).thenReturn(Optional.empty());
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
 
             UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
             UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null);
@@ -374,11 +375,11 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Ownership: Should throw ScreenEntryNotFoundException and reject mutation when entry belongs to foreign title")
         void shouldRejectForeignTitleOwnership() {
-            when(titleRepository.findById(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             // Entry belongs to foreignTitleId, not seriesTitleId
             ScreenEntry foreignEntry = ScreenEntry.createDraft(entryId, foreignTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(foreignEntry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(foreignEntry));
 
             UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
             UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(seriesTitleId, entryId, "ep-1-updated", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, null);
@@ -396,8 +397,8 @@ class ScreenEntryUseCaseTest {
         @DisplayName("Validation: UpdateScreenEntryCommand with type == null should fail with IllegalArgumentException, leave entry unchanged, and not save")
         void shouldRejectNullTypeOnUpdate() {
             ScreenEntry existing = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Original Title", now);
-            when(titleRepository.findById(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(existing));
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(existing));
 
             UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
             UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(seriesTitleId, entryId, "ep-1-edit", null, 1, "New Title", null, null);
@@ -416,10 +417,10 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Compatibility: Should reject incompatible type on update")
         void shouldRejectIncompatibleTypeOnUpdate() {
-            when(titleRepository.findById(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             ScreenEntry entry = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
             UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
             // Updating to FEATURE on SERIES title is incompatible
@@ -434,10 +435,10 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Uniqueness: Should reject duplicate slug belonging to another entry under same title")
         void shouldRejectDuplicateSlugOnUpdate() {
-            when(titleRepository.findById(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             ScreenEntry entry = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
             UUID otherEntryId = UUID.randomUUID();
             ScreenEntry otherEntry = ScreenEntry.createDraft(otherEntryId, seriesTitleId, "ep-2", ScreenEntryType.EPISODE, 2, "Ep 2", now);
@@ -455,7 +456,7 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("CRITICAL — PRESERVE MEDIA REFERENCES: Updating metadata must preserve existing videoMediaAssetId and thumbnailMediaAssetId")
         void shouldPreserveExistingMediaAssetReferencesOnMetadataUpdate() {
-            when(titleRepository.findById(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             UUID existingVideoId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
             UUID existingThumbId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -476,7 +477,7 @@ class ScreenEntryUseCaseTest {
                     now,
                     now
             );
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(existingEntry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(existingEntry));
             when(clockPort.now()).thenReturn(now.plusSeconds(3600));
             when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -506,6 +507,170 @@ class ScreenEntryUseCaseTest {
             assertThat(existingEntry.getVideoMediaAssetId()).isEqualTo(existingVideoId);
             assertThat(existingEntry.getThumbnailMediaAssetId()).isEqualTo(existingThumbId);
         }
+
+        @Test
+        @DisplayName("UpdateEntry on PUBLISHED episode: rejects changing number to exceed declared total (20 -> 25 when total = 24)")
+        void shouldRejectUpdatingPublishedEpisodeNumberToExceedDeclaredTotal() {
+            ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithTotal));
+
+            ScreenEntry publishedEntry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-20", ScreenEntryType.EPISODE, 20, "Ep 20", now
+            );
+            publishedEntry.publish(now.plusSeconds(100));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(publishedEntry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-25", ScreenEntryType.EPISODE, 25, "Ep 25", null, null
+            );
+
+            assertThatThrownBy(() -> useCase.execute(cmd))
+                    .isInstanceOf(InvalidScreenTitleTotalEpisodeCountException.class)
+                    .hasMessageContaining("25")
+                    .hasMessageContaining("24");
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("UpdateEntry on PUBLISHED episode: allows updating number to exact declared total (20 -> 24 when total = 24)")
+        void shouldAllowUpdatingPublishedEpisodeNumberToExactDeclaredTotal() {
+            ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithTotal));
+
+            ScreenEntry publishedEntry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-20", ScreenEntryType.EPISODE, 20, "Ep 20", now
+            );
+            publishedEntry.publish(now.plusSeconds(100));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(publishedEntry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(200));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-24", ScreenEntryType.EPISODE, 24, "Ep 24", null, null
+            );
+
+            ScreenEntryDTO updated = useCase.execute(cmd);
+            assertThat(updated.number()).isEqualTo(24);
+            assertThat(updated.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        }
+
+        @Test
+        @DisplayName("UpdateEntry on PUBLISHED episode: allows updating number when total is unknown (20 -> 25 when total = null)")
+        void shouldAllowUpdatingPublishedEpisodeNumberWhenTotalIsUnknown() {
+            ScreenTitle seriesWithoutTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, null
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithoutTotal));
+
+            ScreenEntry publishedEntry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-20", ScreenEntryType.EPISODE, 20, "Ep 20", now
+            );
+            publishedEntry.publish(now.plusSeconds(100));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(publishedEntry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(200));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-25", ScreenEntryType.EPISODE, 25, "Ep 25", null, null
+            );
+
+            ScreenEntryDTO updated = useCase.execute(cmd);
+            assertThat(updated.number()).isEqualTo(25);
+            assertThat(updated.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        }
+
+        @Test
+        @DisplayName("UpdateEntry on DRAFT episode: allows changing number beyond declared total (enforced at publication time)")
+        void shouldAllowUpdatingDraftEpisodeNumberToExceedDeclaredTotal() {
+            ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithTotal));
+
+            ScreenEntry draftEntry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-20", ScreenEntryType.EPISODE, 20, "Ep 20", now
+            );
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(draftEntry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(200));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-25", ScreenEntryType.EPISODE, 25, "Ep 25", null, null
+            );
+
+            ScreenEntryDTO updated = useCase.execute(cmd);
+            assertThat(updated.number()).isEqualTo(25);
+            assertThat(updated.status()).isEqualTo(ScreenPublicationStatus.DRAFT);
+        }
+
+        @Test
+        @DisplayName("Lock order: Parent ScreenTitle lock is acquired before ScreenEntry lock and mutation")
+        void shouldAcquireParentTitleLockBeforeScreenEntryLockAndMutation() {
+            ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithTotal));
+
+            ScreenEntry publishedEntry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-20", ScreenEntryType.EPISODE, 20, "Ep 20", now
+            );
+            publishedEntry.publish(now.plusSeconds(100));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(publishedEntry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(200));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-22", ScreenEntryType.EPISODE, 22, "Ep 22", null, null
+            );
+
+            useCase.execute(cmd);
+
+            org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(titleRepository, entryRepository);
+            inOrder.verify(titleRepository).findByIdForUpdate(seriesTitleId);
+            inOrder.verify(entryRepository).findByIdForUpdate(entryId);
+            inOrder.verify(entryRepository).save(any(ScreenEntry.class));
+        }
+
+        @Test
+        @DisplayName("UpdateEntry on PUBLISHED episode: allows updating number within declared total")
+        void shouldAllowUpdatingPublishedEpisodeNumberWithinDeclaredTotal() {
+            ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithTotal));
+
+            ScreenEntry publishedEntry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-20", ScreenEntryType.EPISODE, 20, "Ep 20", now
+            );
+            publishedEntry.publish(now.plusSeconds(100));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(publishedEntry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(200));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-22", ScreenEntryType.EPISODE, 22, "Ep 22", null, null
+            );
+
+            ScreenEntryDTO updated = useCase.execute(cmd);
+            assertThat(updated.number()).isEqualTo(22);
+            assertThat(updated.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        }
     }
 
     @Nested
@@ -515,7 +680,7 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Should throw ScreenTitleNotFoundException when title does not exist")
         void shouldThrowWhenTitleNotFound() {
-            when(titleRepository.existsById(seriesTitleId)).thenReturn(false);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.empty());
 
             PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
 
@@ -527,10 +692,10 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Ownership: Should reject publish request when entry belongs to foreign title")
         void shouldRejectForeignTitleOwnership() {
-            when(titleRepository.existsById(seriesTitleId)).thenReturn(true);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             ScreenEntry foreignEntry = ScreenEntry.createDraft(entryId, foreignTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(foreignEntry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(foreignEntry));
 
             PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
 
@@ -546,10 +711,10 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("First publication sets status to PUBLISHED and publishedAt from ClockPort")
         void shouldPublishDraftEntry() {
-            when(titleRepository.existsById(seriesTitleId)).thenReturn(true);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             ScreenEntry entry = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
             Instant publishTime = now.plusSeconds(500);
             when(clockPort.now()).thenReturn(publishTime);
@@ -566,11 +731,11 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Should throw IllegalStateException when attempting to publish already published entry")
         void shouldRejectPublishWhenAlreadyPublished() {
-            when(titleRepository.existsById(seriesTitleId)).thenReturn(true);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             ScreenEntry entry = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
             entry.publish(now.plusSeconds(100));
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
             when(clockPort.now()).thenReturn(now.plusSeconds(200));
 
             PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
@@ -583,11 +748,11 @@ class ScreenEntryUseCaseTest {
         @Test
         @DisplayName("Should throw IllegalStateException when attempting to publish archived entry")
         void shouldRejectPublishWhenArchived() {
-            when(titleRepository.existsById(seriesTitleId)).thenReturn(true);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
 
             ScreenEntry entry = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
             entry.archive(now.plusSeconds(100));
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
             when(clockPort.now()).thenReturn(now.plusSeconds(200));
 
             PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
@@ -595,6 +760,69 @@ class ScreenEntryUseCaseTest {
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Archived ScreenEntry cannot be published");
+        }
+
+        @Test
+        @DisplayName("Publication against declared total: Case 1 — allows publishing episode number equal to declared total")
+        void shouldAllowPublishingEpisodeEqualToDeclaredTotal() {
+            ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithTotal));
+
+            ScreenEntry entry24 = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-24", ScreenEntryType.EPISODE, 24, "Ep 24", now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry24));
+            when(clockPort.now()).thenReturn(now.plusSeconds(100));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            ScreenEntryDTO published = useCase.execute(seriesTitleId, entryId);
+
+            assertThat(published.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+            assertThat(published.number()).isEqualTo(24);
+        }
+
+        @Test
+        @DisplayName("Publication against declared total: Case 2 — rejects publishing episode number exceeding declared total")
+        void shouldRejectPublishingEpisodeExceedingDeclaredTotal() {
+            ScreenTitle seriesWithTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithTotal));
+
+            ScreenEntry entry25 = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-25", ScreenEntryType.EPISODE, 25, "Ep 25", now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry25));
+
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+
+            assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
+                    .isInstanceOf(InvalidScreenTitleTotalEpisodeCountException.class)
+                    .hasMessageContaining("25")
+                    .hasMessageContaining("24");
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Publication against declared total: Case 3 — allows publishing episode when total is unknown")
+        void shouldAllowPublishingEpisodeWhenTotalIsUnknown() {
+            ScreenTitle seriesWithoutTotal = ScreenTitle.createDraft(
+                    seriesTitleId, "series-slug", "Series Title", null, null,
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, null
+            );
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesWithoutTotal));
+
+            ScreenEntry entry25 = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-25", ScreenEntryType.EPISODE, 25, "Ep 25", now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry25));
+            when(clockPort.now()).thenReturn(now.plusSeconds(100));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            ScreenEntryDTO published = useCase.execute(seriesTitleId, entryId);
+
+            assertThat(published.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+            assertThat(published.number()).isEqualTo(25);
         }
     }
 

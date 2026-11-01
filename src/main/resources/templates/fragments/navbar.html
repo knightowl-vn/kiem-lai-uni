@@ -42,6 +42,12 @@
 			th:attr="aria-current=${activeNav == 'wiki' ? 'page' : null}"
 			th:href="@{/wiki}"> Wiki </a>
 
+		<!-- Liên kết Phim -->
+		<a class="navbar-screen-link"
+			th:classappend="${activeNav == 'screen'} ? ' active' : ''"
+			th:attr="aria-current=${activeNav == 'screen' ? 'page' : null}"
+			th:href="@{/screen}"> Phim </a>
+
 		<!-- Liên kết Cộng đồng -->
 		<a class="navbar-community-link"
 			th:classappend="${activeNav == 'community'} ? ' active' : ''"

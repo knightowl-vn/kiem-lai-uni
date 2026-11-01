@@ -4,6 +4,7 @@ import com.universe.screen.application.commands.CreateScreenTitleCommand;
 import com.universe.screen.application.commands.UpdateScreenTitleCommand;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
@@ -99,6 +100,13 @@ public class AdminScreenTitleCommandController {
             validateImageFile(form.getPosterFile(), "Poster");
             validateImageFile(form.getBackdropFile(), "Backdrop");
 
+            if (form.getStructure() == ScreenStructure.FEATURE && form.getTotalEpisodeCount() != null) {
+                throw new AdminScreenValidationException("Phim lẻ (FEATURE) không áp dụng tổng số tập dự kiến.");
+            }
+            if (form.getStructure() == ScreenStructure.SERIES && form.getTotalEpisodeCount() != null && form.getTotalEpisodeCount() <= 0) {
+                throw new AdminScreenValidationException("Tổng số tập dự kiến phải là số nguyên dương lớn hơn 0.");
+            }
+
             UUID posterId = null;
             if (form.getPosterFile() != null && !form.getPosterFile().isEmpty()) {
                 if (screenImageMediaPort != null) {
@@ -146,7 +154,8 @@ public class AdminScreenTitleCommandController {
                             form.getStructure(),
                             form.getPresentation(),
                             posterId,
-                            backdropId
+                            backdropId,
+                            form.getTotalEpisodeCount()
                     )
             );
 
@@ -156,7 +165,8 @@ public class AdminScreenTitleCommandController {
         } catch (AdminScreenValidationException
                  | ScreenTitleSlugAlreadyExistsException
                  | ScreenMediaAssetNotFoundException
-                 | InvalidScreenMediaAssetTypeException ex) {
+                 | InvalidScreenMediaAssetTypeException
+                 | InvalidScreenTitleTotalEpisodeCountException ex) {
             compensateNewlyUploadedMedia(newlyUploadedPosterId, newlyUploadedBackdropId, ex);
             LOGGER.warn("Screen Title creation rejected due to validation failure: {}", ex.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
@@ -204,6 +214,13 @@ public class AdminScreenTitleCommandController {
 
             validateImageFile(form.getPosterFile(), "Poster");
             validateImageFile(form.getBackdropFile(), "Backdrop");
+
+            if (form.getStructure() == ScreenStructure.FEATURE && form.getTotalEpisodeCount() != null) {
+                throw new AdminScreenValidationException("Phim lẻ (FEATURE) không áp dụng tổng số tập dự kiến.");
+            }
+            if (form.getStructure() == ScreenStructure.SERIES && form.getTotalEpisodeCount() != null && form.getTotalEpisodeCount() <= 0) {
+                throw new AdminScreenValidationException("Tổng số tập dự kiến phải là số nguyên dương lớn hơn 0.");
+            }
 
             ScreenTitleDTO existing = null;
             if (getScreenTitleDetailUseCase != null) {
@@ -277,7 +294,8 @@ public class AdminScreenTitleCommandController {
                             form.getStructure(),
                             form.getPresentation(),
                             posterId,
-                            backdropId
+                            backdropId,
+                            form.getTotalEpisodeCount()
                     )
             );
 
@@ -292,7 +310,8 @@ public class AdminScreenTitleCommandController {
         } catch (AdminScreenValidationException
                  | ScreenTitleSlugAlreadyExistsException
                  | ScreenMediaAssetNotFoundException
-                 | InvalidScreenMediaAssetTypeException ex) {
+                 | InvalidScreenMediaAssetTypeException
+                 | InvalidScreenTitleTotalEpisodeCountException ex) {
             compensateNewlyUploadedMedia(newlyUploadedPosterId, newlyUploadedBackdropId, ex);
             LOGGER.warn("Screen Title [{}] update rejected due to validation failure: {}", titleId, ex.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());

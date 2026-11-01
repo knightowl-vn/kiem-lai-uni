@@ -18,6 +18,7 @@ public class EditScreenTitleForm {
     private boolean removePoster;
     private MultipartFile backdropFile;
     private boolean removeBackdrop;
+    private Integer totalEpisodeCount;
 
     public EditScreenTitleForm() {
     }
@@ -30,7 +31,8 @@ public class EditScreenTitleForm {
             ScreenStructure structure,
             ScreenPresentation presentation,
             String posterMediaAssetId,
-            String backdropMediaAssetId
+            String backdropMediaAssetId,
+            Integer totalEpisodeCount
     ) {
         this.title = title;
         this.slug = slug;
@@ -40,6 +42,20 @@ public class EditScreenTitleForm {
         this.presentation = presentation;
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
+        this.totalEpisodeCount = totalEpisodeCount;
+    }
+
+    public EditScreenTitleForm(
+            String title,
+            String slug,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId
+    ) {
+        this(title, slug, originalTitle, synopsis, structure, presentation, posterMediaAssetId, backdropMediaAssetId, null);
     }
 
     public String getTitle() {
@@ -136,5 +152,13 @@ public class EditScreenTitleForm {
 
     public void setRemoveBackdrop(boolean removeBackdrop) {
         this.removeBackdrop = removeBackdrop;
+    }
+
+    public Integer getTotalEpisodeCount() {
+        return totalEpisodeCount;
+    }
+
+    public void setTotalEpisodeCount(Integer totalEpisodeCount) {
+        this.totalEpisodeCount = totalEpisodeCount;
     }
 }

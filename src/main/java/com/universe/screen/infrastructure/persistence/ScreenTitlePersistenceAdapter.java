@@ -4,6 +4,8 @@ import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsEx
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenTitle;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -83,6 +85,15 @@ public class ScreenTitlePersistenceAdapter implements ScreenTitleRepositoryPort 
     }
 
     @Override
+    @Transactional
+    public Optional<ScreenTitle> findByIdForUpdate(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return repository.findByIdForUpdate(id.toString()).map(ScreenTitlePersistenceMapper::toDomain);
+    }
+
+    @Override
     public Optional<ScreenTitle> findBySlug(String slug) {
         if (slug == null || slug.isBlank()) {
             return Optional.empty();
@@ -138,6 +149,25 @@ public class ScreenTitlePersistenceAdapter implements ScreenTitleRepositoryPort 
                 .stream()
                 .map(ScreenTitlePersistenceMapper::toDomain)
                 .toList();
+    }
+
+    @Override
+    public ScreenTitlePage findPublishedTitles(int page, int size) {
+        int effectivePage = Math.max(page, 0);
+        int effectiveSize = Math.max(size, 1);
+        Page<ScreenTitleJpaEntity> entityPage = repository.findPublishedTitles(
+                PageRequest.of(effectivePage, effectiveSize)
+        );
+        List<ScreenTitle> items = entityPage.getContent().stream()
+                .map(ScreenTitlePersistenceMapper::toDomain)
+                .toList();
+        return new ScreenTitlePage(
+                items,
+                entityPage.getNumber(),
+                entityPage.getSize(),
+                entityPage.getTotalElements(),
+                entityPage.getTotalPages()
+        );
     }
 
     @Override

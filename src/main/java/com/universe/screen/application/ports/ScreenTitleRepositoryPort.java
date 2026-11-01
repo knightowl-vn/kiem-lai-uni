@@ -15,6 +15,8 @@ public interface ScreenTitleRepositoryPort {
 
     Optional<ScreenTitle> findById(UUID id);
 
+    Optional<ScreenTitle> findByIdForUpdate(UUID id);
+
     Optional<ScreenTitle> findBySlug(String slug);
 
     Optional<ScreenTitle> findPublishedById(UUID id);
@@ -26,6 +28,20 @@ public interface ScreenTitleRepositoryPort {
     List<ScreenTitle> findPublishedByFranchiseId(UUID franchiseId);
 
     List<ScreenTitle> findAll();
+
+    record ScreenTitlePage(
+            List<ScreenTitle> items,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {
+        public ScreenTitlePage {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
+    ScreenTitlePage findPublishedTitles(int page, int size);
 
     boolean existsById(UUID id);
 

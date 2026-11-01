@@ -16,6 +16,7 @@ public class CreateScreenTitleForm {
     private String backdropMediaAssetId;
     private MultipartFile posterFile;
     private MultipartFile backdropFile;
+    private Integer totalEpisodeCount;
 
     public CreateScreenTitleForm() {
     }
@@ -136,5 +137,13 @@ public class CreateScreenTitleForm {
 
     public void setBackdropFile(MultipartFile backdropFile) {
         this.backdropFile = backdropFile;
+    }
+
+    public Integer getTotalEpisodeCount() {
+        return totalEpisodeCount;
+    }
+
+    public void setTotalEpisodeCount(Integer totalEpisodeCount) {
+        this.totalEpisodeCount = totalEpisodeCount;
     }
 }

@@ -44,10 +44,16 @@ class NavbarTemplateContractTest {
         assertThat(navbar).contains("th:href=\"@{/community}\"");
         assertThat(navbar).contains("Cộng đồng");
 
+        // 4c. Screen link to /screen
+        assertThat(navbar).contains("class=\"navbar-screen-link\"");
+        assertThat(navbar).contains("th:href=\"@{/screen}\"");
+        assertThat(navbar).contains("Phim");
+
         // 5. Active state evaluation
         assertThat(navbar).contains("activeNav == 'home'");
         assertThat(navbar).contains("activeNav == 'novel'");
         assertThat(navbar).contains("activeNav == 'wiki'");
+        assertThat(navbar).contains("activeNav == 'screen'");
         assertThat(navbar).contains("activeNav == 'community'");
         assertThat(navbar).contains("aria-current");
 

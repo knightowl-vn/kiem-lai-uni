@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -649,5 +650,64 @@ class ScreenEntryJpaPersistenceIntegrationTest {
         if (extra != null) {
             assertThat(extra).doesNotContain("Using filesort");
         }
+    }
+
+    @Test
+    @DisplayName("Should batch query latest published episode number by title IDs in real MySQL filtering draft, archived, non-episode entries and handling number gaps")
+    void shouldBatchQueryLatestPublishedEpisodeNumberByTitleIdsInRealMySql() {
+        ScreenTitle title1 = createTitle("batch-title-1", "Batch Title 1", ScreenStructure.SERIES);
+        ScreenTitle title2 = createTitle("batch-title-2", "Batch Title 2", ScreenStructure.SERIES);
+        ScreenTitle title3 = createTitle("batch-title-3", "Batch Title 3", ScreenStructure.FEATURE);
+        Instant now = Instant.parse("2026-10-06T10:00:00Z");
+
+        // Title 1: Published episode 1, published episode 5 (number gap!), draft episode 6, archived episode 7, published trailer
+        ScreenEntry t1Ep1 = ScreenEntry.createDraft(UUID.randomUUID(), title1.getId(), "t1-ep-1", ScreenEntryType.EPISODE, 1, "T1 Ep 1", now);
+        t1Ep1.publish(now);
+        entryRepository.save(t1Ep1);
+
+        ScreenEntry t1Ep2 = ScreenEntry.createDraft(UUID.randomUUID(), title1.getId(), "t1-ep-5", ScreenEntryType.EPISODE, 5, "T1 Ep 5", now);
+        t1Ep2.publish(now);
+        entryRepository.save(t1Ep2);
+
+        ScreenEntry t1Draft = ScreenEntry.createDraft(UUID.randomUUID(), title1.getId(), "t1-ep-6", ScreenEntryType.EPISODE, 6, "T1 Draft", now);
+        entryRepository.save(t1Draft);
+
+        ScreenEntry t1Archived = ScreenEntry.createDraft(UUID.randomUUID(), title1.getId(), "t1-ep-7", ScreenEntryType.EPISODE, 7, "T1 Archived", now);
+        t1Archived.publish(now);
+        t1Archived.archive(now);
+        entryRepository.save(t1Archived);
+
+        ScreenEntry t1Trailer = ScreenEntry.createDraft(UUID.randomUUID(), title1.getId(), "t1-trailer", ScreenEntryType.TRAILER, null, "T1 Trailer", now);
+        t1Trailer.publish(now);
+        entryRepository.save(t1Trailer);
+
+        // Title 2: 1 published episode (number 1)
+        ScreenEntry t2Ep1 = ScreenEntry.createDraft(UUID.randomUUID(), title2.getId(), "t2-ep-1", ScreenEntryType.EPISODE, 1, "T2 Ep 1", now);
+        t2Ep1.publish(now);
+        entryRepository.save(t2Ep1);
+
+        // Title 3 (Feature): 1 published feature (number is null, type is FEATURE)
+        ScreenEntry t3Feat = ScreenEntry.createDraft(UUID.randomUUID(), title3.getId(), "t3-feat", ScreenEntryType.FEATURE, null, "T3 Feat", now);
+        t3Feat.publish(now);
+        entryRepository.save(t3Feat);
+
+        // Execute batch MAX query
+        Map<UUID, Integer> latestEpisodes = entryRepository.findLatestPublishedEpisodeNumbersByTitleIds(
+                List.of(title1.getId(), title2.getId(), title3.getId())
+        );
+
+        // Max published episode for title1 is 5 (not count 2!)
+        assertThat(latestEpisodes)
+                .containsEntry(title1.getId(), 5)
+                .containsEntry(title2.getId(), 1)
+                .doesNotContainKey(title3.getId());
+
+        // Single title query
+        assertThat(entryRepository.findLatestPublishedEpisodeNumberByTitleId(title1.getId())).isEqualTo(5);
+        assertThat(entryRepository.findLatestPublishedEpisodeNumberByTitleId(title2.getId())).isEqualTo(1);
+        assertThat(entryRepository.findLatestPublishedEpisodeNumberByTitleId(title3.getId())).isNull();
+
+        // Empty input returns empty map
+        assertThat(entryRepository.findLatestPublishedEpisodeNumbersByTitleIds(List.of())).isEmpty();
     }
 }

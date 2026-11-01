@@ -3,6 +3,7 @@ package com.universe.screen.entry.admin;
 import com.universe.screen.application.commands.CreateScreenEntryCommand;
 import com.universe.screen.application.commands.UpdateScreenEntryCommand;
 import com.universe.screen.application.dto.ScreenEntryDTO;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
@@ -135,7 +136,8 @@ public class AdminScreenEntryCommandController {
 
         } catch (ScreenEntrySlugAlreadyExistsException
                  | IllegalArgumentException
-                 | IllegalStateException ex) {
+                 | IllegalStateException
+                 | InvalidScreenTitleTotalEpisodeCountException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             redirectAttributes.addFlashAttribute("form", form);
             return "redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit";
@@ -163,7 +165,7 @@ public class AdminScreenEntryCommandController {
         } catch (ScreenTitleNotFoundException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             return "redirect:/admin/screen/titles";
-        } catch (IllegalStateException | IllegalArgumentException ex) {
+        } catch (IllegalStateException | IllegalArgumentException | InvalidScreenTitleTotalEpisodeCountException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
         }
 
@@ -185,7 +187,7 @@ public class AdminScreenEntryCommandController {
         } catch (ScreenTitleNotFoundException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             return "redirect:/admin/screen/titles";
-        } catch (IllegalStateException | IllegalArgumentException ex) {
+        } catch (IllegalStateException | IllegalArgumentException | InvalidScreenTitleTotalEpisodeCountException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
         }
 

@@ -78,7 +78,8 @@ public class CreateScreenTitleUseCase {
                 command.presentation(),
                 command.posterMediaAssetId(),
                 command.backdropMediaAssetId(),
-                now
+                now,
+                command.totalEpisodeCount()
         );
 
         ScreenTitle saved = titleRepository.save(draft);
@@ -119,7 +120,8 @@ public class CreateScreenTitleUseCase {
                 title.getStatus(),
                 title.getPublishedAt(),
                 title.getCreatedAt(),
-                title.getUpdatedAt()
+                title.getUpdatedAt(),
+                title.getTotalEpisodeCount()
         );
     }
 }

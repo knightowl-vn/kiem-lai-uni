@@ -293,4 +293,30 @@ class ScreenTitlePersistenceMapperTest {
         assertThatThrownBy(() -> ScreenTitlePersistenceMapper.toDomain(malformedBackdrop))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    @DisplayName("Should correctly map totalEpisodeCount to entity and rehydrate to domain")
+    void shouldMapTotalEpisodeCountRoundTrip() {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-06T10:00:00Z");
+
+        ScreenTitle withTotal = ScreenTitle.createDraft(
+                id, "series-total", "Series Total", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+        );
+
+        ScreenTitleJpaEntity entity = ScreenTitlePersistenceMapper.toEntity(withTotal);
+        assertThat(entity.getTotalEpisodeCount()).isEqualTo(24);
+
+        ScreenTitle rehydrated = ScreenTitlePersistenceMapper.toDomain(entity);
+        assertThat(rehydrated.getTotalEpisodeCount()).isEqualTo(24);
+
+        // Update entity updates totalEpisodeCount
+        ScreenTitle updatedTotal = ScreenTitle.createDraft(
+                id, "series-total", "Series Total", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 36
+        );
+        ScreenTitlePersistenceMapper.updateEntity(entity, updatedTotal);
+        assertThat(entity.getTotalEpisodeCount()).isEqualTo(36);
+    }
 }

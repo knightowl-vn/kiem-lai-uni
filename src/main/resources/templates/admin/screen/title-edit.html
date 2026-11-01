@@ -89,6 +89,14 @@
                         </div>
                     </div>
 
+                    <div id="totalEpisodeCountGroup" style="margin-bottom: 20px;">
+                        <label for="totalEpisodeCount" style="display: block; font-weight: 600; margin-bottom: 6px;">Tổng số tập dự kiến</label>
+                        <input id="totalEpisodeCount" type="number" min="1" step="1" th:field="*{totalEpisodeCount}"
+                               style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                               placeholder="Ví dụ: 24">
+                        <small style="color: #5f6368; display: block; margin-top: 4px;">Để trống nếu chưa biết tổng số tập. Chỉ áp dụng cho SERIES (phim bộ).</small>
+                    </div>
+
                     <!-- Poster Section -->
                     <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;">
                         <label style="display: block; font-weight: 600; margin-bottom: 8px;">Ảnh Poster</label>
@@ -179,6 +187,24 @@ function previewImage(input, previewId, containerId) {
         container.style.display = 'none';
     }
 }
+
+function updateEpisodeCountVisibility() {
+    var structureSelect = document.getElementById('structure');
+    var group = document.getElementById('totalEpisodeCountGroup');
+    var input = document.getElementById('totalEpisodeCount');
+    if (structureSelect && group && input) {
+        if (structureSelect.value === 'FEATURE') {
+            group.style.display = 'none';
+            input.value = '';
+            input.disabled = true;
+        } else {
+            group.style.display = 'block';
+            input.disabled = false;
+        }
+    }
+}
+document.getElementById('structure').addEventListener('change', updateEpisodeCountVisibility);
+updateEpisodeCountVisibility();
 </script>
 </body>
 </html>

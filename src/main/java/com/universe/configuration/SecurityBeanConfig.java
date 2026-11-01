@@ -152,7 +152,9 @@ public class SecurityBeanConfig {
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.GET,
-                                "/search"
+                                "/search",
+                                "/screen",
+                                "/screen/"
                         )
                         .permitAll()
 

@@ -39,6 +39,25 @@ public interface SpringDataScreenEntryJpaRepository extends JpaRepository<Screen
             """)
     List<ScreenEntryJpaEntity> findPublishedEpisodesByTitleId(@Param("titleId") String titleId);
 
+    @Query("""
+            SELECT e.titleId, MAX(e.number) FROM ScreenEntryJpaEntity e
+            WHERE e.titleId IN :titleIds
+              AND e.status = 'PUBLISHED'
+              AND e.type = 'EPISODE'
+              AND e.number > 0
+            GROUP BY e.titleId
+            """)
+    List<Object[]> findLatestPublishedEpisodeNumbersByTitleIds(@Param("titleIds") java.util.Collection<String> titleIds);
+
+    @Query("""
+            SELECT MAX(e.number) FROM ScreenEntryJpaEntity e
+            WHERE e.titleId = :titleId
+              AND e.status = 'PUBLISHED'
+              AND e.type = 'EPISODE'
+              AND e.number > 0
+            """)
+    Integer findLatestPublishedEpisodeNumberByTitleId(@Param("titleId") String titleId);
+
     boolean existsByTitleIdAndSlug(String titleId, String slug);
 
     @Query(value = "SELECT id FROM screen_entries WHERE video_media_asset_id = :videoMediaAssetId FOR UPDATE", nativeQuery = true)

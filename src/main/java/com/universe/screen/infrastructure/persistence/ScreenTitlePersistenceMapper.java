@@ -31,7 +31,8 @@ public final class ScreenTitlePersistenceMapper {
                 domain.getStatus().name(),
                 domain.getPublishedAt(),
                 domain.getCreatedAt(),
-                domain.getUpdatedAt()
+                domain.getUpdatedAt(),
+                domain.getTotalEpisodeCount()
         );
     }
 
@@ -50,6 +51,7 @@ public final class ScreenTitlePersistenceMapper {
         entity.setPublishedAt(domain.getPublishedAt());
         entity.setCreatedAt(domain.getCreatedAt());
         entity.setUpdatedAt(domain.getUpdatedAt());
+        entity.setTotalEpisodeCount(domain.getTotalEpisodeCount());
     }
 
     public static ScreenTitle toDomain(ScreenTitleJpaEntity entity) {
@@ -67,7 +69,8 @@ public final class ScreenTitlePersistenceMapper {
                 ScreenPublicationStatus.valueOf(entity.getStatus()),
                 entity.getPublishedAt(),
                 entity.getCreatedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                entity.getTotalEpisodeCount()
         );
     }
 

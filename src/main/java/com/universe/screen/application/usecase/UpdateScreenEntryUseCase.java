@@ -2,6 +2,7 @@ package com.universe.screen.application.usecase;
 
 import com.universe.screen.application.commands.UpdateScreenEntryCommand;
 import com.universe.screen.application.dto.ScreenEntryDTO;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
@@ -9,6 +10,9 @@ import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryCompatibility;
+import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenPublicationStatus;
+import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
@@ -42,10 +46,10 @@ public class UpdateScreenEntryUseCase {
         Objects.requireNonNull(command.titleId(), "Title ID cannot be null.");
         Objects.requireNonNull(command.entryId(), "Entry ID cannot be null.");
 
-        ScreenTitle title = titleRepository.findById(command.titleId())
+        ScreenTitle title = titleRepository.findByIdForUpdate(command.titleId())
                 .orElseThrow(() -> new ScreenTitleNotFoundException(command.titleId()));
 
-        ScreenEntry existing = entryRepository.findById(command.entryId())
+        ScreenEntry existing = entryRepository.findByIdForUpdate(command.entryId())
                 .orElseThrow(() -> new ScreenEntryNotFoundException(command.entryId()));
 
         if (!existing.getTitleId().equals(command.titleId())) {
@@ -57,6 +61,18 @@ public class UpdateScreenEntryUseCase {
         }
 
         ScreenEntryCompatibility.validateCompatibility(title.getStructure(), command.type());
+
+        if (existing.getStatus() == ScreenPublicationStatus.PUBLISHED
+                && command.type() == ScreenEntryType.EPISODE
+                && command.number() != null
+                && title.getStructure() == ScreenStructure.SERIES
+                && title.getTotalEpisodeCount() != null
+                && command.number() > title.getTotalEpisodeCount()) {
+            throw new InvalidScreenTitleTotalEpisodeCountException(
+                    "Không thể cập nhật tập đã xuất bản thành số " + command.number()
+                            + " vượt quá tổng số tập dự kiến (" + title.getTotalEpisodeCount() + ") của Screen Title."
+            );
+        }
 
         String requestedSlug = command.slug() != null ? command.slug().trim().toLowerCase(Locale.ROOT) : "";
         if (!requestedSlug.equalsIgnoreCase(existing.getSlug())) {

@@ -3,6 +3,7 @@ package com.universe.screen.entry.admin;
 import com.universe.screen.application.commands.CreateScreenEntryCommand;
 import com.universe.screen.application.commands.UpdateScreenEntryCommand;
 import com.universe.screen.application.dto.ScreenEntryDTO;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
@@ -289,6 +290,25 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + foreignTitleId + "/entries");
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
         }
+
+        @Test
+        @DisplayName("Command: updateEntry exceeding declared total on published episode redirects to /edit with error message")
+        void shouldRedirectOnTotalEpisodesExceededDuringUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm("Tập 25", "ep-25", ScreenEntryType.EPISODE, 25, null, null, null, null);
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            when(updateScreenEntryUseCase.execute(any(UpdateScreenEntryCommand.class)))
+                    .thenThrow(new InvalidScreenTitleTotalEpisodeCountException("Không thể cập nhật tập đã xuất bản thành số 25 vượt quá tổng số tập dự kiến (24) của Screen Title."));
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .contains("Không thể cập nhật tập đã xuất bản thành số 25");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+        }
     }
 
     @Nested
@@ -338,6 +358,21 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
             assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
             assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage")).contains("already published");
+        }
+
+        @Test
+        @DisplayName("Command: publishEntry exceeding declared total redirects to detail with error message")
+        void shouldRedirectToDetailWhenTotalEpisodesExceededDuringPublish() {
+            when(publishScreenEntryUseCase.execute(titleId, entryId))
+                    .thenThrow(new InvalidScreenTitleTotalEpisodeCountException("Không thể xuất bản tập 25 vượt quá tổng số tập dự kiến (24) của Screen Title."));
+
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+            String view = controller.publishEntry(titleId, entryId, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .contains("Không thể xuất bản tập 25 vượt quá tổng số tập dự kiến (24)");
         }
     }
 

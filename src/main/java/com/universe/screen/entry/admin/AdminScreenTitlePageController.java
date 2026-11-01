@@ -115,7 +115,8 @@ public class AdminScreenTitlePageController {
                     title.structure(),
                     title.presentation(),
                     title.posterMediaAssetId() != null ? title.posterMediaAssetId().toString() : null,
-                    title.backdropMediaAssetId() != null ? title.backdropMediaAssetId().toString() : null
+                    title.backdropMediaAssetId() != null ? title.backdropMediaAssetId().toString() : null,
+                    title.totalEpisodeCount()
             );
 
             model.addAttribute("title", title);

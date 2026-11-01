@@ -4,9 +4,11 @@ import com.universe.screen.application.commands.CreateScreenTitleCommand;
 import com.universe.screen.application.commands.UpdateScreenTitleCommand;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
+import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenPresentation;
@@ -50,6 +52,9 @@ class ScreenTitleUseCaseTest {
     @Mock
     private ClockPort clockPort;
 
+    @Mock
+    private ScreenEntryRepositoryPort entryRepositoryPort;
+
     private CreateScreenTitleUseCase createUseCase;
     private UpdateScreenTitleUseCase updateUseCase;
     private PublishScreenTitleUseCase publishUseCase;
@@ -67,7 +72,7 @@ class ScreenTitleUseCaseTest {
     @BeforeEach
     void setUp() {
         createUseCase = new CreateScreenTitleUseCase(titleRepository, mediaValidationPort, clockPort);
-        updateUseCase = new UpdateScreenTitleUseCase(titleRepository, mediaValidationPort, clockPort);
+        updateUseCase = new UpdateScreenTitleUseCase(titleRepository, mediaValidationPort, clockPort, entryRepositoryPort);
         publishUseCase = new PublishScreenTitleUseCase(titleRepository, clockPort);
         archiveUseCase = new ArchiveScreenTitleUseCase(titleRepository, clockPort);
         getListUseCase = new GetScreenTitleListUseCase(titleRepository);
@@ -109,6 +114,23 @@ class ScreenTitleUseCaseTest {
 
         verify(mediaValidationPort).validateImageMediaAsset(posterId);
         verify(mediaValidationPort).validateImageMediaAsset(backdropId);
+    }
+
+    @Test
+    @DisplayName("CreateTitle: creates valid draft ScreenTitle with totalEpisodeCount")
+    void shouldCreateDraftScreenTitleWithTotalEpisodeCount() {
+        CreateScreenTitleCommand command = new CreateScreenTitleCommand(
+                "series-ep-count", "Series Ep Count", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+
+        when(titleRepository.existsBySlug("series-ep-count")).thenReturn(false);
+        when(clockPort.now()).thenReturn(now);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = createUseCase.execute(command);
+
+        assertThat(result.totalEpisodeCount()).isEqualTo(24);
     }
 
     @Test
@@ -286,13 +308,13 @@ class ScreenTitleUseCaseTest {
                 titleId, "original-slug", "Original Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
         );
 
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, "renamed-slug", "Renamed Title", "Tên Gốc", "Tóm tắt mới",
                 ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, posterId, backdropId
         );
 
         Instant updateTime = now.plusSeconds(3600);
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(existing));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
         when(titleRepository.findBySlug("renamed-slug")).thenReturn(Optional.empty());
         when(clockPort.now()).thenReturn(updateTime);
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -312,18 +334,132 @@ class ScreenTitleUseCaseTest {
     }
 
     @Test
+    @DisplayName("UpdateTitle: updates totalEpisodeCount successfully when valid")
+    void shouldUpdateTitleWithTotalEpisodeCountWhenValid() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "series-slug", "Series Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(12);
+        when(clockPort.now()).thenReturn(now.plusSeconds(10));
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.totalEpisodeCount()).isEqualTo(24);
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: rejects totalEpisodeCount smaller than highest published episode number")
+    void shouldRejectTotalEpisodeCountSmallerThanHighestPublishedEpisodeNumber() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "series-slug", "Series Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 10
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(15);
+
+        assertThatThrownBy(() -> updateUseCase.execute(command))
+                .isInstanceOf(InvalidScreenTitleTotalEpisodeCountException.class)
+                .hasMessageContaining("10")
+                .hasMessageContaining("15");
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: unrelated metadata update withoutEpisodeMetadata preserves existing totalEpisodeCount")
+    void shouldPreserveTotalEpisodeCountOnUnrelatedMetadataUpdate() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+        );
+        assertThat(existing.getTotalEpisodeCount()).isEqualTo(24);
+
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
+                titleId, "series-slug", "Renamed Series Title", "Original Title", "New Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, posterId, backdropId
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(10));
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.title()).isEqualTo("Renamed Series Title");
+        assertThat(result.totalEpisodeCount()).isEqualTo(24);
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: intentional Admin action to clear totalEpisodeCount sets it to null for SERIES")
+    void shouldIntentionallyClearTotalEpisodeCountForSeries() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+        );
+        assertThat(existing.getTotalEpisodeCount()).isEqualTo(24);
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, null
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(10));
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.totalEpisodeCount()).isNull();
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: converting SERIES to FEATURE clears totalEpisodeCount even if omitted")
+    void shouldClearTotalEpisodeCountWhenConvertingSeriesToFeatureEvenIfOmitted() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now, 24
+        );
+        assertThat(existing.getTotalEpisodeCount()).isEqualTo(24);
+
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
+                titleId, "series-slug", "Converted Feature Title", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, posterId, backdropId
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(10));
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.structure()).isEqualTo(ScreenStructure.FEATURE);
+        assertThat(result.totalEpisodeCount()).isNull();
+    }
+
+    @Test
     @DisplayName("UpdateTitle: keeping existing slug does not trigger duplicate conflict")
     void shouldAllowSameSlugOnUpdate() {
         ScreenTitle existing = ScreenTitle.createDraft(
                 titleId, "same-slug", "Original Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
         );
 
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, "same-slug", "Updated Title", null, null,
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(existing));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
         when(clockPort.now()).thenReturn(now.plusSeconds(3600));
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -340,12 +476,12 @@ class ScreenTitleUseCaseTest {
                 titleId, "established-slug", "Old Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
         );
 
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, null, "Brand New Title", null, null,
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(existing));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
         when(clockPort.now()).thenReturn(now.plusSeconds(3600));
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -365,12 +501,12 @@ class ScreenTitleUseCaseTest {
                 UUID.randomUUID(), "slug-two", "Title Two", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
         );
 
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, "slug-two", "Title One Renamed", null, null,
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(existing));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
         when(titleRepository.findBySlug("slug-two")).thenReturn(Optional.of(another));
 
         assertThatThrownBy(() -> updateUseCase.execute(command))
@@ -386,13 +522,13 @@ class ScreenTitleUseCaseTest {
         );
         published.publish(publishTime);
 
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, "published-slug", "Edited Published Title", "Original", "Synopsis",
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
         );
 
         Instant editTime = publishTime.plusSeconds(3600);
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(published));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(published));
         when(clockPort.now()).thenReturn(editTime);
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -413,12 +549,12 @@ class ScreenTitleUseCaseTest {
                 posterId, backdropId, ScreenPublicationStatus.DRAFT, null, now, now
         );
 
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, "existing-slug", "Title", null, null,
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(existing));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
         when(clockPort.now()).thenReturn(now.plusSeconds(100));
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -440,12 +576,12 @@ class ScreenTitleUseCaseTest {
                 titleId, "original-slug", "Original Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
         );
 
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, "race-slug", "Updated Title", null, null,
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(existing));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
         when(titleRepository.findBySlug("race-slug")).thenReturn(Optional.empty());
         when(clockPort.now()).thenReturn(now.plusSeconds(100));
         when(titleRepository.save(any(ScreenTitle.class)))
@@ -459,12 +595,12 @@ class ScreenTitleUseCaseTest {
     @Test
     @DisplayName("UpdateTitle: missing title throws ScreenTitleNotFoundException")
     void shouldThrowNotFoundOnUpdateMissingTitle() {
-        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
                 titleId, "some-slug", "Title", null, null,
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.empty());
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> updateUseCase.execute(command))
                 .isInstanceOf(ScreenTitleNotFoundException.class)
