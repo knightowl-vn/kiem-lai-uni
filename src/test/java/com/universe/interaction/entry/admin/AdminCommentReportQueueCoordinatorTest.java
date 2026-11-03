@@ -18,6 +18,9 @@ import com.universe.interaction.entry.admin.dto.AdminCommentReportQueueItemDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenPublicationStatus;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +28,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
@@ -56,6 +60,9 @@ class AdminCommentReportQueueCoordinatorTest {
     @Mock
     private WikiArticleQueryPort wikiArticleQueryPort;
 
+    @Mock
+    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+
     private AdminCommentReportQueueCoordinator coordinator;
 
     private final InteractionReportQueueFilter defaultFilter = new InteractionReportQueueFilter(
@@ -73,20 +80,23 @@ class AdminCommentReportQueueCoordinatorTest {
                 queueQueryPort,
                 userIdentityContract,
                 chapterListQueryPort,
-                wikiArticleQueryPort
+                wikiArticleQueryPort,
+                screenTitleRepositoryPort
         );
     }
 
     @Test
     @DisplayName("Constructor enforces non-null dependencies")
     void constructorEnforcesDependencies() {
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(null, userIdentityContract, chapterListQueryPort, wikiArticleQueryPort))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(null, userIdentityContract, chapterListQueryPort, wikiArticleQueryPort, screenTitleRepositoryPort))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, null, chapterListQueryPort, wikiArticleQueryPort))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, null, chapterListQueryPort, wikiArticleQueryPort, screenTitleRepositoryPort))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, null, wikiArticleQueryPort))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, null, wikiArticleQueryPort, screenTitleRepositoryPort))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, chapterListQueryPort, null))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, chapterListQueryPort, null, screenTitleRepositoryPort))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, chapterListQueryPort, wikiArticleQueryPort, null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -462,6 +472,150 @@ class AdminCommentReportQueueCoordinatorTest {
         assertThat(dto.resolver().resolved()).isTrue();
 
         verify(userIdentityContract).findPublicProfilesByIds(expectedUserIds);
+    }
+
+    @Test
+    @DisplayName("Resolves SCREEN_TITLE target metadata and preserves queue item mapping")
+    void shouldResolveScreenTitleTargetInQueue() {
+        UUID reportId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        UUID reporterId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID screenTitleId = UUID.randomUUID();
+
+        InteractionReportQueueItem rawItem = createRawItem(
+                reportId, commentId, reporterId, authorId,
+                CommentTargetType.SCREEN_TITLE, screenTitleId,
+                ReportReason.SPAM, ReportStatus.PENDING, CommentStatus.ACTIVE
+        );
+        when(queueQueryPort.findQueueReports(defaultFilter))
+                .thenReturn(new InteractionReportQueuePage(List.of(rawItem), 0, 20, 1L));
+
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(reporterId, authorId))).thenReturn(Map.of(
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
+        ));
+
+        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
+        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
+        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
+
+        when(screenTitleRepositoryPort.findTitlesByIds(Set.of(screenTitleId)))
+                .thenReturn(Map.of(screenTitleId, screenTitle));
+
+        AdminCommentReportQueuePageDTO result = coordinator.getReportQueue(defaultFilter);
+
+        assertThat(result.items()).hasSize(1);
+        AdminCommentReportQueueItemDTO item = result.items().get(0);
+        assertThat(item.target()).isNotNull();
+        assertThat(item.target().targetType()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+        assertThat(item.target().targetId()).isEqualTo(screenTitleId);
+        assertThat(item.target().resolved()).isTrue();
+        assertThat(item.target().title()).isEqualTo("Kiếm Lai Hoạt Họa");
+        assertThat(item.target().slug()).isEqualTo("kiem-lai-hoat-hoa");
+        assertThat(item.target().currentStatus()).isEqualTo("PUBLISHED");
+
+        verifyNoInteractions(chapterListQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
+    }
+
+    @Test
+    @DisplayName("Handles unresolvable SCREEN_TITLE target gracefully in queue")
+    void shouldHandleUnresolvableScreenTitleTargetInQueue() {
+        UUID reportId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        UUID reporterId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID screenTitleId = UUID.randomUUID();
+
+        InteractionReportQueueItem rawItem = createRawItem(
+                reportId, commentId, reporterId, authorId,
+                CommentTargetType.SCREEN_TITLE, screenTitleId,
+                ReportReason.HARASSMENT, ReportStatus.PENDING, CommentStatus.ACTIVE
+        );
+        when(queueQueryPort.findQueueReports(defaultFilter))
+                .thenReturn(new InteractionReportQueuePage(List.of(rawItem), 0, 20, 1L));
+
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(reporterId, authorId))).thenReturn(Map.of(
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
+        ));
+        when(screenTitleRepositoryPort.findTitlesByIds(Set.of(screenTitleId))).thenReturn(Map.of());
+
+        AdminCommentReportQueuePageDTO result = coordinator.getReportQueue(defaultFilter);
+
+        assertThat(result.items()).hasSize(1);
+        AdminCommentReportQueueItemDTO item = result.items().get(0);
+        assertThat(item.target()).isNotNull();
+        assertThat(item.target().targetType()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+        assertThat(item.target().targetId()).isEqualTo(screenTitleId);
+        assertThat(item.target().resolved()).isFalse();
+        assertThat(item.target().title()).isNull();
+        assertThat(item.target().slug()).isNull();
+    }
+
+    @Test
+    @DisplayName("Compatible resolution of Novel, Wiki, and Screen targets in single queue page")
+    void shouldResolveNovelWikiAndScreenTargetsTogetherInQueue() {
+        UUID reporterId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+
+        UUID chapterId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+        UUID screenTitleId = UUID.randomUUID();
+
+        InteractionReportQueueItem novelItem = createRawItem(
+                UUID.randomUUID(), UUID.randomUUID(), reporterId, authorId,
+                CommentTargetType.NOVEL_CHAPTER, chapterId,
+                ReportReason.SPAM, ReportStatus.PENDING, CommentStatus.ACTIVE
+        );
+        InteractionReportQueueItem wikiItem = createRawItem(
+                UUID.randomUUID(), UUID.randomUUID(), reporterId, authorId,
+                CommentTargetType.WIKI_ARTICLE, articleId,
+                ReportReason.SPOILER, ReportStatus.PENDING, CommentStatus.ACTIVE
+        );
+        InteractionReportQueueItem screenItem = createRawItem(
+                UUID.randomUUID(), UUID.randomUUID(), reporterId, authorId,
+                CommentTargetType.SCREEN_TITLE, screenTitleId,
+                ReportReason.HARASSMENT, ReportStatus.PENDING, CommentStatus.ACTIVE
+        );
+
+        when(queueQueryPort.findQueueReports(defaultFilter))
+                .thenReturn(new InteractionReportQueuePage(List.of(novelItem, wikiItem, screenItem), 0, 20, 3L));
+
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(reporterId, authorId))).thenReturn(Map.of(
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
+        ));
+
+        when(chapterListQueryPort.findListItemsByIds(Set.of(chapterId))).thenReturn(Map.of(
+                chapterId, new ChapterListItemDTO(chapterId, 1, "Chương 1", "tap-1/chuong-1", "PUBLISHED", Instant.now())
+        ));
+        when(wikiArticleQueryPort.findListItemsByIds(Set.of(articleId))).thenReturn(Map.of(
+                articleId, new WikiArticleListItemDTO(articleId, "Trần Bình An", "tran-binh-an", "CHARACTER", "PUBLISHED", UUID.randomUUID(), Instant.now(), Instant.now(), 1L)
+        ));
+        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
+        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
+        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
+        when(screenTitleRepositoryPort.findTitlesByIds(Set.of(screenTitleId)))
+                .thenReturn(Map.of(screenTitleId, screenTitle));
+
+        AdminCommentReportQueuePageDTO result = coordinator.getReportQueue(defaultFilter);
+
+        assertThat(result.items()).hasSize(3);
+        assertThat(result.items().get(0).target().targetType()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
+        assertThat(result.items().get(0).target().resolved()).isTrue();
+        assertThat(result.items().get(0).target().title()).isEqualTo("Chương 1");
+
+        assertThat(result.items().get(1).target().targetType()).isEqualTo(CommentTargetType.WIKI_ARTICLE);
+        assertThat(result.items().get(1).target().resolved()).isTrue();
+        assertThat(result.items().get(1).target().title()).isEqualTo("Trần Bình An");
+
+        assertThat(result.items().get(2).target().targetType()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+        assertThat(result.items().get(2).target().resolved()).isTrue();
+        assertThat(result.items().get(2).target().title()).isEqualTo("Kiếm Lai Hoạt Họa");
     }
 
     private InteractionReportQueueItem createRawItem(

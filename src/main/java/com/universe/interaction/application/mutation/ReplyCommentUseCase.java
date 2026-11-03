@@ -131,7 +131,8 @@ public class ReplyCommentUseCase {
                 parent,
                 command.actorUserId(),
                 command.body(),
-                createdAt
+                createdAt,
+                command.originScreenEntryId()
         );
 
         // 7. Save reply

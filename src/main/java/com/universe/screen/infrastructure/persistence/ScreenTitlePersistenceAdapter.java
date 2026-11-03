@@ -12,9 +12,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 @Transactional(readOnly = true)
@@ -149,6 +152,23 @@ public class ScreenTitlePersistenceAdapter implements ScreenTitleRepositoryPort 
                 .stream()
                 .map(ScreenTitlePersistenceMapper::toDomain)
                 .toList();
+    }
+
+    @Override
+    public Map<UUID, ScreenTitle> findTitlesByIds(Set<UUID> titleIds) {
+        if (titleIds == null || titleIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<String> idStrings = titleIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (idStrings.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return repository.findAllById(idStrings).stream()
+                .map(ScreenTitlePersistenceMapper::toDomain)
+                .collect(Collectors.toMap(ScreenTitle::getId, t -> t, (t1, t2) -> t1));
     }
 
     @Override

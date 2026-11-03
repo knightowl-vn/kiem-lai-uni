@@ -22,10 +22,15 @@ import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenTitle;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -53,6 +58,9 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
 
     @Mock
     private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+
+    @Mock
+    private ScreenEntryRepositoryPort screenEntryRepositoryPort;
 
     @Mock
     private GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase;
@@ -85,12 +93,17 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
     private static final UUID AUTHOR_1_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static final UUID AUTHOR_2_ID = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private static final UUID TOMBSTONE_AUTHOR_ID = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    private static final UUID EPISODE_1_ENTRY_ID = UUID.fromString("66666666-1111-1111-1111-111111111111");
+    private static final UUID EPISODE_2_ENTRY_ID = UUID.fromString("66666666-2222-2222-2222-222222222222");
+    private static final UUID FEATURE_ENTRY_ID = UUID.fromString("66666666-3333-3333-3333-333333333333");
+    private static final UUID UNRELATED_ENTRY_ID = UUID.fromString("66666666-9999-9999-9999-999999999999");
     private static final Instant NOW = Instant.parse("2026-09-19T10:00:00Z");
 
     @BeforeEach
     void setUp() {
         coordinator = new ScreenTitleDiscussionQueryCoordinator(
                 screenTitleRepositoryPort,
+                screenEntryRepositoryPort,
                 getCommentTargetMetricsUseCase,
                 listCommentRootsUseCase,
                 getCommentThreadsByRootIdsUseCase,
@@ -179,6 +192,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                         AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
                         AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
+        when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 2, null, CommentSortMode.FEATURED);
 
@@ -222,6 +236,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                         AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
                         AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
+        when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
@@ -263,6 +278,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                 .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+        when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
@@ -284,6 +300,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
         when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(threadView);
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                 .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+        when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of());
 
         CommentThreadResponseDTO response = coordinator.getCommentThread(TITLE_ID, ROOT_1_ID, null);
 
@@ -333,6 +350,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                 ROOT_1_ID, ReactionSummary.of(ReactionTarget.comment(ROOT_1_ID), Map.of(ReactionType.LIKE, 3L), ReactionType.LIKE),
                 REPLY_1_ID, ReactionSummary.of(ReactionTarget.comment(REPLY_1_ID), Map.of(ReactionType.LIKE, 1L), null)
         ));
+        when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, viewerId, CommentSortMode.FEATURED);
 
@@ -378,6 +396,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
         )).thenReturn(Map.of(
                 ROOT_1_ID, ReactionSummary.of(ReactionTarget.comment(ROOT_1_ID), Map.of(ReactionType.LIKE, 2L), null)
         ));
+        when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of());
 
         CommentThreadResponseDTO response = coordinator.getCommentThread(TITLE_ID, ROOT_1_ID, viewerId);
 
@@ -411,10 +430,263 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
 
         when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
                 .thenThrow(new RuntimeException("Reaction service unavailable"));
+        when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
         assertThat(response.threads()).hasSize(1);
         assertThat(response.threads().get(0).root().reactionSummary()).isNull();
+    }
+
+    @Nested
+    @DisplayName("Episode Origin Badge Resolution Tests")
+    class EpisodeOriginBadgeTests {
+
+        @Test
+        @DisplayName("Null origin produces no badge")
+        void shouldOmitBadgeWhenCommentHasNullOrigin() {
+            ScreenTitle title = Mockito.mock(ScreenTitle.class);
+            when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root without origin", NOW);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 10, false));
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                    .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+
+            ScreenEntry ep1 = createPublishedEntry(EPISODE_1_ENTRY_ID, ScreenEntryType.EPISODE, 1, "tap-1");
+            when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of(ep1));
+
+            ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
+
+            assertThat(response.threads()).hasSize(1);
+            assertThat(response.threads().get(0).root().origin()).isNull();
+        }
+
+        @Test
+        @DisplayName("Published Episode 1 origin formats as Tập 1 with slug")
+        void shouldFormatEpisode1BadgeWhenOriginIsPublishedEpisode() {
+            ScreenTitle title = Mockito.mock(ScreenTitle.class);
+            when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root on Episode 1", NOW, EPISODE_1_ENTRY_ID);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 10, false));
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                    .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+
+            ScreenEntry ep1 = createPublishedEntry(EPISODE_1_ENTRY_ID, ScreenEntryType.EPISODE, 1, "tap-1");
+            when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of(ep1));
+
+            ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
+
+            assertThat(response.threads()).hasSize(1);
+            var origin = response.threads().get(0).root().origin();
+            assertThat(origin).isNotNull();
+            assertThat(origin.entryId()).isEqualTo(EPISODE_1_ENTRY_ID);
+            assertThat(origin.badgeText()).isEqualTo("Tập 1");
+            assertThat(origin.entrySlug()).isEqualTo("tap-1");
+        }
+
+        @Test
+        @DisplayName("Published reply origin is preserved independently from root")
+        void shouldPreservePublishedReplyOrigin() {
+            ScreenTitle title = Mockito.mock(ScreenTitle.class);
+            when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 2));
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "General root discussion", NOW);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+
+            Comment reply = Comment.createReply(REPLY_1_ID, root, AUTHOR_2_ID, "Reply referencing Episode 2", NOW.plusSeconds(5), EPISODE_2_ENTRY_ID);
+            CommentReadItem replyItem = CommentReadItem.fromActiveReply(reply, root.getAuthorUserId());
+
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 10, false));
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of(replyItem))));
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
+                    .thenReturn(Map.of(
+                            AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                            AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
+                    ));
+
+            ScreenEntry ep1 = createPublishedEntry(EPISODE_1_ENTRY_ID, ScreenEntryType.EPISODE, 1, "tap-1");
+            ScreenEntry ep2 = createPublishedEntry(EPISODE_2_ENTRY_ID, ScreenEntryType.EPISODE, 2, "tap-2");
+            when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of(ep1, ep2));
+
+            ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
+
+            var thread = response.threads().get(0);
+            assertThat(thread.root().origin()).isNull();
+            assertThat(thread.replies()).hasSize(1);
+            var replyOrigin = thread.replies().get(0).origin();
+            assertThat(replyOrigin).isNotNull();
+            assertThat(replyOrigin.entryId()).isEqualTo(EPISODE_2_ENTRY_ID);
+            assertThat(replyOrigin.badgeText()).isEqualTo("Tập 2");
+            assertThat(replyOrigin.entrySlug()).isEqualTo("tap-2");
+        }
+
+        @Test
+        @DisplayName("Unpublished or unrelated entry origin is not exposed")
+        void shouldNotExposeUnpublishedOrUnrelatedEntryOrigin() {
+            ScreenTitle title = Mockito.mock(ScreenTitle.class);
+            when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root with unrelated entry", NOW, UNRELATED_ENTRY_ID);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 10, false));
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                    .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+
+            ScreenEntry ep1 = createPublishedEntry(EPISODE_1_ENTRY_ID, ScreenEntryType.EPISODE, 1, "tap-1");
+            when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of(ep1));
+
+            ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
+
+            assertThat(response.threads()).hasSize(1);
+            assertThat(response.threads().get(0).root().origin()).isNull();
+        }
+
+        @Test
+        @DisplayName("Single-thread and paginated feed behavior agree on origin badges")
+        void shouldAgreeOnSingleThreadAndPaginatedFeedOrigin() {
+            ScreenTitle title = Mockito.mock(ScreenTitle.class);
+            when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root on Ep 1", NOW, EPISODE_1_ENTRY_ID);
+            Comment reply = Comment.createReply(REPLY_1_ID, root, AUTHOR_2_ID, "Reply on Ep 2", NOW.plusSeconds(5), EPISODE_2_ENTRY_ID);
+
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+            CommentReadItem replyItem = CommentReadItem.fromActiveReply(reply, root.getAuthorUserId());
+            CommentThreadView threadView = new CommentThreadView(rootItem, List.of(replyItem));
+
+            ScreenEntry ep1 = createPublishedEntry(EPISODE_1_ENTRY_ID, ScreenEntryType.EPISODE, 1, "tap-1");
+            ScreenEntry ep2 = createPublishedEntry(EPISODE_2_ENTRY_ID, ScreenEntryType.EPISODE, 2, "tap-2");
+            List<ScreenEntry> publishedEntries = List.of(ep1, ep2);
+
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
+                    .thenReturn(Map.of(
+                            AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                            AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
+                    ));
+            when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(publishedEntries);
+
+            // Feed execution
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 2));
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 10, false));
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(threadView));
+
+            ScreenDiscussionFeedResponseDTO feedResponse = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
+
+            // Single-thread execution
+            when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(threadView);
+
+            CommentThreadResponseDTO threadResponse = coordinator.getCommentThread(TITLE_ID, ROOT_1_ID, null);
+
+            var feedRootOrigin = feedResponse.threads().get(0).root().origin();
+            var threadRootOrigin = threadResponse.root().origin();
+            assertThat(feedRootOrigin).isNotNull();
+            assertThat(threadRootOrigin).isNotNull();
+            assertThat(threadRootOrigin.entryId()).isEqualTo(feedRootOrigin.entryId()).isEqualTo(EPISODE_1_ENTRY_ID);
+            assertThat(threadRootOrigin.badgeText()).isEqualTo(feedRootOrigin.badgeText()).isEqualTo("Tập 1");
+            assertThat(threadRootOrigin.entrySlug()).isEqualTo(feedRootOrigin.entrySlug()).isEqualTo("tap-1");
+
+            var feedReplyOrigin = feedResponse.threads().get(0).replies().get(0).origin();
+            var threadReplyOrigin = threadResponse.replies().get(0).origin();
+            assertThat(feedReplyOrigin).isNotNull();
+            assertThat(threadReplyOrigin).isNotNull();
+            assertThat(threadReplyOrigin.entryId()).isEqualTo(feedReplyOrigin.entryId()).isEqualTo(EPISODE_2_ENTRY_ID);
+            assertThat(threadReplyOrigin.badgeText()).isEqualTo(feedReplyOrigin.badgeText()).isEqualTo("Tập 2");
+            assertThat(threadReplyOrigin.entrySlug()).isEqualTo(feedReplyOrigin.entrySlug()).isEqualTo("tap-2");
+        }
+
+        @Test
+        @DisplayName("FEATURE formats as Bản chiếu chính and never as fake Episode 1")
+        void shouldFormatFeatureAsMainPresentationAndNeverFakeEpisode1() {
+            ScreenTitle title = Mockito.mock(ScreenTitle.class);
+            when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root on feature film", NOW, FEATURE_ENTRY_ID);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+            CommentThreadView threadView = new CommentThreadView(rootItem, List.of());
+
+            ScreenEntry feature = new ScreenEntry(
+                    FEATURE_ENTRY_ID,
+                    TITLE_ID,
+                    "ban-chieu-chinh",
+                    ScreenEntryType.FEATURE,
+                    null,
+                    "Bản Chiếu Chính",
+                    null,
+                    null,
+                    null,
+                    7200L,
+                    ScreenPublicationStatus.PUBLISHED,
+                    NOW,
+                    NOW,
+                    NOW
+            );
+
+            when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(threadView);
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                    .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+            when(screenEntryRepositoryPort.findPublishedByTitleId(TITLE_ID)).thenReturn(List.of(feature));
+
+            CommentThreadResponseDTO threadResponse = coordinator.getCommentThread(TITLE_ID, ROOT_1_ID, null);
+
+            var origin = threadResponse.root().origin();
+            assertThat(origin).isNotNull();
+            assertThat(origin.entryId()).isEqualTo(FEATURE_ENTRY_ID);
+            assertThat(origin.badgeText()).isEqualTo("Bản chiếu chính");
+            assertThat(origin.badgeText()).doesNotContain("Tập");
+            assertThat(origin.entrySlug()).isEqualTo("ban-chieu-chinh");
+        }
+    }
+
+    private ScreenEntry createPublishedEntry(UUID entryId, ScreenEntryType type, Integer number, String slug) {
+        return new ScreenEntry(
+                entryId,
+                TITLE_ID,
+                slug,
+                type,
+                number,
+                "Title for " + slug,
+                null,
+                null,
+                null,
+                1200L,
+                ScreenPublicationStatus.PUBLISHED,
+                NOW,
+                NOW,
+                NOW
+        );
     }
 }

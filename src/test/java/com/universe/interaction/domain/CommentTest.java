@@ -643,13 +643,14 @@ class CommentTest {
             assertThat(values).containsExactlyInAnyOrder(
                     CommentTargetType.NOVEL_CHAPTER,
                     CommentTargetType.WIKI_ARTICLE,
-                    CommentTargetType.COMMUNITY_POST
+                    CommentTargetType.COMMUNITY_POST,
+                    CommentTargetType.SCREEN_TITLE
             );
-            assertThat(values).hasSize(3);
+            assertThat(values).hasSize(4);
         }
 
         @Test
-        @DisplayName("CommentTarget correctly represents novel chapter, wiki article, and community post")
+        @DisplayName("CommentTarget correctly represents novel chapter, wiki article, community post, and screen title")
         void shouldCreateValidTargets() {
             CommentTarget novelTarget = CommentTarget.novelChapter(CHAPTER_ID);
             assertThat(novelTarget.type()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
@@ -663,6 +664,11 @@ class CommentTest {
             CommentTarget communityTarget = CommentTarget.communityPost(postId);
             assertThat(communityTarget.type()).isEqualTo(CommentTargetType.COMMUNITY_POST);
             assertThat(communityTarget.targetId()).isEqualTo(postId);
+
+            UUID screenId = UUID.randomUUID();
+            CommentTarget screenTarget = CommentTarget.screenTitle(screenId);
+            assertThat(screenTarget.type()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+            assertThat(screenTarget.targetId()).isEqualTo(screenId);
         }
     }
 
@@ -1357,6 +1363,97 @@ class CommentTest {
             assertThat(legacyComment.isDeleted()).isTrue();
             assertThat(legacyComment.getBody()).isNull();
             assertThat(legacyComment.getDeletedAt()).isEqualTo(T4);
+        }
+    }
+
+    @Nested
+    @DisplayName("14. Origin Screen Entry Domain Integrity")
+    class OriginScreenEntryDomainIntegrityTests {
+
+        private static final UUID ENTRY_ID = UUID.fromString("77777777-7777-7777-7777-777777777777");
+        private static final UUID SCREEN_ID = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        private static final UUID COMMUNITY_ID = UUID.fromString("99999999-9999-9999-9999-999999999999");
+
+        private static final CommentTarget SCREEN_TARGET = CommentTarget.screenTitle(SCREEN_ID);
+        private static final CommentTarget COMMUNITY_TARGET = CommentTarget.communityPost(COMMUNITY_ID);
+
+        @Test
+        @DisplayName("Allows null originScreenEntryId for any comment target type")
+        void shouldAllowNullOriginScreenEntryIdForAnyTargetType() {
+            Comment novelRoot = Comment.createRoot(ROOT_ID, NOVEL_CHAPTER_TARGET, AUTHOR_USER_ID, "Novel root", T1);
+            assertThat(novelRoot.getOriginScreenEntryId()).isNull();
+
+            Comment wikiRoot = Comment.createRoot(ROOT_ID, WIKI_ARTICLE_TARGET, AUTHOR_USER_ID, "Wiki root", T1, null);
+            assertThat(wikiRoot.getOriginScreenEntryId()).isNull();
+
+            Comment communityRoot = Comment.createRoot(ROOT_ID, COMMUNITY_TARGET, AUTHOR_USER_ID, "Community root", T1, null);
+            assertThat(communityRoot.getOriginScreenEntryId()).isNull();
+
+            Comment screenRoot = Comment.createRoot(ROOT_ID, SCREEN_TARGET, AUTHOR_USER_ID, "Screen root", T1, null);
+            assertThat(screenRoot.getOriginScreenEntryId()).isNull();
+
+            Comment novelReply = Comment.createReply(REPLY_ID, novelRoot, REPLY_AUTHOR_USER_ID, "Novel reply", T2);
+            assertThat(novelReply.getOriginScreenEntryId()).isNull();
+
+            Comment screenReply = Comment.createReply(REPLY_ID, screenRoot, REPLY_AUTHOR_USER_ID, "Screen reply", T2, null);
+            assertThat(screenReply.getOriginScreenEntryId()).isNull();
+
+            Comment rehydratedNovel = Comment.rehydrate(
+                    ROOT_ID, NOVEL_CHAPTER_TARGET, AUTHOR_USER_ID, null, null,
+                    "Rehydrated", CommentStatus.ACTIVE, T1, T1, null
+            );
+            assertThat(rehydratedNovel.getOriginScreenEntryId()).isNull();
+        }
+
+        @Test
+        @DisplayName("Allows non-null originScreenEntryId when target is SCREEN_TITLE")
+        void shouldAllowNonNullOriginScreenEntryIdForScreenTitleTarget() {
+            Comment screenRoot = Comment.createRoot(ROOT_ID, SCREEN_TARGET, AUTHOR_USER_ID, "Screen root", T1, ENTRY_ID);
+            assertThat(screenRoot.getOriginScreenEntryId()).isEqualTo(ENTRY_ID);
+
+            Comment screenReply = Comment.createReply(REPLY_ID, screenRoot, REPLY_AUTHOR_USER_ID, "Screen reply", T2, ENTRY_ID);
+            assertThat(screenReply.getOriginScreenEntryId()).isEqualTo(ENTRY_ID);
+
+            Comment rehydratedScreen = Comment.rehydrate(
+                    ROOT_ID, SCREEN_TARGET, AUTHOR_USER_ID, null, null,
+                    "Rehydrated screen", CommentStatus.ACTIVE, T1, T1, null, ENTRY_ID
+            );
+            assertThat(rehydratedScreen.getOriginScreenEntryId()).isEqualTo(ENTRY_ID);
+        }
+
+        @Test
+        @DisplayName("Rejects non-null originScreenEntryId when target is NOVEL_CHAPTER")
+        void shouldRejectNonNullOriginScreenEntryIdForNovelChapter() {
+            assertThatThrownBy(() -> Comment.createRoot(ROOT_ID, NOVEL_CHAPTER_TARGET, AUTHOR_USER_ID, "Novel root", T1, ENTRY_ID))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("originScreenEntryId can only be attached to SCREEN_TITLE comments, but target type was: NOVEL_CHAPTER");
+
+            Comment novelRoot = Comment.createRoot(ROOT_ID, NOVEL_CHAPTER_TARGET, AUTHOR_USER_ID, "Novel root", T1);
+            assertThatThrownBy(() -> Comment.createReply(REPLY_ID, novelRoot, REPLY_AUTHOR_USER_ID, "Novel reply", T2, ENTRY_ID))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("originScreenEntryId can only be attached to SCREEN_TITLE comments, but target type was: NOVEL_CHAPTER");
+
+            assertThatThrownBy(() -> Comment.rehydrate(
+                    ROOT_ID, NOVEL_CHAPTER_TARGET, AUTHOR_USER_ID, null, null,
+                    "Rehydrated", CommentStatus.ACTIVE, T1, T1, null, ENTRY_ID
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("originScreenEntryId can only be attached to SCREEN_TITLE comments, but target type was: NOVEL_CHAPTER");
+        }
+
+        @Test
+        @DisplayName("Rejects non-null originScreenEntryId when target is WIKI_ARTICLE")
+        void shouldRejectNonNullOriginScreenEntryIdForWikiArticle() {
+            assertThatThrownBy(() -> Comment.createRoot(ROOT_ID, WIKI_ARTICLE_TARGET, AUTHOR_USER_ID, "Wiki root", T1, ENTRY_ID))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("originScreenEntryId can only be attached to SCREEN_TITLE comments, but target type was: WIKI_ARTICLE");
+        }
+
+        @Test
+        @DisplayName("Rejects non-null originScreenEntryId when target is COMMUNITY_POST")
+        void shouldRejectNonNullOriginScreenEntryIdForCommunityPost() {
+            assertThatThrownBy(() -> Comment.createRoot(ROOT_ID, COMMUNITY_TARGET, AUTHOR_USER_ID, "Community root", T1, ENTRY_ID))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("originScreenEntryId can only be attached to SCREEN_TITLE comments, but target type was: COMMUNITY_POST");
         }
     }
 }

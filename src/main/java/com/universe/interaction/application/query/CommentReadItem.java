@@ -26,8 +26,22 @@ public record CommentReadItem(
         String body,
         boolean tombstone,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        UUID originScreenEntryId
 ) {
+
+    public CommentReadItem(
+            UUID id,
+            UUID authorUserId,
+            UUID parentCommentId,
+            UUID replyToAuthorUserId,
+            String body,
+            boolean tombstone,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, null);
+    }
 
     public CommentReadItem {
         Objects.requireNonNull(id, "Comment ID cannot be null.");
@@ -76,7 +90,8 @@ public record CommentReadItem(
                 root.getBody(),
                 false,
                 root.getCreatedAt(),
-                root.getUpdatedAt()
+                root.getUpdatedAt(),
+                root.getOriginScreenEntryId()
         );
     }
 
@@ -99,7 +114,8 @@ public record CommentReadItem(
                 reply.getBody(),
                 false,
                 reply.getCreatedAt(),
-                reply.getUpdatedAt()
+                reply.getUpdatedAt(),
+                reply.getOriginScreenEntryId()
         );
     }
 
@@ -122,7 +138,8 @@ public record CommentReadItem(
                 null,
                 true,
                 reply.getCreatedAt(),
-                reply.getUpdatedAt()
+                reply.getUpdatedAt(),
+                reply.getOriginScreenEntryId()
         );
     }
 

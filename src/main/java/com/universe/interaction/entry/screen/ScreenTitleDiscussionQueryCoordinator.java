@@ -17,12 +17,16 @@ import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
+import com.universe.interaction.entry.dto.CommentOriginDTO;
 import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenPublicationStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -55,6 +59,7 @@ public class ScreenTitleDiscussionQueryCoordinator {
     private static final Logger log = LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
 
     private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private final ScreenEntryRepositoryPort screenEntryRepositoryPort;
     private final GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase;
     private final ListCommentRootsUseCase listCommentRootsUseCase;
     private final GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
@@ -65,6 +70,7 @@ public class ScreenTitleDiscussionQueryCoordinator {
 
     public ScreenTitleDiscussionQueryCoordinator(
             ScreenTitleRepositoryPort screenTitleRepositoryPort,
+            ScreenEntryRepositoryPort screenEntryRepositoryPort,
             GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
             ListCommentRootsUseCase listCommentRootsUseCase,
             GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
@@ -75,6 +81,9 @@ public class ScreenTitleDiscussionQueryCoordinator {
     ) {
         this.screenTitleRepositoryPort = Objects.requireNonNull(
                 screenTitleRepositoryPort, "ScreenTitleRepositoryPort cannot be null"
+        );
+        this.screenEntryRepositoryPort = Objects.requireNonNull(
+                screenEntryRepositoryPort, "ScreenEntryRepositoryPort cannot be null"
         );
         this.getCommentTargetMetricsUseCase = Objects.requireNonNull(
                 getCommentTargetMetricsUseCase, "GetCommentTargetMetricsUseCase cannot be null"
@@ -146,6 +155,11 @@ public class ScreenTitleDiscussionQueryCoordinator {
 
         List<CommentReadItem> roots = rootSlice.items();
         List<UUID> rootIds = roots.stream().map(CommentReadItem::id).toList();
+
+        // 3b. Screen query: lookup published entries for this title to format episode origin badges
+        List<ScreenEntry> publishedEntries = screenEntryRepositoryPort.findPublishedByTitleId(titleId);
+        Map<UUID, ScreenEntry> publishedEntriesById = publishedEntries.stream()
+                .collect(Collectors.toMap(ScreenEntry::getId, e -> e, (e1, e2) -> e1));
 
         // 4. Interaction query: batch retrieve visible threads for all roots in this slice
         List<CommentThreadView> threadViews = getCommentThreadsByRootIdsUseCase.execute(target, rootIds);
@@ -238,7 +252,8 @@ public class ScreenTitleDiscussionQueryCoordinator {
                     : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
             ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(rootId);
-            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary);
+            CommentOriginDTO rootOrigin = resolveCommentOrigin(authoritativeRoot.originScreenEntryId(), publishedEntriesById);
+            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary, rootOrigin);
 
             List<CommentReadDTO> replyDTOs = new ArrayList<>();
             if (threadView.replies() != null) {
@@ -256,7 +271,8 @@ public class ScreenTitleDiscussionQueryCoordinator {
                                 ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
                                 : CommentAuthorDTO.fallback(replyItem.authorUserId());
                         ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
-                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));
+                        CommentOriginDTO replyOrigin = resolveCommentOrigin(replyItem.originScreenEntryId(), publishedEntriesById);
+                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary, replyOrigin));
                     }
                 }
             }
@@ -341,6 +357,10 @@ public class ScreenTitleDiscussionQueryCoordinator {
             }
         }
 
+        List<ScreenEntry> publishedEntries = screenEntryRepositoryPort.findPublishedByTitleId(titleId);
+        Map<UUID, ScreenEntry> publishedEntriesById = publishedEntries.stream()
+                .collect(Collectors.toMap(ScreenEntry::getId, e -> e, (e1, e2) -> e1));
+
         CommentReadItem authoritativeRoot = threadView.root();
         UserPublicProfileDTO rootProfile = (authorsMap != null && authoritativeRoot.authorUserId() != null)
                 ? authorsMap.get(authoritativeRoot.authorUserId())
@@ -350,7 +370,8 @@ public class ScreenTitleDiscussionQueryCoordinator {
                 : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
         ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(authoritativeRoot.id());
-        CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary);
+        CommentOriginDTO rootOrigin = resolveCommentOrigin(authoritativeRoot.originScreenEntryId(), publishedEntriesById);
+        CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary, rootOrigin);
 
         List<CommentReadDTO> replyDTOs = new ArrayList<>();
         if (threadView.replies() != null) {
@@ -368,11 +389,36 @@ public class ScreenTitleDiscussionQueryCoordinator {
                             ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
                             : CommentAuthorDTO.fallback(replyItem.authorUserId());
                     ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
-                    replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));
+                    CommentOriginDTO replyOrigin = resolveCommentOrigin(replyItem.originScreenEntryId(), publishedEntriesById);
+                    replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary, replyOrigin));
                 }
             }
         }
 
         return new CommentThreadResponseDTO(rootReadDTO, replyDTOs);
+    }
+
+    private CommentOriginDTO resolveCommentOrigin(UUID originScreenEntryId, Map<UUID, ScreenEntry> publishedEntriesById) {
+        if (originScreenEntryId == null || publishedEntriesById == null) {
+            return null;
+        }
+        ScreenEntry entry = publishedEntriesById.get(originScreenEntryId);
+        if (entry == null || !entry.isPublished()) {
+            return null;
+        }
+        String badgeText = formatEntryBadge(entry);
+        return new CommentOriginDTO(entry.getId(), badgeText, entry.getSlug());
+    }
+
+    private String formatEntryBadge(ScreenEntry entry) {
+        if (entry == null || entry.getType() == null) {
+            return "";
+        }
+        return switch (entry.getType()) {
+            case EPISODE -> "Tập " + (entry.getNumber() != null ? entry.getNumber() : "");
+            case FEATURE -> "Bản chiếu chính";
+            case SPECIAL -> entry.getNumber() != null ? "Ngoại truyện " + entry.getNumber() : "Ngoại truyện";
+            case TRAILER -> entry.getNumber() != null ? "Trailer " + entry.getNumber() : "Trailer";
+        };
     }
 }

@@ -76,6 +76,7 @@
                                 <option value="ALL" th:selected="${selectedTargetType == null}">Tất cả nội dung</option>
                                 <option value="NOVEL_CHAPTER" th:selected="${selectedTargetType != null and selectedTargetType.name() == 'NOVEL_CHAPTER'}">Chương truyện</option>
                                 <option value="WIKI_ARTICLE" th:selected="${selectedTargetType != null and selectedTargetType.name() == 'WIKI_ARTICLE'}">Bài Wiki</option>
+                                <option value="SCREEN_TITLE" th:selected="${selectedTargetType != null and selectedTargetType.name() == 'SCREEN_TITLE'}">Phim (Screen Title)</option>
                             </select>
                         </div>
 
@@ -261,7 +262,9 @@
                                 <span class="comment-report-meta-label">Mục tiêu</span>
                                 <div class="comment-report-target-content">
                                     <span class="comment-report-target-type-badge"
-                                          th:text="${report.target.targetType.name() == 'NOVEL_CHAPTER' ? 'Chương truyện' : 'Bài Wiki'}">
+                                          th:text="${report.target.targetType.name() == 'NOVEL_CHAPTER' ? 'Chương truyện' :
+                                                   report.target.targetType.name() == 'WIKI_ARTICLE' ? 'Bài Wiki' :
+                                                   report.target.targetType.name() == 'SCREEN_TITLE' ? 'Phim' : 'Khác'}">
                                         Loại mục tiêu
                                     </span>
 
@@ -294,6 +297,22 @@
                                         <a th:href="@{/admin/wiki/articles/{id}(id=${report.target.targetId})}"
                                            class="comment-report-target-link">
                                             Xem bài Wiki ↗
+                                        </a>
+                                    </th:block>
+
+                                    <!-- Mục tiêu Screen Title đã tìm thấy -->
+                                    <th:block th:if="${report.target.resolved and report.target.targetType.name() == 'SCREEN_TITLE'}">
+                                        <span class="comment-report-target-title"
+                                              th:text="${report.target.title}">
+                                            Tiêu đề phim
+                                        </span>
+                                        <span class="comment-report-target-meta"
+                                              th:text="${'Slug: ' + report.target.slug + ' | Trạng thái: ' + report.target.currentStatus}">
+                                            phim-slug | PUBLISHED
+                                        </span>
+                                        <a th:href="@{/admin/screen/titles/{id}(id=${report.target.targetId})}"
+                                           class="comment-report-target-link">
+                                            Xem Phim ↗
                                         </a>
                                     </th:block>
 

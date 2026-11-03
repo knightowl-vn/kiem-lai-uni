@@ -12,6 +12,8 @@ import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,10 +22,12 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -46,6 +50,9 @@ class AdminCommentReportContextNavigationCoordinatorTest {
     @Mock
     private WikiArticleQueryPort wikiArticleQueryPort;
 
+    @Mock
+    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+
     private AdminCommentReportContextNavigationCoordinator coordinator;
 
     private final UUID reportId = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -61,7 +68,8 @@ class AdminCommentReportContextNavigationCoordinatorTest {
         coordinator = new AdminCommentReportContextNavigationCoordinator(
                 getReportDetailUseCase,
                 chapterListQueryPort,
-                wikiArticleQueryPort
+                wikiArticleQueryPort,
+                screenTitleRepositoryPort
         );
     }
 
@@ -72,17 +80,21 @@ class AdminCommentReportContextNavigationCoordinatorTest {
         @Test
         @DisplayName("Enforces non-null dependencies")
         void shouldEnforceNonNullDependencies() {
-            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(null, chapterListQueryPort, wikiArticleQueryPort))
+            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(null, chapterListQueryPort, wikiArticleQueryPort, screenTitleRepositoryPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("GetInteractionReportDetailUseCase cannot be null");
 
-            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, null, wikiArticleQueryPort))
+            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, null, wikiArticleQueryPort, screenTitleRepositoryPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("ChapterListQueryPort cannot be null");
 
-            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, chapterListQueryPort, null))
+            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, chapterListQueryPort, null, screenTitleRepositoryPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("WikiArticleQueryPort cannot be null");
+
+            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, chapterListQueryPort, wikiArticleQueryPort, null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("ScreenTitleRepositoryPort cannot be null");
         }
 
         @Test
@@ -479,6 +491,132 @@ class AdminCommentReportContextNavigationCoordinatorTest {
         when(chapterListQueryPort.findListItemsByIds(Set.of(targetId))).thenReturn(Map.of(targetId, blankSlugChapter));
 
         assertThat(coordinator.resolveNavigation(reportId).available()).isFalse();
+    }
+
+    @Nested
+    @DisplayName("Screen Title Context Navigation Tests")
+    class ScreenTitleContextNavigationTests {
+
+        private final UUID screenTitleId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+
+        @Test
+        @DisplayName("Resolves available navigation for published ScreenTitle root comment")
+        void shouldResolveNavigationForPublishedScreenTitleRoot() {
+            when(getReportDetailUseCase.execute(reportId)).thenReturn(createRawResult(
+                    rootCommentId,
+                    null,
+                    CommentTargetType.SCREEN_TITLE,
+                    screenTitleId,
+                    true,
+                    CommentStatus.ACTIVE
+            ));
+
+            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+            when(screenTitle.isPublished()).thenReturn(true);
+            when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
+            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+
+            AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
+
+            assertThat(nav.available()).isTrue();
+            assertThat(nav.reportId()).isEqualTo(reportId);
+            assertThat(nav.commentId()).isEqualTo(rootCommentId);
+            assertThat(nav.threadId()).isEqualTo(rootCommentId);
+            assertThat(nav.targetType()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+            assertThat(nav.slug()).isEqualTo("kiem-lai-hoat-hoa");
+            assertThat(nav.articleType()).isNull();
+
+            verify(chapterListQueryPort, never()).findListItemsByIds(any());
+            verify(wikiArticleQueryPort, never()).findListItemsByIds(any());
+        }
+
+        @Test
+        @DisplayName("Resolves available navigation for reply comment on ScreenTitle with thread root ID")
+        void shouldResolveNavigationForReplyOnScreenTitle() {
+            when(getReportDetailUseCase.execute(reportId)).thenReturn(createRawResult(
+                    replyCommentId,
+                    rootCommentId,
+                    CommentTargetType.SCREEN_TITLE,
+                    screenTitleId,
+                    true,
+                    CommentStatus.ACTIVE
+            ));
+
+            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+            when(screenTitle.isPublished()).thenReturn(true);
+            when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
+            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+
+            AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
+
+            assertThat(nav.available()).isTrue();
+            assertThat(nav.commentId()).isEqualTo(replyCommentId);
+            assertThat(nav.threadId()).isEqualTo(rootCommentId);
+            assertThat(nav.targetType()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+            assertThat(nav.slug()).isEqualTo("kiem-lai-hoat-hoa");
+        }
+
+        @Test
+        @DisplayName("Marks navigation unavailable when ScreenTitle does not exist")
+        void shouldMarkUnavailableWhenScreenTitleNotFound() {
+            when(getReportDetailUseCase.execute(reportId)).thenReturn(createRawResult(
+                    rootCommentId,
+                    null,
+                    CommentTargetType.SCREEN_TITLE,
+                    screenTitleId,
+                    true,
+                    CommentStatus.ACTIVE
+            ));
+            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.empty());
+
+            AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
+
+            assertThat(nav.available()).isFalse();
+            assertThat(nav.reportId()).isEqualTo(reportId);
+        }
+
+        @Test
+        @DisplayName("Marks navigation unavailable when ScreenTitle is not published")
+        void shouldMarkUnavailableWhenScreenTitleNotPublished() {
+            when(getReportDetailUseCase.execute(reportId)).thenReturn(createRawResult(
+                    rootCommentId,
+                    null,
+                    CommentTargetType.SCREEN_TITLE,
+                    screenTitleId,
+                    true,
+                    CommentStatus.ACTIVE
+            ));
+
+            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+            when(screenTitle.isPublished()).thenReturn(false);
+            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+
+            AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
+
+            assertThat(nav.available()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Marks navigation unavailable when ScreenTitle has blank slug")
+        void shouldMarkUnavailableWhenScreenTitleSlugIsBlank() {
+            when(getReportDetailUseCase.execute(reportId)).thenReturn(createRawResult(
+                    rootCommentId,
+                    null,
+                    CommentTargetType.SCREEN_TITLE,
+                    screenTitleId,
+                    true,
+                    CommentStatus.ACTIVE
+            ));
+
+            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+            when(screenTitle.isPublished()).thenReturn(true);
+            when(screenTitle.getSlug()).thenReturn("   ");
+            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+
+            AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
+
+            assertThat(nav.available()).isFalse();
+        }
     }
 
     private InteractionReportDetailResult createRawResult(

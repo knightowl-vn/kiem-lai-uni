@@ -3,7 +3,9 @@ package com.universe.screen.application.ports;
 import com.universe.screen.domain.ScreenTitle;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -28,6 +30,8 @@ public interface ScreenTitleRepositoryPort {
     List<ScreenTitle> findPublishedByFranchiseId(UUID franchiseId);
 
     List<ScreenTitle> findAll();
+
+    Map<UUID, ScreenTitle> findTitlesByIds(Set<UUID> titleIds);
 
     record ScreenTitlePage(
             List<ScreenTitle> items,

@@ -9,7 +9,8 @@ import java.util.UUID;
 public record ReplyCommentCommand(
         UUID actorUserId,
         UUID parentCommentId,
-        String body
+        String body,
+        UUID originScreenEntryId
 ) {
 
     public ReplyCommentCommand {
@@ -18,5 +19,9 @@ public record ReplyCommentCommand(
         if (body == null || body.trim().isEmpty()) {
             throw new IllegalArgumentException("Reply body cannot be null or blank.");
         }
+    }
+
+    public ReplyCommentCommand(UUID actorUserId, UUID parentCommentId, String body) {
+        this(actorUserId, parentCommentId, body, null);
     }
 }

@@ -6,12 +6,15 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -23,7 +26,7 @@ import java.util.UUID;
  *   <li>Lives in entry boundary ({@code com.universe.interaction.entry.admin});</li>
  *   <li>Acts as an entry/admin cross-context composer outputting structural metadata rather than public URL representations;</li>
  *   <li>Target queries are completely bypassed when the current comment is unavailable;</li>
- *   <li>At most 1 targeted batch query to Novel OR Wiki (never both);</li>
+ *   <li>At most 1 targeted batch query to Novel, Wiki, OR Screen;</li>
  *   <li>Navigation is available only when target is published and slug/metadata are present;</li>
  *   <li>Propagates {@link com.universe.interaction.application.exceptions.InteractionReportNotFoundException} to controller layer;</li>
  *   <li>Deleted comments remain navigable as long as the comment record is available and target is published.</li>
@@ -37,11 +40,13 @@ public class AdminCommentReportContextNavigationCoordinator {
     private final GetInteractionReportDetailUseCase getReportDetailUseCase;
     private final ChapterListQueryPort chapterListQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
+    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
 
     public AdminCommentReportContextNavigationCoordinator(
             GetInteractionReportDetailUseCase getReportDetailUseCase,
             ChapterListQueryPort chapterListQueryPort,
-            WikiArticleQueryPort wikiArticleQueryPort
+            WikiArticleQueryPort wikiArticleQueryPort,
+            ScreenTitleRepositoryPort screenTitleRepositoryPort
     ) {
         this.getReportDetailUseCase = Objects.requireNonNull(
                 getReportDetailUseCase,
@@ -54,6 +59,10 @@ public class AdminCommentReportContextNavigationCoordinator {
         this.wikiArticleQueryPort = Objects.requireNonNull(
                 wikiArticleQueryPort,
                 "WikiArticleQueryPort cannot be null"
+        );
+        this.screenTitleRepositoryPort = Objects.requireNonNull(
+                screenTitleRepositoryPort,
+                "ScreenTitleRepositoryPort cannot be null"
         );
     }
 
@@ -136,6 +145,28 @@ public class AdminCommentReportContextNavigationCoordinator {
                     CommentTargetType.WIKI_ARTICLE,
                     article.slug().trim(),
                     article.articleType().trim()
+            );
+        }
+
+        if (raw.targetType() == CommentTargetType.SCREEN_TITLE) {
+            Optional<ScreenTitle> titleOpt = screenTitleRepositoryPort.findById(raw.targetId());
+            if (titleOpt.isEmpty()) {
+                return AdminCommentReportContextNavigationDTO.unavailable(reportId);
+            }
+            ScreenTitle title = titleOpt.get();
+            if (!title.isPublished()) {
+                return AdminCommentReportContextNavigationDTO.unavailable(reportId);
+            }
+            if (title.getSlug() == null || title.getSlug().isBlank()) {
+                return AdminCommentReportContextNavigationDTO.unavailable(reportId);
+            }
+            return AdminCommentReportContextNavigationDTO.available(
+                    reportId,
+                    exactCommentId,
+                    threadId,
+                    CommentTargetType.SCREEN_TITLE,
+                    title.getSlug().trim(),
+                    null
             );
         }
 

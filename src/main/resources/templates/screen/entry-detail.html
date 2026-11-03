@@ -7,12 +7,17 @@
 
     <title th:text="${pageTitle}">Chi tiết tập phim - Kiếm Lai Universe</title>
 
+    <meta name="_csrf" th:if="${csrfToken != null and !csrfToken.isEmpty()}" th:content="${csrfToken}">
+    <meta name="_csrf_header" th:if="${csrfHeader != null and !csrfHeader.isEmpty()}" th:content="${csrfHeader}">
+
     <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" th:href="@{/css/theme.css}">
     <link rel="stylesheet" th:href="@{/css/navbar.css}">
     <link rel="stylesheet" th:href="@{/css/screen/screen.css}">
+    <link rel="stylesheet" th:href="@{/css/shared/comments.css}">
+    <link rel="stylesheet" th:href="@{/css/shared/comment-report-modal.css}">
 </head>
 
 <body>
@@ -84,9 +89,73 @@
             </div>
         </article>
 
+        <!-- Comments: Shared Interaction Comments -->
+        <section id="screenDiscussion"
+                 class="screen-section-card screen-discussion-section"
+                 aria-labelledby="screenDiscussionHeading"
+                 th:attr="data-title-id=${entryDetail.titleId},
+                          data-title-slug=${entryDetail.titleSlug},
+                          data-entry-id=${entryDetail.entryId},
+                          data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},
+                          data-login-url=@{/login(returnTo=${'/screen/' + entryDetail.titleSlug + '/entries/' + entryDetail.entrySlug + '#screenDiscussion'})},
+                          data-csrf-token=${csrfToken != null ? csrfToken : ''},
+                          data-csrf-header=${csrfHeader != null ? csrfHeader : ''}">
+            <header class="screen-discussion-header">
+                <div class="screen-discussion-heading-row">
+                    <h2 id="screenDiscussionHeading" class="screen-discussion-title">Bình luận</h2>
+                    <span class="screen-discussion-count-badge" id="screenDiscussionCountBadge" aria-live="polite">0 bình luận</span>
+                </div>
+            </header>
+
+            <!-- Root Comment Composer -->
+            <div class="kl-comment-composer screen-comment-composer screen-comment-composer--root" id="screenRootComposer">
+                <form class="kl-comment-composer__form screen-comment-composer-form" id="screenRootComposerForm">
+                    <label for="screenRootComposerInput" class="visually-hidden">Viết bình luận</label>
+                    <textarea id="screenRootComposerInput"
+                              class="kl-comment-composer__input screen-comment-textarea"
+                              rows="3"
+                              placeholder="Chia sẻ ý kiến của bạn về tác phẩm này..."
+                              maxlength="2000"></textarea>
+                    <div class="kl-comment-composer__footer screen-comment-composer-footer">
+                        <span class="kl-comment-composer__status kl-comment-composer__error screen-comment-composer-error" id="screenRootComposerError" role="alert" aria-live="polite" hidden></span>
+                        <div class="kl-comment-composer__actions screen-comment-composer-actions">
+                            <button type="submit" class="kl-comment-composer__submit screen-comment-btn screen-comment-btn--primary" id="screenRootComposerSubmit">
+                                Gửi
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Status & Error Region -->
+            <div id="screenDiscussionStatus" class="screen-discussion-status" role="status" aria-live="polite"></div>
+
+            <!-- Thread List -->
+            <div id="screenDiscussionThreadList" class="screen-discussion-thread-list" role="feed" aria-busy="false" aria-label="Danh sách bình luận"></div>
+
+            <!-- Load More Container -->
+            <div class="screen-discussion-footer" id="screenDiscussionFooter" hidden>
+                <button type="button" class="screen-comment-btn screen-comment-btn--secondary" id="screenDiscussionLoadMoreBtn">
+                    Tải thêm bình luận
+                </button>
+            </div>
+        </section>
+
     </main>
 
+    <!-- Theme and Shared Scripts -->
     <script th:src="@{/js/theme.js}"></script>
+    <script th:src="@{/js/shared/relative-time.js}"></script>
+    <script th:src="@{/js/shared/comment-presentation.js}"></script>
+    <script th:src="@{/js/shared/comment-report-modal.js}"></script>
+    <script th:src="@{/js/screen/screen-comments.js}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (window.ScreenTitleComments && typeof window.ScreenTitleComments.init === 'function') {
+                window.ScreenTitleComments.init(document);
+            }
+        });
+    </script>
 
 </body>
 </html>

@@ -50,8 +50,62 @@ public record InteractionReportDetailResult(
         UUID currentCommentThreadRootCommentId,
         Instant commentCreatedAt,
         Instant commentUpdatedAt,
-        Instant commentDeletedAt
+        Instant commentDeletedAt,
+        UUID originScreenEntryId
 ) {
+
+    public InteractionReportDetailResult(
+            UUID reportId,
+            ReportTargetType reportTargetType,
+            UUID reportTargetId,
+            UUID reporterUserId,
+            ReportReason reason,
+            String description,
+            String reportedContentSnapshot,
+            ReportStatus status,
+            Instant createdAt,
+            UUID resolvedByUserId,
+            Instant resolvedAt,
+            ReportModerationAction moderationAction,
+            Instant targetDeletedAt,
+            boolean liveCommentAvailable,
+            UUID commentAuthorUserId,
+            CommentStatus currentCommentStatus,
+            String currentCommentBody,
+            CommentTargetType contentTargetType,
+            UUID contentTargetId,
+            UUID currentCommentThreadRootCommentId,
+            Instant commentCreatedAt,
+            Instant commentUpdatedAt,
+            Instant commentDeletedAt
+    ) {
+        this(
+                reportId,
+                reportTargetType,
+                reportTargetId,
+                reporterUserId,
+                reason,
+                description,
+                reportedContentSnapshot,
+                status,
+                createdAt,
+                resolvedByUserId,
+                resolvedAt,
+                moderationAction,
+                targetDeletedAt,
+                liveCommentAvailable,
+                commentAuthorUserId,
+                currentCommentStatus,
+                currentCommentBody,
+                contentTargetType,
+                contentTargetId,
+                currentCommentThreadRootCommentId,
+                commentCreatedAt,
+                commentUpdatedAt,
+                commentDeletedAt,
+                null
+        );
+    }
 
     public InteractionReportDetailResult {
         Objects.requireNonNull(reportId, "reportId cannot be null");
@@ -101,7 +155,8 @@ public record InteractionReportDetailResult(
                 comment.getThreadRootCommentId(),
                 comment.getCreatedAt(),
                 comment.getUpdatedAt(),
-                comment.getDeletedAt()
+                comment.getDeletedAt(),
+                comment.getOriginScreenEntryId()
         );
     }
 

@@ -62,7 +62,8 @@ public class CreateRootCommentUseCase {
                 command.target(),
                 command.actorUserId(),
                 command.body(),
-                createdAt
+                createdAt,
+                command.originScreenEntryId()
         );
 
         return commentRepositoryPort.save(root);

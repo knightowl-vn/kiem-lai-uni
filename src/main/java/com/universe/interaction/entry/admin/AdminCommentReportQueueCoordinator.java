@@ -13,6 +13,8 @@ import com.universe.interaction.entry.admin.dto.AdminCommentReportTargetDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportUserDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.springframework.stereotype.Service;
@@ -31,8 +33,8 @@ import java.util.UUID;
  * <p>Enforces strict clean architecture boundaries and N+1 prevention:
  * <ul>
  *   <li>Lives in the entry boundary ({@code com.universe.interaction.entry.admin});</li>
- *   <li>{@code interaction.application} remains completely agnostic of Novel, Wiki, and Identity;</li>
- *   <li>Performs at most 1 bulk query to Identity, 1 bulk query to Novel, and 1 bulk query to Wiki per page;</li>
+ *   <li>{@code interaction.application} remains completely agnostic of Novel, Wiki, Screen, and Identity;</li>
+ *   <li>Performs at most 1 bulk query to Identity, 1 bulk query to Novel, 1 bulk query to Wiki, and 1 bulk query to Screen per page;</li>
  *   <li>Skips foreign context calls entirely when page is empty or when specific target types are absent;</li>
  *   <li>Resilient to missing/unresolved foreign records (marked {@code resolved = false});</li>
  *   <li>Preserves original raw report queue ordering and pagination invariants.</li>
@@ -45,17 +47,20 @@ public class AdminCommentReportQueueCoordinator {
     private final UserIdentityContract userIdentityContract;
     private final ChapterListQueryPort chapterListQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
+    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
 
     public AdminCommentReportQueueCoordinator(
             InteractionReportQueueQueryPort queueQueryPort,
             UserIdentityContract userIdentityContract,
             ChapterListQueryPort chapterListQueryPort,
-            WikiArticleQueryPort wikiArticleQueryPort
+            WikiArticleQueryPort wikiArticleQueryPort,
+            ScreenTitleRepositoryPort screenTitleRepositoryPort
     ) {
         this.queueQueryPort = Objects.requireNonNull(queueQueryPort, "InteractionReportQueueQueryPort cannot be null");
         this.userIdentityContract = Objects.requireNonNull(userIdentityContract, "UserIdentityContract cannot be null");
         this.chapterListQueryPort = Objects.requireNonNull(chapterListQueryPort, "ChapterListQueryPort cannot be null");
         this.wikiArticleQueryPort = Objects.requireNonNull(wikiArticleQueryPort, "WikiArticleQueryPort cannot be null");
+        this.screenTitleRepositoryPort = Objects.requireNonNull(screenTitleRepositoryPort, "ScreenTitleRepositoryPort cannot be null");
     }
 
     /**
@@ -98,11 +103,14 @@ public class AdminCommentReportQueueCoordinator {
         // 2. Partition target IDs by CommentTargetType
         Set<UUID> chapterIds = new HashSet<>();
         Set<UUID> articleIds = new HashSet<>();
+        Set<UUID> screenTitleIds = new HashSet<>();
         for (InteractionReportQueueItem item : rawItems) {
             if (item.targetType() == CommentTargetType.NOVEL_CHAPTER && item.targetId() != null) {
                 chapterIds.add(item.targetId());
             } else if (item.targetType() == CommentTargetType.WIKI_ARTICLE && item.targetId() != null) {
                 articleIds.add(item.targetId());
+            } else if (item.targetType() == CommentTargetType.SCREEN_TITLE && item.targetId() != null) {
+                screenTitleIds.add(item.targetId());
             }
         }
 
@@ -115,6 +123,10 @@ public class AdminCommentReportQueueCoordinator {
                 ? Map.of()
                 : Objects.requireNonNullElse(wikiArticleQueryPort.findListItemsByIds(articleIds), Map.of());
 
+        Map<UUID, ScreenTitle> screenTitles = screenTitleIds.isEmpty()
+                ? Map.of()
+                : Objects.requireNonNullElse(screenTitleRepositoryPort.findTitlesByIds(screenTitleIds), Map.of());
+
         // 4. Compose enriched items in original queue order
         List<AdminCommentReportQueueItemDTO> enrichedItems = new ArrayList<>(rawItems.size());
         for (InteractionReportQueueItem rawItem : rawItems) {
@@ -123,7 +135,7 @@ public class AdminCommentReportQueueCoordinator {
             AdminCommentReportUserDTO resolver = rawItem.resolverUserId() != null
                     ? composeUser(rawItem.resolverUserId(), profiles)
                     : null;
-            AdminCommentReportTargetDTO target = composeTarget(rawItem.targetType(), rawItem.targetId(), chapters, articles);
+            AdminCommentReportTargetDTO target = composeTarget(rawItem.targetType(), rawItem.targetId(), chapters, articles, screenTitles);
 
             enrichedItems.add(new AdminCommentReportQueueItemDTO(
                     rawItem.reportId(),
@@ -166,7 +178,8 @@ public class AdminCommentReportQueueCoordinator {
             CommentTargetType targetType,
             UUID targetId,
             Map<UUID, ChapterListItemDTO> chapters,
-            Map<UUID, WikiArticleListItemDTO> articles
+            Map<UUID, WikiArticleListItemDTO> articles,
+            Map<UUID, ScreenTitle> screenTitles
     ) {
         if (targetType == CommentTargetType.NOVEL_CHAPTER) {
             ChapterListItemDTO chapter = chapters.get(targetId);
@@ -174,6 +187,9 @@ public class AdminCommentReportQueueCoordinator {
         } else if (targetType == CommentTargetType.WIKI_ARTICLE) {
             WikiArticleListItemDTO article = articles.get(targetId);
             return AdminCommentReportTargetDTO.forWikiArticle(targetId, article);
+        } else if (targetType == CommentTargetType.SCREEN_TITLE) {
+            ScreenTitle title = screenTitles.get(targetId);
+            return AdminCommentReportTargetDTO.forScreenTitle(targetId, title);
         }
         return AdminCommentReportTargetDTO.unresolved(targetType, targetId);
     }

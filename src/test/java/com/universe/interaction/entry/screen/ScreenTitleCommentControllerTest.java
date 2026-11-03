@@ -34,7 +34,11 @@ import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.security.AuthenticatedEmailResolver;
 import jakarta.servlet.FilterChain;
@@ -120,6 +124,9 @@ class ScreenTitleCommentControllerTest {
 
     @MockBean
     private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+
+    @MockBean
+    private ScreenEntryRepositoryPort screenEntryRepositoryPort;
 
     @MockBean
     private ScreenTitleDiscussionQueryCoordinator screenTitleDiscussionQueryCoordinator;
@@ -417,6 +424,115 @@ class ScreenTitleCommentControllerTest {
                 .andExpect(jsonPath("$.commentId").value(REPLY_COMMENT_ID.toString()));
 
         verify(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, CommentTarget.screenTitle(TITLE_ID));
+    }
+
+    @Test
+    @WithMockUser(username = "screen_fan", roles = "USER")
+    @DisplayName("Authenticated user can post root comment with valid episode origin")
+    void authenticatedUserCanPostRootCommentWithValidEpisodeOrigin() throws Exception {
+        UUID entryId = UUID.randomUUID();
+        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+
+        ScreenEntry mockEntry = Mockito.mock(ScreenEntry.class);
+        when(mockEntry.isPublished()).thenReturn(true);
+        when(mockEntry.getTitleId()).thenReturn(TITLE_ID);
+        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.of(mockEntry));
+
+        Comment created = Comment.createRoot(
+                ROOT_COMMENT_ID,
+                CommentTarget.screenTitle(TITLE_ID),
+                ACTOR_USER_ID,
+                "Episode 1 discussion",
+                NOW,
+                entryId
+        );
+        when(createRootCommentUseCase.execute(any())).thenReturn(created);
+
+        mockMvc.perform(post("/api/screen/titles/{titleId}/comments", TITLE_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(ACTOR_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"Episode 1 discussion\",\"originScreenEntryId\":\"" + entryId + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commentId").value(ROOT_COMMENT_ID.toString()));
+    }
+
+    @Test
+    @WithMockUser(username = "screen_fan", roles = "USER")
+    @DisplayName("Post root comment with invalid originScreenEntry fails with Bad Request")
+    void postRootCommentWithInvalidOriginScreenEntryFailsBadRequest() throws Exception {
+        UUID entryId = UUID.randomUUID();
+        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/screen/titles/{titleId}/comments", TITLE_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(ACTOR_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"Invalid origin\",\"originScreenEntryId\":\"" + entryId + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(createRootCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "screen_fan", roles = "USER")
+    @DisplayName("Authenticated user can reply comment with valid episode origin")
+    void authenticatedUserCanReplyCommentWithValidEpisodeOrigin() throws Exception {
+        UUID entryId = UUID.randomUUID();
+        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+
+        ScreenEntry mockEntry = Mockito.mock(ScreenEntry.class);
+        when(mockEntry.isPublished()).thenReturn(true);
+        when(mockEntry.getTitleId()).thenReturn(TITLE_ID);
+        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.of(mockEntry));
+
+        Comment root = Comment.createRoot(
+                ROOT_COMMENT_ID,
+                CommentTarget.screenTitle(TITLE_ID),
+                ACTOR_USER_ID,
+                "Root body",
+                NOW
+        );
+        Comment reply = Comment.createReply(
+                REPLY_COMMENT_ID,
+                root,
+                ACTOR_USER_ID,
+                "A reply comment on episode",
+                NOW,
+                entryId
+        );
+        when(replyCommentUseCase.execute(any())).thenReturn(reply);
+
+        mockMvc.perform(post("/api/screen/titles/{titleId}/comments/{parentCommentId}/replies", TITLE_ID, ROOT_COMMENT_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(ACTOR_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"A reply comment on episode\",\"originScreenEntryId\":\"" + entryId + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commentId").value(REPLY_COMMENT_ID.toString()));
+    }
+
+    @Test
+    @WithMockUser(username = "screen_fan", roles = "USER")
+    @DisplayName("Reply comment with unpublished originScreenEntry fails with Bad Request")
+    void replyCommentWithUnpublishedOriginScreenEntryFailsBadRequest() throws Exception {
+        UUID entryId = UUID.randomUUID();
+        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/screen/titles/{titleId}/comments/{parentCommentId}/replies", TITLE_ID, ROOT_COMMENT_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(ACTOR_USER_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"A reply on draft\",\"originScreenEntryId\":\"" + entryId + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(replyCommentUseCase, never()).execute(any());
     }
 
     @Test

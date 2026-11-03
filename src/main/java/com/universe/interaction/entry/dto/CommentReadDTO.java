@@ -36,7 +36,8 @@ public record CommentReadDTO(
         CommentAuthorDTO author,
         boolean canEdit,
         boolean canDelete,
-        ReactionSummaryResponseDTO reactionSummary
+        ReactionSummaryResponseDTO reactionSummary,
+        CommentOriginDTO origin
 ) {
 
     public CommentReadDTO {
@@ -51,7 +52,25 @@ public record CommentReadDTO(
             canEdit = false;
             canDelete = false;
             reactionSummary = null;
+            origin = null;
         }
+    }
+
+    public CommentReadDTO(
+            UUID id,
+            UUID authorUserId,
+            UUID parentCommentId,
+            UUID replyToAuthorUserId,
+            String body,
+            boolean tombstone,
+            Instant createdAt,
+            Instant updatedAt,
+            CommentAuthorDTO author,
+            boolean canEdit,
+            boolean canDelete,
+            ReactionSummaryResponseDTO reactionSummary
+    ) {
+        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, author, canEdit, canDelete, reactionSummary, null);
     }
 
     public CommentReadDTO(
@@ -145,6 +164,10 @@ public record CommentReadDTO(
     }
 
     public static CommentReadDTO from(CommentReadItem item, CommentAuthorDTO author, UUID viewerUserId, ReactionSummaryResponseDTO reactionSummary) {
+        return from(item, author, viewerUserId, reactionSummary, null);
+    }
+
+    public static CommentReadDTO from(CommentReadItem item, CommentAuthorDTO author, UUID viewerUserId, ReactionSummaryResponseDTO reactionSummary, CommentOriginDTO origin) {
         Objects.requireNonNull(item, "CommentReadItem cannot be null.");
         if (item.tombstone()) {
             return new CommentReadDTO(
@@ -159,6 +182,7 @@ public record CommentReadDTO(
                     null,
                     false,
                     false,
+                    null,
                     null
             );
         }
@@ -175,7 +199,8 @@ public record CommentReadDTO(
                 author,
                 eligible,
                 eligible,
-                reactionSummary
+                reactionSummary,
+                origin
         );
     }
 
@@ -192,7 +217,8 @@ public record CommentReadDTO(
                 author,
                 this.canEdit,
                 this.canDelete,
-                this.reactionSummary
+                this.reactionSummary,
+                this.origin
         );
     }
 
@@ -209,7 +235,8 @@ public record CommentReadDTO(
                 this.author,
                 canEdit,
                 this.canDelete,
-                this.reactionSummary
+                this.reactionSummary,
+                this.origin
         );
     }
 
@@ -226,7 +253,8 @@ public record CommentReadDTO(
                 this.author,
                 this.canEdit,
                 canDelete,
-                this.reactionSummary
+                this.reactionSummary,
+                this.origin
         );
     }
 
@@ -243,7 +271,8 @@ public record CommentReadDTO(
                 this.author,
                 this.canEdit,
                 this.canDelete,
-                reactionSummary
+                reactionSummary,
+                this.origin
         );
     }
 }

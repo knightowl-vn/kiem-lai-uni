@@ -36,7 +36,9 @@ import com.universe.interaction.entry.dto.EditCommentRequest;
 import com.universe.interaction.entry.dto.SubmitCommentReportRequest;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenEntry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,6 +72,7 @@ public class ScreenTitleCommentController {
     private static final int MAX_PAGE_SIZE = 50;
 
     private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private final ScreenEntryRepositoryPort screenEntryRepositoryPort;
     private final ScreenTitleDiscussionQueryCoordinator screenTitleDiscussionQueryCoordinator;
     private final CreateRootCommentUseCase createRootCommentUseCase;
     private final ReplyCommentUseCase replyCommentUseCase;
@@ -81,6 +84,7 @@ public class ScreenTitleCommentController {
 
     public ScreenTitleCommentController(
             ScreenTitleRepositoryPort screenTitleRepositoryPort,
+            ScreenEntryRepositoryPort screenEntryRepositoryPort,
             ScreenTitleDiscussionQueryCoordinator screenTitleDiscussionQueryCoordinator,
             CreateRootCommentUseCase createRootCommentUseCase,
             ReplyCommentUseCase replyCommentUseCase,
@@ -91,6 +95,7 @@ public class ScreenTitleCommentController {
             SubmitCommentReportUseCase submitCommentReportUseCase
     ) {
         this.screenTitleRepositoryPort = Objects.requireNonNull(screenTitleRepositoryPort, "ScreenTitleRepositoryPort cannot be null.");
+        this.screenEntryRepositoryPort = Objects.requireNonNull(screenEntryRepositoryPort, "ScreenEntryRepositoryPort cannot be null.");
         this.screenTitleDiscussionQueryCoordinator = Objects.requireNonNull(screenTitleDiscussionQueryCoordinator, "ScreenTitleDiscussionQueryCoordinator cannot be null.");
         this.createRootCommentUseCase = Objects.requireNonNull(createRootCommentUseCase, "CreateRootCommentUseCase cannot be null.");
         this.replyCommentUseCase = Objects.requireNonNull(replyCommentUseCase, "ReplyCommentUseCase cannot be null.");
@@ -187,8 +192,13 @@ public class ScreenTitleCommentController {
 
         ensurePublishedTitle(titleId);
 
+        UUID originScreenEntryId = requestBody != null ? requestBody.originScreenEntryId() : null;
+        if (originScreenEntryId != null) {
+            validateOriginScreenEntry(titleId, originScreenEntryId);
+        }
+
         CommentTarget target = CommentTarget.screenTitle(titleId);
-        CreateRootCommentCommand command = new CreateRootCommentCommand(actorUserId, target, requestBody.body());
+        CreateRootCommentCommand command = new CreateRootCommentCommand(actorUserId, target, requestBody.body(), originScreenEntryId);
         Comment created = createRootCommentUseCase.execute(command);
 
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -213,7 +223,12 @@ public class ScreenTitleCommentController {
         CommentTarget expectedTarget = CommentTarget.screenTitle(titleId);
         validateCommentTargetScopeUseCase.execute(parentCommentId, expectedTarget);
 
-        ReplyCommentCommand command = new ReplyCommentCommand(actorUserId, parentCommentId, requestBody.body());
+        UUID originScreenEntryId = requestBody != null ? requestBody.originScreenEntryId() : null;
+        if (originScreenEntryId != null) {
+            validateOriginScreenEntry(titleId, originScreenEntryId);
+        }
+
+        ReplyCommentCommand command = new ReplyCommentCommand(actorUserId, parentCommentId, requestBody.body(), originScreenEntryId);
         Comment reply = replyCommentUseCase.execute(command);
 
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -298,6 +313,14 @@ public class ScreenTitleCommentController {
     private void ensurePublishedTitle(UUID titleId) {
         screenTitleRepositoryPort.findPublishedById(titleId)
                 .orElseThrow(() -> new PublishedScreenTitleNotFoundException(titleId.toString()));
+    }
+
+    private void validateOriginScreenEntry(UUID titleId, UUID entryId) {
+        ScreenEntry entry = screenEntryRepositoryPort.findPublishedById(entryId)
+                .orElseThrow(() -> new IllegalArgumentException("Origin ScreenEntry does not exist or is not published: " + entryId));
+        if (!entry.getTitleId().equals(titleId)) {
+            throw new IllegalArgumentException("Origin ScreenEntry does not belong to the specified ScreenTitle: " + entryId);
+        }
     }
 
     private UUID resolveAuthenticatedActor(HttpServletRequest request) {

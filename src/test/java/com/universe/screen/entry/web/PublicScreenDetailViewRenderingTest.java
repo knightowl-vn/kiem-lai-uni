@@ -33,6 +33,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.test.context.support.WithAnonymousUser;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -198,6 +199,10 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("id=\"screenDiscussionHeading\"")))
                 .andExpect(content().string(containsString("Bình luận")))
                 .andExpect(content().string(containsString("id=\"screenRootComposer\"")))
+                .andExpect(content().string(containsString("<meta name=\"_csrf\"")))
+                .andExpect(content().string(containsString("<meta name=\"_csrf_header\" content=\"X-CSRF-TOKEN\"")))
+                .andExpect(content().string(containsString("data-csrf-header=\"X-CSRF-TOKEN\"")))
+                .andExpect(content().string(containsString("data-csrf-token=")))
                 // Boundary: No video player in title detail
                 .andExpect(content().string(not(containsString("<video"))))
                 .andExpect(content().string(not(containsString("<iframe"))));
@@ -352,6 +357,39 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("24:00")))
                 .andExpect(content().string(containsString("Nội dung tóm tắt của tập 1.")))
                 .andExpect(content().string(containsString("Trình phát video đang được hoàn thiện")))
-                .andExpect(content().string(containsString("MS-08G")));
+                .andExpect(content().string(containsString("MS-08G")))
+                // Comments & CSRF attributes on entry detail
+                .andExpect(content().string(containsString("<meta name=\"_csrf\"")))
+                .andExpect(content().string(containsString("<meta name=\"_csrf_header\" content=\"X-CSRF-TOKEN\"")))
+                .andExpect(content().string(containsString("id=\"screenDiscussion\"")))
+                .andExpect(content().string(containsString("data-csrf-header=\"X-CSRF-TOKEN\"")))
+                .andExpect(content().string(containsString("data-csrf-token=")));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@example.com", roles = "USER")
+    @DisplayName("SSR: Authenticated user with fresh session renders detail page safely without SpelEvaluationException / IllegalStateException")
+    void shouldRenderSeriesDetailPageForAuthenticatedUserWithFreshSessionWithoutCsrfException() throws Exception {
+        UUID titleId = UUID.randomUUID();
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-1", "Kiếm Lai Phần 1", "剑来 第一季",
+                "Thiếu niên Trần Bình An quật khởi từ Ly Châu động thiên.",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now, 1, 24,
+                List.of(), List.of(),
+                ScreenAiringStatus.ONGOING, 2024, "Trung Quốc", "Phong Hỏa Hí Chư Hầu", "Đạo diễn A", "Sparkly Key Animation", 24
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-1")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("<meta name=\"_csrf\"")))
+                .andExpect(content().string(containsString("<meta name=\"_csrf_header\" content=\"X-CSRF-TOKEN\"")))
+                .andExpect(content().string(containsString("id=\"screenDiscussion\"")))
+                .andExpect(content().string(containsString("data-csrf-header=\"X-CSRF-TOKEN\"")))
+                .andExpect(content().string(containsString("data-csrf-token=")))
+                .andExpect(content().string(containsString("data-authenticated=\"true\"")));
     }
 }

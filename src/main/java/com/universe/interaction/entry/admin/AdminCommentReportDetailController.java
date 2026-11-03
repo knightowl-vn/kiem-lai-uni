@@ -138,6 +138,16 @@ public class AdminCommentReportDetailController {
                 return "redirect:" + destination;
             }
 
+            if (nav.targetType() == CommentTargetType.SCREEN_TITLE) {
+                String destination = UriComponentsBuilder.fromPath("/screen/{slug}")
+                        .queryParam("commentId", nav.commentId())
+                        .queryParam("threadId", nav.threadId())
+                        .fragment("screenDiscussion")
+                        .buildAndExpand(nav.slug())
+                        .toUriString();
+                return "redirect:" + destination;
+            }
+
             redirectAttributes.addFlashAttribute("errorMessage", ERROR_CONTEXT_UNAVAILABLE);
             return "redirect:/admin/comments/reports/" + reportId;
 

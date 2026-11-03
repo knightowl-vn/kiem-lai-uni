@@ -229,4 +229,40 @@ class PublicScreenSecurityIntegrationTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern("**/login"));
     }
+
+    @Test
+    @WithMockUser(username = "user@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated POST /screen without CSRF token is rejected by accessDeniedHandler")
+    void authenticatedPostScreenWithoutCsrfIsRejectedWithAccessDeniedRedirect() throws Exception {
+        mockMvc.perform(post("/screen"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = "user@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated POST /screen with invalid CSRF token is rejected by accessDeniedHandler")
+    void authenticatedPostScreenWithInvalidCsrfIsRejectedWithAccessDeniedRedirect() throws Exception {
+        mockMvc.perform(post("/screen").with(csrf().useInvalidToken()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = "user@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated POST /screen/{titleSlug} without CSRF token is rejected by accessDeniedHandler")
+    void authenticatedPostTitleDetailWithoutCsrfIsRejectedWithAccessDeniedRedirect() throws Exception {
+        mockMvc.perform(post("/screen/test-slug"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = "user@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated POST /screen/{titleSlug}/entries/{entrySlug} without CSRF token is rejected by accessDeniedHandler")
+    void authenticatedPostEntryDetailWithoutCsrfIsRejectedWithAccessDeniedRedirect() throws Exception {
+        mockMvc.perform(post("/screen/test-slug/entries/entry-slug"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/access-denied"));
+    }
 }

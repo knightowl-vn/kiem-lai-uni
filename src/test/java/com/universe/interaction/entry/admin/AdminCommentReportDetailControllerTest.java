@@ -241,6 +241,29 @@ class AdminCommentReportDetailControllerTest {
         }
 
         @Test
+        @DisplayName("Case B2: SCREEN_TITLE available redirect - redirects to public screen detail page")
+        void shouldRedirectToScreenTitleContextWhenAvailable() {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            AdminCommentReportContextNavigationDTO navDto = AdminCommentReportContextNavigationDTO.available(
+                    reportId,
+                    commentId,
+                    threadId,
+                    CommentTargetType.SCREEN_TITLE,
+                    "kiem-lai-phan-1",
+                    null
+            );
+            when(navigationCoordinator.resolveNavigation(reportId)).thenReturn(navDto);
+
+            String redirect = controller.navigateToContext(reportId, response, redirectAttributes);
+
+            assertThat(redirect).isEqualTo("redirect:/screen/kiem-lai-phan-1?commentId=" + commentId + "&threadId=" + threadId + "#screenDiscussion");
+            assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store, no-cache, must-revalidate, max-age=0");
+            assertThat(redirectAttributes.getFlashAttributes()).isEmpty();
+        }
+
+        @Test
         @DisplayName("Case C: Unavailable redirect - redirects back to detail page with flash errorMessage")
         void shouldRedirectBackToDetailWhenUnavailable() {
             MockHttpServletResponse response = new MockHttpServletResponse();

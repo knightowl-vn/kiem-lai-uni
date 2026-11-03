@@ -11,7 +11,8 @@ import java.util.UUID;
 public record CreateRootCommentCommand(
         UUID actorUserId,
         CommentTarget target,
-        String body
+        String body,
+        UUID originScreenEntryId
 ) {
 
     public CreateRootCommentCommand {
@@ -20,5 +21,9 @@ public record CreateRootCommentCommand(
         if (body == null || body.trim().isEmpty()) {
             throw new IllegalArgumentException("Comment body cannot be null or blank.");
         }
+    }
+
+    public CreateRootCommentCommand(UUID actorUserId, CommentTarget target, String body) {
+        this(actorUserId, target, body, null);
     }
 }

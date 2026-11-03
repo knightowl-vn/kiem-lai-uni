@@ -32,8 +32,11 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.DefaultCsrfToken;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
 import java.util.List;
@@ -41,6 +44,9 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -139,7 +145,10 @@ class PublicScreenControllerTest {
                 .andExpect(model().attributeExists("catalogPage"))
                 .andExpect(model().attribute("activeNav", equalTo("screen")))
                 .andExpect(model().attribute("pageTitle", equalTo("Phim - Kiếm Lai Universe")))
-                .andExpect(model().attribute("catalogPage", equalTo(PublicScreenCatalogPageView.fromDTO(catalogPage))));
+                .andExpect(model().attribute("catalogPage", equalTo(PublicScreenCatalogPageView.fromDTO(catalogPage))))
+                .andExpect(model().attributeExists("csrfToken"))
+                .andExpect(model().attributeExists("csrfHeader"))
+                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
 
         verify(getPublicScreenCatalogUseCase).execute(0, 12);
     }
@@ -238,7 +247,10 @@ class PublicScreenControllerTest {
                 .andExpect(view().name("screen/detail"))
                 .andExpect(model().attribute("titleDetail", equalTo(PublicScreenTitleDetailView.fromDTO(detailDTO))))
                 .andExpect(model().attribute("activeNav", "screen"))
-                .andExpect(model().attribute("pageTitle", "Kiếm Lai Phần 1 - Kiếm Lai Universe"));
+                .andExpect(model().attribute("pageTitle", "Kiếm Lai Phần 1 - Kiếm Lai Universe"))
+                .andExpect(model().attributeExists("csrfToken"))
+                .andExpect(model().attributeExists("csrfHeader"))
+                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
 
         verify(getPublicScreenTitleDetailUseCase).execute("kiem-lai-1");
     }
@@ -256,7 +268,10 @@ class PublicScreenControllerTest {
 
         mockMvc.perform(get("/screen/kiem-lai-movie"))
                 .andExpect(status().isOk())
-                .andExpect(view().name("screen/detail"));
+                .andExpect(view().name("screen/detail"))
+                .andExpect(model().attributeExists("csrfToken"))
+                .andExpect(model().attributeExists("csrfHeader"))
+                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
     }
 
     @Test
@@ -291,7 +306,10 @@ class PublicScreenControllerTest {
                 .andExpect(view().name("screen/entry-detail"))
                 .andExpect(model().attribute("entryDetail", equalTo(PublicScreenEntryDetailView.fromDTO(entryDetailDTO))))
                 .andExpect(model().attribute("activeNav", "screen"))
-                .andExpect(model().attribute("pageTitle", "Tập 1 - Kiếm Lai Phần 1 - Kiếm Lai Universe"));
+                .andExpect(model().attribute("pageTitle", "Tập 1 - Kiếm Lai Phần 1 - Kiếm Lai Universe"))
+                .andExpect(model().attributeExists("csrfToken"))
+                .andExpect(model().attributeExists("csrfHeader"))
+                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
 
         verify(getPublicScreenEntryDetailUseCase).execute("kiem-lai-1", "tap-1");
     }
@@ -309,7 +327,10 @@ class PublicScreenControllerTest {
 
         mockMvc.perform(get("/screen/kiem-lai-movie/entries/ban-chieu-chinh"))
                 .andExpect(status().isOk())
-                .andExpect(view().name("screen/entry-detail"));
+                .andExpect(view().name("screen/entry-detail"))
+                .andExpect(model().attributeExists("csrfToken"))
+                .andExpect(model().attributeExists("csrfHeader"))
+                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
 
         verify(getPublicScreenEntryDetailUseCase).execute("kiem-lai-movie", "ban-chieu-chinh");
     }
@@ -342,5 +363,25 @@ class PublicScreenControllerTest {
                 .andExpect(view().name("screen/not-found"))
                 .andExpect(model().attribute("errorTitle", "Tác phẩm không tồn tại"))
                 .andExpect(model().attribute("errorMessage", "Tác phẩm bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản."));
+    }
+
+    @Test
+    @DisplayName("Exposes pre-materialized CsrfToken in model attributes matching active request token")
+    void exposesPreMaterializedCsrfTokenMatchingActiveRequest() throws Exception {
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1", "剑来",
+                "Mô tả phim", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                UUID.randomUUID(), null, now, 12, 24, List.of(), null
+        );
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-1")).thenReturn(detailDTO);
+
+        MvcResult result = mockMvc.perform(get("/screen/kiem-lai-1"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        CsrfToken requestToken = (CsrfToken) result.getRequest().getAttribute(CsrfToken.class.getName());
+        assertNotNull(requestToken);
+        assertEquals(requestToken.getToken(), result.getModelAndView().getModel().get("csrfToken"));
+        assertEquals(requestToken.getHeaderName(), result.getModelAndView().getModel().get("csrfHeader"));
     }
 }

@@ -1766,3 +1766,30 @@
         padding: 16px 12px;
     }
 }
+
+/* --- Screen Comment Origin Badge --- */
+.screen-comment-origin-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    border-radius: 4px;
+    background: rgba(26, 115, 232, 0.08);
+    color: var(--accent-color, #1a73e8);
+    border: 1px solid rgba(26, 115, 232, 0.22);
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+    white-space: nowrap;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+a.screen-comment-origin-badge:hover,
+a.screen-comment-origin-badge:focus-visible {
+    background: rgba(26, 115, 232, 0.16);
+    border-color: rgba(26, 115, 232, 0.4);
+    color: var(--accent-color, #1a73e8);
+    text-decoration: none;
+}

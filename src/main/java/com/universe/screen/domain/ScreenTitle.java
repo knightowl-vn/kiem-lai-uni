@@ -651,6 +651,10 @@ public final class ScreenTitle {
         return status;
     }
 
+    public boolean isPublished() {
+        return status == ScreenPublicationStatus.PUBLISHED;
+    }
+
     public Instant getPublishedAt() {
         return publishedAt;
     }

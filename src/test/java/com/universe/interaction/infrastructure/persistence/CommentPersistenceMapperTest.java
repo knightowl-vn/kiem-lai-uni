@@ -104,6 +104,27 @@ class CommentPersistenceMapperTest {
             assertThat(reconstituted.getCreatedAt()).isEqualTo(T1);
             assertThat(reconstituted.getUpdatedAt()).isEqualTo(T1);
             assertThat(reconstituted.getDeletedAt()).isNull();
+            assertThat(reconstituted.getOriginScreenEntryId()).isNull();
+        }
+
+        @Test
+        @DisplayName("maps ACTIVE root comment with originScreenEntryId round trip")
+        void shouldMapActiveRootCommentWithOriginScreenEntryIdRoundTrip() {
+            UUID entryId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+            Comment domain = Comment.createRoot(
+                    ROOT_ID,
+                    CommentTarget.screenTitle(CHAPTER_ID),
+                    AUTHOR_USER_ID,
+                    "Root comment on episode",
+                    T1,
+                    entryId
+            );
+
+            CommentJpaEntity jpaEntity = mapper.toJpaEntity(domain);
+            assertThat(jpaEntity.getOriginScreenEntryId()).isEqualTo(entryId.toString());
+
+            Comment reconstituted = mapper.toDomain(jpaEntity);
+            assertThat(reconstituted.getOriginScreenEntryId()).isEqualTo(entryId);
         }
     }
 
@@ -450,6 +471,25 @@ class CommentPersistenceMapperTest {
             assertThatThrownBy(() -> mapper.toDomain(invalidThreadRootId))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Thread root comment ID in database has invalid UUID format");
+
+            CommentJpaEntity invalidOriginEntryId = new CommentJpaEntity(
+                    ROOT_ID.toString(),
+                    "SCREEN_TITLE",
+                    CHAPTER_ID.toString(),
+                    AUTHOR_USER_ID.toString(),
+                    null,
+                    null,
+                    "Valid body",
+                    "ACTIVE",
+                    T1,
+                    T1,
+                    null,
+                    "not-a-uuid"
+            );
+
+            assertThatThrownBy(() -> mapper.toDomain(invalidOriginEntryId))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Origin screen entry ID in database has invalid UUID format");
         }
     }
 

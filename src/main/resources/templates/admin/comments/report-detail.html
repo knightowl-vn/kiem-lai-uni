@@ -310,7 +310,9 @@
                         </div>
                         <div th:if="${report.target != null}">
                             <span class="comment-report-detail-target-badge"
-                                  th:text="${report.target.targetType.name() == 'NOVEL_CHAPTER' ? 'Chương truyện' : 'Bài Wiki'}">
+                                  th:text="${report.target.targetType.name() == 'NOVEL_CHAPTER' ? 'Chương truyện' :
+                                           report.target.targetType.name() == 'WIKI_ARTICLE' ? 'Bài Wiki' :
+                                           report.target.targetType.name() == 'SCREEN_TITLE' ? 'Phim' : 'Khác'}">
                                 Loại mục tiêu
                             </span>
                         </div>
@@ -392,6 +394,41 @@
                             <a th:href="@{/admin/wiki/articles/{id}(id=${report.target.targetId})}"
                                class="admin-primary-button comment-report-detail-target-btn">
                                 Xem bài Wiki
+                            </a>
+                            <a th:if="${report.currentCommentAvailable and report.target.currentStatus == 'PUBLISHED'}"
+                               th:href="@{/admin/comments/reports/{id}/context(id=${report.reportId})}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="admin-secondary-button comment-report-detail-target-btn">
+                                Mở bình luận trong ngữ cảnh ↗
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Trường hợp 5: Target resolved SCREEN_TITLE -->
+                    <div th:if="${report.target != null and report.target.resolved and report.target.targetType.name() == 'SCREEN_TITLE'}"
+                         class="comment-report-detail-target-resolved">
+                        <div class="comment-report-detail-target-info">
+                            <h4 class="comment-report-detail-target-title"
+                                th:text="${report.target.title}">
+                                Tiêu đề phim
+                            </h4>
+                            <div class="comment-report-detail-target-meta-tags">
+                                <span th:if="${report.target.episodeBadge != null}" class="comment-report-detail-meta-tag">
+                                    Nguồn: <strong th:text="${report.target.episodeBadge}">Tập 1</strong>
+                                </span>
+                                <span class="comment-report-detail-meta-tag">
+                                    Slug: <code class="comment-report-detail-code-inline" th:text="${report.target.slug}">slug</code>
+                                </span>
+                                <span class="comment-report-detail-meta-tag">
+                                    Trạng thái: <strong th:text="${report.target.currentStatus}">PUBLISHED</strong>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="comment-report-detail-target-action">
+                            <a th:href="@{/admin/screen/titles/{id}(id=${report.target.targetId})}"
+                               class="admin-primary-button comment-report-detail-target-btn">
+                                Xem Phim
                             </a>
                             <a th:if="${report.currentCommentAvailable and report.target.currentStatus == 'PUBLISHED'}"
                                th:href="@{/admin/comments/reports/{id}/context(id=${report.reportId})}"

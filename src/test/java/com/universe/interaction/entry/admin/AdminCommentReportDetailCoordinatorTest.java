@@ -14,6 +14,12 @@ import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenPublicationStatus;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,16 +29,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -53,6 +62,12 @@ class AdminCommentReportDetailCoordinatorTest {
     @Mock
     private WikiArticleQueryPort wikiArticleQueryPort;
 
+    @Mock
+    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+
+    @Mock
+    private ScreenEntryRepositoryPort screenEntryRepositoryPort;
+
     @Captor
     private ArgumentCaptor<Set<UUID>> userIdsCaptor;
 
@@ -65,6 +80,8 @@ class AdminCommentReportDetailCoordinatorTest {
     private final UUID resolverId = UUID.fromString("55555555-5555-5555-5555-555555555555");
     private final UUID chapterId = UUID.fromString("66666666-6666-6666-6666-666666666666");
     private final UUID articleId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+    private final UUID screenTitleId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+    private final UUID screenEntryId = UUID.fromString("99999999-9999-9999-9999-999999999999");
     private final Instant baseTime = Instant.parse("2026-09-21T10:00:00Z");
 
     @BeforeEach
@@ -73,7 +90,9 @@ class AdminCommentReportDetailCoordinatorTest {
                 getReportDetailUseCase,
                 userIdentityContract,
                 chapterListQueryPort,
-                wikiArticleQueryPort
+                wikiArticleQueryPort,
+                screenTitleRepositoryPort,
+                screenEntryRepositoryPort
         );
     }
 
@@ -503,5 +522,165 @@ class AdminCommentReportDetailCoordinatorTest {
         verifyNoInteractions(userIdentityContract);
         verifyNoInteractions(chapterListQueryPort);
         verifyNoInteractions(wikiArticleQueryPort);
+    }
+
+    @Test
+    @DisplayName("Case I: SCREEN_TITLE target with origin episode badge - resolves Title and Entry")
+    void shouldComposeScreenTitleReportDetailWithEpisodeBadge() {
+        InteractionReportDetailResult raw = new InteractionReportDetailResult(
+                reportId,
+                ReportTargetType.COMMENT,
+                commentId,
+                reporterId,
+                ReportReason.SPAM,
+                "Báo cáo spam bình luận phim",
+                "Nội dung vi phạm",
+                ReportStatus.PENDING,
+                baseTime,
+                null,
+                null,
+                null,
+                null,
+                true,
+                authorId,
+                CommentStatus.ACTIVE,
+                "Nội dung vi phạm (live)",
+                CommentTargetType.SCREEN_TITLE,
+                screenTitleId,
+                null,
+                baseTime.minusSeconds(600),
+                baseTime.minusSeconds(600),
+                null,
+                screenEntryId
+        );
+        when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
+        when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
+        ));
+
+        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
+        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
+        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
+        when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+
+        ScreenEntry entry = Mockito.mock(ScreenEntry.class);
+        when(entry.getType()).thenReturn(ScreenEntryType.EPISODE);
+        when(entry.getNumber()).thenReturn(1);
+        when(screenEntryRepositoryPort.findById(screenEntryId)).thenReturn(Optional.of(entry));
+
+        AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
+
+        assertThat(detail).isNotNull();
+        assertThat(detail.target()).isNotNull();
+        assertThat(detail.target().targetType()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+        assertThat(detail.target().targetId()).isEqualTo(screenTitleId);
+        assertThat(detail.target().resolved()).isTrue();
+        assertThat(detail.target().title()).isEqualTo("Kiếm Lai Hoạt Họa");
+        assertThat(detail.target().slug()).isEqualTo("kiem-lai-hoat-hoa");
+        assertThat(detail.target().currentStatus()).isEqualTo("PUBLISHED");
+        assertThat(detail.target().episodeBadge()).isEqualTo("Tập 1");
+
+        verifyNoInteractions(chapterListQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
+    }
+
+    @Test
+    @DisplayName("Case J: SCREEN_TITLE target without episode origin - resolves Title with null badge")
+    void shouldComposeScreenTitleReportDetailWithoutEpisodeBadge() {
+        InteractionReportDetailResult raw = new InteractionReportDetailResult(
+                reportId,
+                ReportTargetType.COMMENT,
+                commentId,
+                reporterId,
+                ReportReason.SPOILER,
+                "Báo cáo tiết lộ nội dung",
+                "Nội dung tiết lộ tình tiết",
+                ReportStatus.PENDING,
+                baseTime,
+                null,
+                null,
+                null,
+                null,
+                true,
+                authorId,
+                CommentStatus.ACTIVE,
+                "Nội dung lạc đề (live)",
+                CommentTargetType.SCREEN_TITLE,
+                screenTitleId,
+                null,
+                baseTime.minusSeconds(600),
+                baseTime.minusSeconds(600),
+                null,
+                null // null originScreenEntryId
+        );
+        when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
+        when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
+        ));
+
+        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
+        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
+        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
+        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
+        when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+
+        AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
+
+        assertThat(detail).isNotNull();
+        assertThat(detail.target()).isNotNull();
+        assertThat(detail.target().resolved()).isTrue();
+        assertThat(detail.target().title()).isEqualTo("Kiếm Lai Hoạt Họa");
+        assertThat(detail.target().episodeBadge()).isNull();
+
+        verify(screenEntryRepositoryPort, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("Case K: SCREEN_TITLE target unresolvable - returns unresolved target DTO")
+    void shouldHandleMissingScreenTitleInDetail() {
+        InteractionReportDetailResult raw = new InteractionReportDetailResult(
+                reportId,
+                ReportTargetType.COMMENT,
+                commentId,
+                reporterId,
+                ReportReason.SPAM,
+                "Báo cáo spam",
+                "Nội dung vi phạm",
+                ReportStatus.PENDING,
+                baseTime,
+                null,
+                null,
+                null,
+                null,
+                true,
+                authorId,
+                CommentStatus.ACTIVE,
+                "Nội dung vi phạm (live)",
+                CommentTargetType.SCREEN_TITLE,
+                screenTitleId,
+                null,
+                baseTime.minusSeconds(600),
+                baseTime.minusSeconds(600),
+                null,
+                null
+        );
+        when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
+        when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
+        ));
+        when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.empty());
+
+        AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
+
+        assertThat(detail).isNotNull();
+        assertThat(detail.target()).isNotNull();
+        assertThat(detail.target().targetType()).isEqualTo(CommentTargetType.SCREEN_TITLE);
+        assertThat(detail.target().targetId()).isEqualTo(screenTitleId);
+        assertThat(detail.target().resolved()).isFalse();
+        assertThat(detail.target().title()).isNull();
     }
 }

@@ -10,6 +10,10 @@ import com.universe.interaction.entry.admin.dto.AdminCommentReportTargetDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportUserDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.springframework.stereotype.Service;
@@ -26,9 +30,9 @@ import java.util.UUID;
  * <p>Enforces strict clean architecture boundaries and query budgeting:
  * <ul>
  *   <li>Lives in entry boundary ({@code com.universe.interaction.entry.admin});</li>
- *   <li>{@code interaction.application} remains completely agnostic of Novel, Wiki, and Identity;</li>
+ *   <li>{@code interaction.application} remains completely agnostic of Novel, Wiki, Screen, and Identity;</li>
  *   <li>At most 1 deduplicated batch query to Identity per report;</li>
- *   <li>At most 1 targeted query to Novel OR Wiki (never both);</li>
+ *   <li>At most 1 targeted query to Novel, Wiki, OR Screen;</li>
  *   <li>Target and comment-author queries are completely bypassed when current comment is missing;</li>
  *   <li>Propagates {@link com.universe.interaction.application.exceptions.InteractionReportNotFoundException} directly to controller layer;</li>
  *   <li>Resilient to missing/unresolved foreign records (marked {@code resolved = false}).</li>
@@ -41,17 +45,23 @@ public class AdminCommentReportDetailCoordinator {
     private final UserIdentityContract userIdentityContract;
     private final ChapterListQueryPort chapterListQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
+    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private final ScreenEntryRepositoryPort screenEntryRepositoryPort;
 
     public AdminCommentReportDetailCoordinator(
             GetInteractionReportDetailUseCase getReportDetailUseCase,
             UserIdentityContract userIdentityContract,
             ChapterListQueryPort chapterListQueryPort,
-            WikiArticleQueryPort wikiArticleQueryPort
+            WikiArticleQueryPort wikiArticleQueryPort,
+            ScreenTitleRepositoryPort screenTitleRepositoryPort,
+            ScreenEntryRepositoryPort screenEntryRepositoryPort
     ) {
         this.getReportDetailUseCase = Objects.requireNonNull(getReportDetailUseCase, "GetInteractionReportDetailUseCase cannot be null");
         this.userIdentityContract = Objects.requireNonNull(userIdentityContract, "UserIdentityContract cannot be null");
         this.chapterListQueryPort = Objects.requireNonNull(chapterListQueryPort, "ChapterListQueryPort cannot be null");
         this.wikiArticleQueryPort = Objects.requireNonNull(wikiArticleQueryPort, "WikiArticleQueryPort cannot be null");
+        this.screenTitleRepositoryPort = Objects.requireNonNull(screenTitleRepositoryPort, "ScreenTitleRepositoryPort cannot be null");
+        this.screenEntryRepositoryPort = Objects.requireNonNull(screenEntryRepositoryPort, "ScreenEntryRepositoryPort cannot be null");
     }
 
     /**
@@ -106,6 +116,16 @@ public class AdminCommentReportDetailCoordinator {
                         Map.of()
                 );
                 target = AdminCommentReportTargetDTO.forWikiArticle(raw.targetId(), articles.get(raw.targetId()));
+            } else if (raw.targetType() == CommentTargetType.SCREEN_TITLE) {
+                ScreenTitle title = screenTitleRepositoryPort.findById(raw.targetId()).orElse(null);
+                String episodeBadge = null;
+                if (raw.originScreenEntryId() != null) {
+                    ScreenEntry entry = screenEntryRepositoryPort.findById(raw.originScreenEntryId()).orElse(null);
+                    if (entry != null) {
+                        episodeBadge = formatEntryBadge(entry);
+                    }
+                }
+                target = AdminCommentReportTargetDTO.forScreenTitle(raw.targetId(), title, episodeBadge);
             } else {
                 target = AdminCommentReportTargetDTO.unresolved(raw.targetType(), raw.targetId());
             }
@@ -145,5 +165,17 @@ public class AdminCommentReportDetailCoordinator {
             return AdminCommentReportUserDTO.resolved(userId, profile.displayName(), profile.avatarUrl());
         }
         return AdminCommentReportUserDTO.unresolved(userId);
+    }
+
+    private String formatEntryBadge(ScreenEntry entry) {
+        if (entry == null || entry.getType() == null) {
+            return "";
+        }
+        return switch (entry.getType()) {
+            case EPISODE -> "Tập " + (entry.getNumber() != null ? entry.getNumber() : "");
+            case FEATURE -> "Bản chiếu chính";
+            case SPECIAL -> entry.getNumber() != null ? "Ngoại truyện " + entry.getNumber() : "Ngoại truyện";
+            case TRAILER -> entry.getNumber() != null ? "Trailer " + entry.getNumber() : "Trailer";
+        };
     }
 }

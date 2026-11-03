@@ -1,12 +1,17 @@
 package com.universe.interaction.entry.dto;
 
+import java.util.UUID;
+
 /**
  * Request payload for creating a root comment or a reply.
  *
- * <p>Contains exclusively the comment body. Author identity and target are derived strictly
- * from the authenticated session and route parameters.
+ * <p>Contains the comment body and optional episode-origin ScreenEntry ID.
  */
 public record CreateCommentRequest(
-        String body
+        String body,
+        UUID originScreenEntryId
 ) {
+    public CreateCommentRequest(String body) {
+        this(body, null);
+    }
 }

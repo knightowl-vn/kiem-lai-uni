@@ -45,6 +45,8 @@
     let isInitialized = false;
     let currentDoc = null;
     let titleId = null;
+    let titleSlug = null;
+    let originScreenEntryId = null;
     let isAuthenticated = false;
     let loginUrl = '/login';
     let csrfToken = '';
@@ -275,6 +277,8 @@
 
         currentDoc = null;
         titleId = null;
+        titleSlug = null;
+        originScreenEntryId = null;
         isAuthenticated = false;
         loginUrl = '/login';
         csrfToken = '';
@@ -2064,6 +2068,32 @@
             return null;
         }
 
+        // Origin episode badge
+        if (comment.origin && comment.origin.badgeText) {
+            const headerEl = commentEl.querySelector('.kl-comment__header') || commentEl.querySelector('.screen-comment-header');
+            if (headerEl) {
+                const badgeEl = (comment.origin.entrySlug && titleSlug)
+                    ? d.createElement('a')
+                    : d.createElement('span');
+                badgeEl.className = 'screen-comment-origin-badge';
+                badgeEl.textContent = comment.origin.badgeText;
+                if (comment.origin.entrySlug && titleSlug) {
+                    badgeEl.href = '/screen/' + encodeURIComponent(titleSlug) + '/entries/' + encodeURIComponent(comment.origin.entrySlug);
+                }
+                const timeEl = headerEl.querySelector('.kl-comment__time') || headerEl.querySelector('.screen-comment-time');
+                if (timeEl) {
+                    headerEl.insertBefore(badgeEl, timeEl);
+                } else {
+                    const menuEl = headerEl.querySelector('.kl-comment__overflow') || headerEl.querySelector('.screen-comment-actions');
+                    if (menuEl) {
+                        headerEl.insertBefore(badgeEl, menuEl);
+                    } else {
+                        headerEl.appendChild(badgeEl);
+                    }
+                }
+            }
+        }
+
         // Inline reply composer slot (attached for active comments)
         const replyComposerContainer = d.createElement('div');
         replyComposerContainer.className = 'screen-reply-composer-slot wiki-reply-composer-slot';
@@ -2279,10 +2309,14 @@
 
             try {
                 const url = '/api/screen/titles/' + encodeURIComponent(titleId) + '/comments/' + encodeURIComponent(strTargetId) + '/replies';
+                const payload = { body: body };
+                if (originScreenEntryId) {
+                    payload.originScreenEntryId = originScreenEntryId;
+                }
                 const res = await doFetch(url, {
                     method: 'POST',
                     headers: buildHeaders(true),
-                    body: JSON.stringify({ body: body })
+                    body: JSON.stringify(payload)
                 });
 
                 if (res && res.status === 201) {
@@ -2785,10 +2819,14 @@
 
         try {
             const url = '/api/screen/titles/' + encodeURIComponent(titleId) + '/comments';
+            const payload = { body: text };
+            if (originScreenEntryId) {
+                payload.originScreenEntryId = originScreenEntryId;
+            }
             const res = await doFetch(url, {
                 method: 'POST',
                 headers: buildHeaders(true),
-                body: JSON.stringify({ body: text })
+                body: JSON.stringify(payload)
             });
 
             if (res && res.status === 201) {
@@ -3401,7 +3439,19 @@
 
         titleId = rawTitleId.trim();
 
+        const rawTitleSlug = els.sectionEl.getAttribute('data-title-slug');
+        titleSlug = rawTitleSlug ? rawTitleSlug.trim() : null;
+
+        const rawEntryId = els.sectionEl.getAttribute('data-entry-id') || els.sectionEl.getAttribute('data-origin-entry-id');
+        originScreenEntryId = (rawEntryId && uuidRegex.test(rawEntryId.trim())) ? rawEntryId.trim() : null;
+
         const opts = (options && typeof options === 'object') ? options : {};
+        if (opts.titleSlug) {
+            titleSlug = String(opts.titleSlug).trim();
+        }
+        if (opts.originScreenEntryId !== undefined) {
+            originScreenEntryId = opts.originScreenEntryId;
+        }
         if (typeof opts.fetch === 'function') {
             injectedFetch = opts.fetch;
         }

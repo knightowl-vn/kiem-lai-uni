@@ -44,7 +44,8 @@ public class CommentPersistenceMapper {
                 domain.getStatus().name(),
                 domain.getCreatedAt(),
                 domain.getUpdatedAt(),
-                domain.getDeletedAt()
+                domain.getDeletedAt(),
+                domain.getOriginScreenEntryId() != null ? domain.getOriginScreenEntryId().toString() : null
         );
     }
 
@@ -67,6 +68,9 @@ public class CommentPersistenceMapper {
         UUID threadRootCommentId = entity.getThreadRootCommentId() != null
                 ? parseUuid(entity.getThreadRootCommentId(), "Thread root comment ID")
                 : null;
+        UUID originScreenEntryId = entity.getOriginScreenEntryId() != null
+                ? parseUuid(entity.getOriginScreenEntryId(), "Origin screen entry ID")
+                : null;
         CommentStatus status = parseStatus(entity.getStatus());
 
         return Comment.rehydrate(
@@ -79,7 +83,8 @@ public class CommentPersistenceMapper {
                 status,
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
-                entity.getDeletedAt()
+                entity.getDeletedAt(),
+                originScreenEntryId
         );
     }
 

@@ -34,6 +34,7 @@ public final class Comment {
     private final Instant createdAt;
     private Instant updatedAt;
     private Instant deletedAt;
+    private final UUID originScreenEntryId;
 
     private Comment(
             UUID id,
@@ -47,9 +48,33 @@ public final class Comment {
             Instant updatedAt,
             Instant deletedAt
     ) {
+        this(id, target, authorUserId, parentCommentId, threadRootCommentId, body, status, createdAt, updatedAt, deletedAt, null);
+    }
+
+    private Comment(
+            UUID id,
+            CommentTarget target,
+            UUID authorUserId,
+            UUID parentCommentId,
+            UUID threadRootCommentId,
+            String body,
+            CommentStatus status,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant deletedAt,
+            UUID originScreenEntryId
+    ) {
         this.id = Objects.requireNonNull(id, "Comment ID cannot be null.");
         this.target = Objects.requireNonNull(target, "Comment target cannot be null.");
         this.authorUserId = Objects.requireNonNull(authorUserId, "Author user ID cannot be null.");
+
+        if (originScreenEntryId != null && target.type() != CommentTargetType.SCREEN_TITLE) {
+            throw new IllegalArgumentException(
+                    "originScreenEntryId can only be attached to SCREEN_TITLE comments, but target type was: " + target.type()
+            );
+        }
+
+        this.originScreenEntryId = originScreenEntryId;
 
         if ((parentCommentId == null) != (threadRootCommentId == null)) {
             throw new IllegalArgumentException(
@@ -98,7 +123,7 @@ public final class Comment {
     }
 
     /**
-     * Creates a new root comment in ACTIVE status.
+     * Creates a new root comment in ACTIVE status with default null originScreenEntryId.
      */
     public static Comment createRoot(
             UUID id,
@@ -106,6 +131,20 @@ public final class Comment {
             UUID authorUserId,
             String body,
             Instant createdAt
+    ) {
+        return createRoot(id, target, authorUserId, body, createdAt, null);
+    }
+
+    /**
+     * Creates a new root comment in ACTIVE status with optional originScreenEntryId.
+     */
+    public static Comment createRoot(
+            UUID id,
+            CommentTarget target,
+            UUID authorUserId,
+            String body,
+            Instant createdAt,
+            UUID originScreenEntryId
     ) {
         String validatedBody = validateMutationBody(body);
         return new Comment(
@@ -118,12 +157,13 @@ public final class Comment {
                 CommentStatus.ACTIVE,
                 createdAt,
                 createdAt,
-                null
+                null,
+                originScreenEntryId
         );
     }
 
     /**
-     * Creates a new reply to an active comment (root or reply) in ACTIVE status.
+     * Creates a new reply to an active comment (root or reply) in ACTIVE status with default null originScreenEntryId.
      * Inherits the target from the parent comment.
      */
     public static Comment createReply(
@@ -132,6 +172,21 @@ public final class Comment {
             UUID authorUserId,
             String body,
             Instant createdAt
+    ) {
+        return createReply(id, parent, authorUserId, body, createdAt, null);
+    }
+
+    /**
+     * Creates a new reply to an active comment (root or reply) in ACTIVE status with optional originScreenEntryId.
+     * Inherits the target from the parent comment.
+     */
+    public static Comment createReply(
+            UUID id,
+            Comment parent,
+            UUID authorUserId,
+            String body,
+            Instant createdAt,
+            UUID originScreenEntryId
     ) {
         Objects.requireNonNull(id, "Comment ID cannot be null.");
         Objects.requireNonNull(parent, "Parent comment cannot be null.");
@@ -170,12 +225,13 @@ public final class Comment {
                 CommentStatus.ACTIVE,
                 createdAt,
                 createdAt,
-                null
+                null,
+                originScreenEntryId
         );
     }
 
     /**
-     * Rehydrates a Comment from persistence.
+     * Rehydrates a Comment from persistence with default null originScreenEntryId.
      */
     public static Comment rehydrate(
             UUID id,
@@ -189,6 +245,37 @@ public final class Comment {
             Instant updatedAt,
             Instant deletedAt
     ) {
+        return rehydrate(
+                id,
+                target,
+                authorUserId,
+                parentCommentId,
+                threadRootCommentId,
+                body,
+                status,
+                createdAt,
+                updatedAt,
+                deletedAt,
+                null
+        );
+    }
+
+    /**
+     * Rehydrates a Comment from persistence with optional originScreenEntryId.
+     */
+    public static Comment rehydrate(
+            UUID id,
+            CommentTarget target,
+            UUID authorUserId,
+            UUID parentCommentId,
+            UUID threadRootCommentId,
+            String body,
+            CommentStatus status,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant deletedAt,
+            UUID originScreenEntryId
+    ) {
         return new Comment(
                 id,
                 target,
@@ -199,7 +286,8 @@ public final class Comment {
                 status,
                 createdAt,
                 updatedAt,
-                deletedAt
+                deletedAt,
+                originScreenEntryId
         );
     }
 
@@ -314,6 +402,10 @@ public final class Comment {
 
     public Instant getDeletedAt() {
         return deletedAt;
+    }
+
+    public UUID getOriginScreenEntryId() {
+        return originScreenEntryId;
     }
 
     public boolean isRoot() {

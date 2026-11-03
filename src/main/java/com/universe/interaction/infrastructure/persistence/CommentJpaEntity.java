@@ -95,6 +95,13 @@ public class CommentJpaEntity {
     )
     private Instant deletedAt;
 
+    @Column(
+            name = "origin_screen_entry_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String originScreenEntryId;
+
     protected CommentJpaEntity() {
     }
 
@@ -111,6 +118,23 @@ public class CommentJpaEntity {
             Instant updatedAt,
             Instant deletedAt
     ) {
+        this(id, targetType, targetId, authorUserId, parentCommentId, threadRootCommentId, body, status, createdAt, updatedAt, deletedAt, null);
+    }
+
+    public CommentJpaEntity(
+            String id,
+            String targetType,
+            String targetId,
+            String authorUserId,
+            String parentCommentId,
+            String threadRootCommentId,
+            String body,
+            String status,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant deletedAt,
+            String originScreenEntryId
+    ) {
         this.id = id;
         this.targetType = targetType;
         this.targetId = targetId;
@@ -122,6 +146,15 @@ public class CommentJpaEntity {
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.deletedAt = deletedAt;
+        this.originScreenEntryId = originScreenEntryId;
+    }
+
+    public String getOriginScreenEntryId() {
+        return originScreenEntryId;
+    }
+
+    public void setOriginScreenEntryId(String originScreenEntryId) {
+        this.originScreenEntryId = originScreenEntryId;
     }
 
     public String getId() {
