@@ -392,4 +392,38 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("data-csrf-token=")))
                 .andExpect(content().string(containsString("data-authenticated=\"true\"")));
     }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: Shared interaction reactions stylesheet and script are included on both title and entry detail pages")
+    void shouldIncludeSharedReactionAssetsOnBothTitleAndEntryPages() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        PublicScreenTitleDetailDTO titleDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-1", "Kiếm Lai Phần 1", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null, List.of(), null
+        );
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-1")).thenReturn(titleDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/css/shared/interaction-reactions.css\"")))
+                .andExpect(content().string(containsString("src=\"/js/shared/interaction-reactions.js\"")))
+                .andExpect(content().string(containsString("href=\"/css/shared/comments.css\"")))
+                .andExpect(content().string(containsString("src=\"/js/shared/comment-presentation.js\"")));
+
+        PublicScreenEntryDetailDTO entryDTO = new PublicScreenEntryDetailDTO(
+                titleId, "kiem-lai-1", "Kiếm Lai Phần 1", ScreenStructure.SERIES,
+                UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1200L, null, false
+        );
+        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(entryDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/entries/tap-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/css/shared/interaction-reactions.css\"")))
+                .andExpect(content().string(containsString("src=\"/js/shared/interaction-reactions.js\"")))
+                .andExpect(content().string(containsString("href=\"/css/shared/comments.css\"")))
+                .andExpect(content().string(containsString("src=\"/js/shared/comment-presentation.js\"")));
+    }
 }
