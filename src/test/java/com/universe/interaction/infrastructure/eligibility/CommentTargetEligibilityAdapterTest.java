@@ -5,6 +5,11 @@ import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenPresentation;
+import com.universe.screen.domain.ScreenPublicationStatus;
+import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTitle;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,31 +39,44 @@ class CommentTargetEligibilityAdapterTest {
     @Mock
     private CommunityPostQueryPort communityPostQueryPort;
 
+    @Mock
+    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+
     private CommentTargetEligibilityAdapter adapter;
 
     private static final UUID CHAPTER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID ARTICLE_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final UUID POST_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final UUID TITLE_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
 
     @BeforeEach
     void setUp() {
-        adapter = new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, communityPostQueryPort);
+        adapter = new CommentTargetEligibilityAdapter(
+                readerChapterAccessQueryPort,
+                wikiArticleQueryPort,
+                communityPostQueryPort,
+                screenTitleRepositoryPort
+        );
     }
 
     @Test
     @DisplayName("Should reject null dependency in constructor")
     void shouldRejectNullDependency() {
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null, wikiArticleQueryPort, communityPostQueryPort))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null, wikiArticleQueryPort, communityPostQueryPort, screenTitleRepositoryPort))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ReaderChapterAccessQueryPort cannot be null.");
 
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, null, communityPostQueryPort))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, null, communityPostQueryPort, screenTitleRepositoryPort))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("WikiArticleQueryPort cannot be null.");
 
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, null))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, null, screenTitleRepositoryPort))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("CommunityPostQueryPort cannot be null.");
+
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, communityPostQueryPort, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("ScreenTitleRepositoryPort cannot be null.");
     }
 
     @Test
@@ -71,6 +90,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isTrue();
         verifyNoInteractions(wikiArticleQueryPort);
+        verifyNoInteractions(screenTitleRepositoryPort);
     }
 
     @Test
@@ -84,6 +104,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isFalse();
         verifyNoInteractions(wikiArticleQueryPort);
+        verifyNoInteractions(screenTitleRepositoryPort);
     }
 
     @Test
@@ -94,6 +115,7 @@ class CommentTargetEligibilityAdapterTest {
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
         verifyNoInteractions(wikiArticleQueryPort);
+        verifyNoInteractions(screenTitleRepositoryPort);
     }
 
     @Test
@@ -106,6 +128,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isTrue();
         verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(screenTitleRepositoryPort);
     }
 
     @Test
@@ -118,6 +141,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(screenTitleRepositoryPort);
     }
 
     @Test
@@ -134,6 +158,7 @@ class CommentTargetEligibilityAdapterTest {
         assertThat(result).isTrue();
         verifyNoInteractions(readerChapterAccessQueryPort);
         verifyNoInteractions(wikiArticleQueryPort);
+        verifyNoInteractions(screenTitleRepositoryPort);
     }
 
     @Test
@@ -147,5 +172,40 @@ class CommentTargetEligibilityAdapterTest {
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
         verifyNoInteractions(wikiArticleQueryPort);
+        verifyNoInteractions(screenTitleRepositoryPort);
+    }
+
+    @Test
+    @DisplayName("Should return true when SCREEN_TITLE target is published")
+    void shouldReturnTrueWhenScreenTitleIsPublished() {
+        CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+        ScreenTitle title = new ScreenTitle(
+                TITLE_ID, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED,
+                Instant.now(), Instant.now(), Instant.now(), 24
+        );
+        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+
+        boolean result = adapter.isEligible(target);
+
+        assertThat(result).isTrue();
+        verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
+        verifyNoInteractions(communityPostQueryPort);
+    }
+
+    @Test
+    @DisplayName("Should return false when SCREEN_TITLE target is not found or unpublished")
+    void shouldReturnFalseWhenScreenTitleIsUnpublished() {
+        CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.empty());
+
+        boolean result = adapter.isEligible(target);
+
+        assertThat(result).isFalse();
+        verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
+        verifyNoInteractions(communityPostQueryPort);
     }
 }

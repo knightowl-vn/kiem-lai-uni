@@ -5,6 +5,7 @@ import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
+import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import org.springframework.stereotype.Component;
 
@@ -29,11 +30,13 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
     private final CommunityPostQueryPort communityPostQueryPort;
+    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
 
     public CommentTargetEligibilityAdapter(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
             WikiArticleQueryPort wikiArticleQueryPort,
-            CommunityPostQueryPort communityPostQueryPort
+            CommunityPostQueryPort communityPostQueryPort,
+            ScreenTitleRepositoryPort screenTitleRepositoryPort
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(
                 readerChapterAccessQueryPort,
@@ -47,6 +50,10 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
                 communityPostQueryPort,
                 "CommunityPostQueryPort cannot be null."
         );
+        this.screenTitleRepositoryPort = Objects.requireNonNull(
+                screenTitleRepositoryPort,
+                "ScreenTitleRepositoryPort cannot be null."
+        );
     }
 
     @Override
@@ -59,6 +66,7 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
             case NOVEL_CHAPTER -> isNovelChapterEligible(target.targetId());
             case WIKI_ARTICLE -> isWikiArticleEligible(target.targetId());
             case COMMUNITY_POST -> isCommunityPostEligible(target.targetId());
+            case SCREEN_TITLE -> isScreenTitleEligible(target.targetId());
         };
     }
 
@@ -81,5 +89,12 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
             return false;
         }
         return communityPostQueryPort.findPublicPostById(postId).isPresent();
+    }
+
+    private boolean isScreenTitleEligible(UUID titleId) {
+        if (titleId == null) {
+            return false;
+        }
+        return screenTitleRepositoryPort.findPublishedById(titleId).isPresent();
     }
 }

@@ -13,5 +13,6 @@ package com.universe.interaction.domain;
 public enum CommentTargetType {
     NOVEL_CHAPTER,
     WIKI_ARTICLE,
-    COMMUNITY_POST
+    COMMUNITY_POST,
+    SCREEN_TITLE
 }

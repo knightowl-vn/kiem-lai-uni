@@ -30,6 +30,10 @@ public record CommentTarget(
         return new CommentTarget(CommentTargetType.WIKI_ARTICLE, articleId);
     }
 
+    public static CommentTarget screenTitle(UUID titleId) {
+        return new CommentTarget(CommentTargetType.SCREEN_TITLE, titleId);
+    }
+
     public static CommentTarget communityPost(UUID postId) {
         return new CommentTarget(CommentTargetType.COMMUNITY_POST, postId);
     }

@@ -154,7 +154,8 @@ public class SecurityBeanConfig {
                                 org.springframework.http.HttpMethod.GET,
                                 "/search",
                                 "/screen",
-                                "/screen/"
+                                "/screen/",
+                                "/screen/**"
                         )
                         .permitAll()
 
@@ -180,6 +181,10 @@ public class SecurityBeanConfig {
                                 "/api/wiki/articles/*/comments/feed",
                                 "/api/wiki/articles/*/comments/*/thread",
                                 "/api/wiki/articles/*/comments/*/revisions",
+                                "/api/screen/titles/*/comments",
+                                "/api/screen/titles/*/comments/feed",
+                                "/api/screen/titles/*/comments/*/thread",
+                                "/api/screen/titles/*/comments/*/revisions",
                                 "/api/interaction/reactions",
                                 "/api/community/posts",
                                 "/api/community/posts/**",
@@ -202,12 +207,16 @@ public class SecurityBeanConfig {
                                 "/api/novel/chapters/*/comments/inline",
                                 "/api/novel/chapters/*/comments/*/replies",
                                 "/api/wiki/articles/*/comments",
-                                "/api/wiki/articles/*/comments/*/replies"
+                                "/api/wiki/articles/*/comments/*/replies",
+                                "/api/screen/titles/*/comments",
+                                "/api/screen/titles/*/comments/*/replies",
+                                "/api/screen/titles/*/comments/*/reports"
                         )
                         .authenticated()
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.PATCH,
+                                "/api/screen/titles/*/comments/*",
                                 "/api/novel/chapters/*/comments/*",
                                 "/api/wiki/articles/*/comments/*"
                         )
@@ -215,6 +224,7 @@ public class SecurityBeanConfig {
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.DELETE,
+                                "/api/screen/titles/*/comments/*",
                                 "/api/novel/chapters/*/comments/*",
                                 "/api/wiki/articles/*/comments/*"
                         )
