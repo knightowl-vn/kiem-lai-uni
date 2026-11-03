@@ -59,6 +59,39 @@ public class ScreenTitleJpaEntity {
     private Integer totalEpisodeCount;
 
     @Column(
+            name = "airing_status",
+            length = 20
+    )
+    private String airingStatus;
+
+    @Column(name = "release_year")
+    private Integer releaseYear;
+
+    @Column(
+            name = "country",
+            length = 100
+    )
+    private String country;
+
+    @Column(
+            name = "original_author",
+            length = 255
+    )
+    private String originalAuthor;
+
+    @Column(
+            name = "director",
+            length = 255
+    )
+    private String director;
+
+    @Column(
+            name = "production_studio",
+            length = 255
+    )
+    private String productionStudio;
+
+    @Column(
             name = "structure",
             nullable = false,
             length = 20
@@ -125,7 +158,13 @@ public class ScreenTitleJpaEntity {
             Instant publishedAt,
             Instant createdAt,
             Instant updatedAt,
-            Integer totalEpisodeCount
+            Integer totalEpisodeCount,
+            String airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
     ) {
         this.id = id;
         this.slug = slug;
@@ -141,6 +180,52 @@ public class ScreenTitleJpaEntity {
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.totalEpisodeCount = totalEpisodeCount;
+        this.airingStatus = airingStatus;
+        this.releaseYear = releaseYear;
+        this.country = country;
+        this.originalAuthor = originalAuthor;
+        this.director = director;
+        this.productionStudio = productionStudio;
+    }
+
+    public ScreenTitleJpaEntity(
+            String id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            String structure,
+            String presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            String status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            Integer totalEpisodeCount
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                totalEpisodeCount,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
     }
 
     public ScreenTitleJpaEntity(
@@ -286,5 +371,53 @@ public class ScreenTitleJpaEntity {
 
     public void setTotalEpisodeCount(Integer totalEpisodeCount) {
         this.totalEpisodeCount = totalEpisodeCount;
+    }
+
+    public String getAiringStatus() {
+        return airingStatus;
+    }
+
+    public void setAiringStatus(String airingStatus) {
+        this.airingStatus = airingStatus;
+    }
+
+    public Integer getReleaseYear() {
+        return releaseYear;
+    }
+
+    public void setReleaseYear(Integer releaseYear) {
+        this.releaseYear = releaseYear;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
+    }
+
+    public String getOriginalAuthor() {
+        return originalAuthor;
+    }
+
+    public void setOriginalAuthor(String originalAuthor) {
+        this.originalAuthor = originalAuthor;
+    }
+
+    public String getDirector() {
+        return director;
+    }
+
+    public void setDirector(String director) {
+        this.director = director;
+    }
+
+    public String getProductionStudio() {
+        return productionStudio;
+    }
+
+    public void setProductionStudio(String productionStudio) {
+        this.productionStudio = productionStudio;
     }
 }

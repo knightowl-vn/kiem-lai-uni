@@ -643,4 +643,160 @@ class ScreenTitleTest {
         assertThat(title.getTitle()).isEqualTo("Series Update Renamed");
         assertThat(title.getTotalEpisodeCount()).isEqualTo(24);
     }
+
+    @Test
+    @DisplayName("Metadata: creates draft with all 6 release metadata fields")
+    void shouldCreateDraftWithAllReleaseMetadataFields() {
+        UUID id = UUID.randomUUID();
+        ScreenTitle title = ScreenTitle.createDraft(
+                id, "series-meta", "Kiếm Lai", "剑来", "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                26, ScreenAiringStatus.ONGOING, 2024, "Trung Quốc", "Phong Hỏa Hí Chư Hầu", "Đạo diễn A", "Studio B"
+        );
+
+        assertThat(title.getAiringStatus()).isEqualTo(ScreenAiringStatus.ONGOING);
+        assertThat(title.getReleaseYear()).isEqualTo(2024);
+        assertThat(title.getCountry()).isEqualTo("Trung Quốc");
+        assertThat(title.getOriginalAuthor()).isEqualTo("Phong Hỏa Hí Chư Hầu");
+        assertThat(title.getDirector()).isEqualTo("Đạo diễn A");
+        assertThat(title.getProductionStudio()).isEqualTo("Studio B");
+    }
+
+    @Test
+    @DisplayName("AiringStatus: validates structure compatibility for SERIES and FEATURE")
+    void shouldValidateAiringStatusCompatibility() {
+        UUID id = UUID.randomUUID();
+
+        // SERIES allows UPCOMING, ONGOING, COMPLETED
+        ScreenTitle s1 = ScreenTitle.createDraft(
+                id, "series-up", "Series UP", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.UPCOMING, null, null, null, null, null
+        );
+        assertThat(s1.getAiringStatus()).isEqualTo(ScreenAiringStatus.UPCOMING);
+
+        ScreenTitle s2 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "series-on", "Series ON", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.ONGOING, null, null, null, null, null
+        );
+        assertThat(s2.getAiringStatus()).isEqualTo(ScreenAiringStatus.ONGOING);
+
+        ScreenTitle s3 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "series-comp", "Series COMP", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.COMPLETED, null, null, null, null, null
+        );
+        assertThat(s3.getAiringStatus()).isEqualTo(ScreenAiringStatus.COMPLETED);
+
+        // SERIES rejects RELEASED
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                UUID.randomUUID(), "series-rel", "Series REL", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.RELEASED, null, null, null, null, null
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("không tương thích với cấu trúc tác phẩm");
+
+        // FEATURE allows UPCOMING, RELEASED
+        ScreenTitle f1 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "feat-up", "Feat UP", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.UPCOMING, null, null, null, null, null
+        );
+        assertThat(f1.getAiringStatus()).isEqualTo(ScreenAiringStatus.UPCOMING);
+
+        ScreenTitle f2 = ScreenTitle.createDraft(
+                UUID.randomUUID(), "feat-rel", "Feat REL", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.RELEASED, null, null, null, null, null
+        );
+        assertThat(f2.getAiringStatus()).isEqualTo(ScreenAiringStatus.RELEASED);
+
+        // FEATURE rejects ONGOING and COMPLETED
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                UUID.randomUUID(), "feat-on", "Feat ON", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.ONGOING, null, null, null, null, null
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("không tương thích với cấu trúc tác phẩm");
+
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                UUID.randomUUID(), "feat-comp", "Feat COMP", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, ScreenAiringStatus.COMPLETED, null, null, null, null, null
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("không tương thích với cấu trúc tác phẩm");
+    }
+
+    @Test
+    @DisplayName("ReleaseYear: validates year range between 1900 and 2100")
+    void shouldValidateReleaseYearRange() {
+        UUID id = UUID.randomUUID();
+
+        // Valid boundaries: 1900 and 2100
+        ScreenTitle minYear = ScreenTitle.createDraft(
+                id, "min-year", "Min Year", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, null, 1900, null, null, null, null
+        );
+        assertThat(minYear.getReleaseYear()).isEqualTo(1900);
+
+        ScreenTitle maxYear = ScreenTitle.createDraft(
+                UUID.randomUUID(), "max-year", "Max Year", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, null, 2100, null, null, null, null
+        );
+        assertThat(maxYear.getReleaseYear()).isEqualTo(2100);
+
+        // Rejects < 1900
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                UUID.randomUUID(), "low-year", "Low Year", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, null, 1899, null, null, null, null
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("1900");
+
+        // Rejects > 2100
+        assertThatThrownBy(() -> ScreenTitle.createDraft(
+                UUID.randomUUID(), "high-year", "High Year", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                null, null, 2101, null, null, null, null
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("2100");
+    }
+
+    @Test
+    @DisplayName("Metadata: updateDetails updates all metadata and backward-compatible method preserves it")
+    void shouldUpdateAndPreserveMetadata() {
+        UUID id = UUID.randomUUID();
+        ScreenTitle title = ScreenTitle.createDraft(
+                id, "series-meta", "Kiếm Lai", "剑来", "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T0,
+                24, ScreenAiringStatus.ONGOING, 2024, "Trung Quốc", "Phong Hỏa", "Đạo diễn 1", "Studio 1"
+        );
+
+        // Update all metadata
+        title.updateDetails(
+                "series-meta", "Kiếm Lai", "剑来", "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T1,
+                26, ScreenAiringStatus.COMPLETED, 2025, "Việt Nam", "Tác giả mới", "Đạo diễn 2", "Studio 2"
+        );
+        assertThat(title.getAiringStatus()).isEqualTo(ScreenAiringStatus.COMPLETED);
+        assertThat(title.getReleaseYear()).isEqualTo(2025);
+        assertThat(title.getCountry()).isEqualTo("Việt Nam");
+        assertThat(title.getOriginalAuthor()).isEqualTo("Tác giả mới");
+        assertThat(title.getDirector()).isEqualTo("Đạo diễn 2");
+        assertThat(title.getProductionStudio()).isEqualTo("Studio 2");
+
+        // Backward-compatible update preserves existing metadata
+        title.updateDetails(
+                "series-meta", "Kiếm Lai Renamed", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, T2, 30
+        );
+        assertThat(title.getTitle()).isEqualTo("Kiếm Lai Renamed");
+        assertThat(title.getTotalEpisodeCount()).isEqualTo(30);
+        assertThat(title.getAiringStatus()).isEqualTo(ScreenAiringStatus.COMPLETED);
+        assertThat(title.getReleaseYear()).isEqualTo(2025);
+        assertThat(title.getCountry()).isEqualTo("Việt Nam");
+    }
 }

@@ -79,7 +79,13 @@ public class CreateScreenTitleUseCase {
                 command.posterMediaAssetId(),
                 command.backdropMediaAssetId(),
                 now,
-                command.totalEpisodeCount()
+                command.totalEpisodeCount(),
+                command.airingStatus(),
+                command.releaseYear(),
+                command.country(),
+                command.originalAuthor(),
+                command.director(),
+                command.productionStudio()
         );
 
         ScreenTitle saved = titleRepository.save(draft);
@@ -107,21 +113,6 @@ public class CreateScreenTitleUseCase {
     }
 
     private static ScreenTitleDTO toDTO(ScreenTitle title) {
-        return new ScreenTitleDTO(
-                title.getId(),
-                title.getSlug(),
-                title.getTitle(),
-                title.getOriginalTitle(),
-                title.getSynopsis(),
-                title.getStructure(),
-                title.getPresentation(),
-                title.getPosterMediaAssetId(),
-                title.getBackdropMediaAssetId(),
-                title.getStatus(),
-                title.getPublishedAt(),
-                title.getCreatedAt(),
-                title.getUpdatedAt(),
-                title.getTotalEpisodeCount()
-        );
+        return ScreenTitleDTO.from(title);
     }
 }

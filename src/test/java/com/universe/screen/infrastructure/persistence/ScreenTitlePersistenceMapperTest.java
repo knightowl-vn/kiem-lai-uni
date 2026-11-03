@@ -319,4 +319,49 @@ class ScreenTitlePersistenceMapperTest {
         ScreenTitlePersistenceMapper.updateEntity(entity, updatedTotal);
         assertThat(entity.getTotalEpisodeCount()).isEqualTo(36);
     }
+
+    @Test
+    @DisplayName("Should correctly map extended release metadata fields to entity and rehydrate to domain")
+    void shouldMapExtendedReleaseMetadataRoundTrip() {
+        UUID id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-10-06T10:00:00Z");
+
+        ScreenTitle domain = ScreenTitle.createDraft(
+                id, "meta-roundtrip", "Meta Roundtrip", "剑来", "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now,
+                24, com.universe.screen.domain.ScreenAiringStatus.ONGOING, 2024,
+                "Trung Quốc", "Phong Hỏa Hí Chư Hầu", "Đạo diễn A", "Studio B"
+        );
+
+        ScreenTitleJpaEntity entity = ScreenTitlePersistenceMapper.toEntity(domain);
+        assertThat(entity.getAiringStatus()).isEqualTo("ONGOING");
+        assertThat(entity.getReleaseYear()).isEqualTo(2024);
+        assertThat(entity.getCountry()).isEqualTo("Trung Quốc");
+        assertThat(entity.getOriginalAuthor()).isEqualTo("Phong Hỏa Hí Chư Hầu");
+        assertThat(entity.getDirector()).isEqualTo("Đạo diễn A");
+        assertThat(entity.getProductionStudio()).isEqualTo("Studio B");
+
+        ScreenTitle rehydrated = ScreenTitlePersistenceMapper.toDomain(entity);
+        assertThat(rehydrated.getAiringStatus()).isEqualTo(com.universe.screen.domain.ScreenAiringStatus.ONGOING);
+        assertThat(rehydrated.getReleaseYear()).isEqualTo(2024);
+        assertThat(rehydrated.getCountry()).isEqualTo("Trung Quốc");
+        assertThat(rehydrated.getOriginalAuthor()).isEqualTo("Phong Hỏa Hí Chư Hầu");
+        assertThat(rehydrated.getDirector()).isEqualTo("Đạo diễn A");
+        assertThat(rehydrated.getProductionStudio()).isEqualTo("Studio B");
+
+        // Test updateEntity
+        ScreenTitle updatedDomain = ScreenTitle.createDraft(
+                id, "meta-roundtrip", "Meta Roundtrip", "剑来", "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, now,
+                24, com.universe.screen.domain.ScreenAiringStatus.COMPLETED, 2025,
+                "Việt Nam", "Tác giả mới", "Đạo diễn mới", "Studio mới"
+        );
+        ScreenTitlePersistenceMapper.updateEntity(entity, updatedDomain);
+        assertThat(entity.getAiringStatus()).isEqualTo("COMPLETED");
+        assertThat(entity.getReleaseYear()).isEqualTo(2025);
+        assertThat(entity.getCountry()).isEqualTo("Việt Nam");
+        assertThat(entity.getOriginalAuthor()).isEqualTo("Tác giả mới");
+        assertThat(entity.getDirector()).isEqualTo("Đạo diễn mới");
+        assertThat(entity.getProductionStudio()).isEqualTo("Studio mới");
+    }
 }

@@ -41,6 +41,12 @@ public final class ScreenTitle {
     private final Instant createdAt;
     private Instant updatedAt;
     private Integer totalEpisodeCount;
+    private ScreenAiringStatus airingStatus;
+    private Integer releaseYear;
+    private String country;
+    private String originalAuthor;
+    private String director;
+    private String productionStudio;
 
     /**
      * Canonical constructor for ScreenTitle.
@@ -59,7 +65,13 @@ public final class ScreenTitle {
             Instant publishedAt,
             Instant createdAt,
             Instant updatedAt,
-            Integer totalEpisodeCount
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
     ) {
         this.id = Objects.requireNonNull(id, "Title ID cannot be null.");
         this.slug = ScreenSlugValidator.validate(slug);
@@ -69,6 +81,12 @@ public final class ScreenTitle {
         this.structure = Objects.requireNonNull(structure, "ScreenStructure cannot be null.");
         this.presentation = Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
         this.totalEpisodeCount = validateTotalEpisodeCount(this.structure, totalEpisodeCount);
+        this.airingStatus = ScreenMetadataValidator.validateAiringStatus(this.structure, airingStatus);
+        this.releaseYear = ScreenMetadataValidator.validateReleaseYear(releaseYear);
+        this.country = ScreenMetadataValidator.validateCountry(country);
+        this.originalAuthor = ScreenMetadataValidator.validateOriginalAuthor(originalAuthor);
+        this.director = ScreenMetadataValidator.validateDirector(director);
+        this.productionStudio = ScreenMetadataValidator.validateProductionStudio(productionStudio);
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
         this.status = Objects.requireNonNull(status, "ScreenPublicationStatus cannot be null.");
@@ -81,6 +99,49 @@ public final class ScreenTitle {
 
         validatePublicationState(this.status, publishedAt, this.createdAt, this.updatedAt);
         this.publishedAt = publishedAt;
+    }
+
+    /**
+     * Backwards-compatible constructor with totalEpisodeCount and null release metadata.
+     */
+    public ScreenTitle(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            ScreenPublicationStatus status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            Integer totalEpisodeCount
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                totalEpisodeCount,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
     }
 
     /**
@@ -120,7 +181,7 @@ public final class ScreenTitle {
     }
 
     /**
-     * Factory method to create a new ScreenTitle in DRAFT status with optional totalEpisodeCount.
+     * Factory method to create a new ScreenTitle in DRAFT status with full release metadata.
      */
     public static ScreenTitle createDraft(
             UUID id,
@@ -133,7 +194,13 @@ public final class ScreenTitle {
             UUID posterMediaAssetId,
             UUID backdropMediaAssetId,
             Instant createdAt,
-            Integer totalEpisodeCount
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
     ) {
         return new ScreenTitle(
                 id,
@@ -149,7 +216,50 @@ public final class ScreenTitle {
                 null,
                 createdAt,
                 createdAt,
-                totalEpisodeCount
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio
+        );
+    }
+
+    /**
+     * Factory method to create a new ScreenTitle in DRAFT status with optional totalEpisodeCount.
+     */
+    public static ScreenTitle createDraft(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Instant createdAt,
+            Integer totalEpisodeCount
+    ) {
+        return createDraft(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                createdAt,
+                totalEpisodeCount,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
         );
     }
 
@@ -269,19 +379,9 @@ public final class ScreenTitle {
     }
 
     /**
-     * Updates catalog metadata and classification.
+     * Updates catalog metadata and classification including release metadata.
      *
      * <p>Status and {@code publishedAt} remain unchanged.
-     *
-     * @param slug updated URL slug
-     * @param title updated display title
-     * @param originalTitle optional original title
-     * @param synopsis optional synopsis
-     * @param structure updated structure
-     * @param presentation updated presentation style
-     * @param posterMediaAssetId optional poster media asset scalar ID
-     * @param backdropMediaAssetId optional backdrop media asset scalar ID
-     * @param authoritativeUpdatedAt authoritative modification timestamp
      */
     public void updateDetails(
             String slug,
@@ -293,7 +393,13 @@ public final class ScreenTitle {
             UUID posterMediaAssetId,
             UUID backdropMediaAssetId,
             Instant authoritativeUpdatedAt,
-            Integer totalEpisodeCount
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
     ) {
         Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
 
@@ -311,6 +417,12 @@ public final class ScreenTitle {
         ScreenStructure validatedStructure = Objects.requireNonNull(structure, "ScreenStructure cannot be null.");
         ScreenPresentation validatedPresentation = Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
         Integer validatedTotalEpisodeCount = validateTotalEpisodeCount(validatedStructure, totalEpisodeCount);
+        ScreenAiringStatus validatedAiringStatus = ScreenMetadataValidator.validateAiringStatus(validatedStructure, airingStatus);
+        Integer validatedReleaseYear = ScreenMetadataValidator.validateReleaseYear(releaseYear);
+        String normalizedCountry = ScreenMetadataValidator.validateCountry(country);
+        String normalizedOriginalAuthor = ScreenMetadataValidator.validateOriginalAuthor(originalAuthor);
+        String normalizedDirector = ScreenMetadataValidator.validateDirector(director);
+        String normalizedProductionStudio = ScreenMetadataValidator.validateProductionStudio(productionStudio);
 
         this.slug = validatedSlug;
         this.title = validatedTitle;
@@ -319,9 +431,50 @@ public final class ScreenTitle {
         this.structure = validatedStructure;
         this.presentation = validatedPresentation;
         this.totalEpisodeCount = validatedTotalEpisodeCount;
+        this.airingStatus = validatedAiringStatus;
+        this.releaseYear = validatedReleaseYear;
+        this.country = normalizedCountry;
+        this.originalAuthor = normalizedOriginalAuthor;
+        this.director = normalizedDirector;
+        this.productionStudio = normalizedProductionStudio;
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
         this.updatedAt = authoritativeUpdatedAt;
+    }
+
+    /**
+     * Backward-compatible updateDetails preserving existing release metadata.
+     */
+    public void updateDetails(
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Instant authoritativeUpdatedAt,
+            Integer totalEpisodeCount
+    ) {
+        updateDetails(
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                authoritativeUpdatedAt,
+                totalEpisodeCount,
+                this.airingStatus,
+                this.releaseYear,
+                this.country,
+                this.originalAuthor,
+                this.director,
+                this.productionStudio
+        );
     }
 
     public void updateDetails(
@@ -424,11 +577,16 @@ public final class ScreenTitle {
         return candidate;
     }
 
+    private static ScreenAiringStatus validateAiringStatus(ScreenStructure structure, ScreenAiringStatus candidate) {
+        return ScreenMetadataValidator.validateAiringStatus(structure, candidate);
+    }
+
+    private static Integer validateReleaseYear(Integer candidate) {
+        return ScreenMetadataValidator.validateReleaseYear(candidate);
+    }
+
     private static String normalizeOptionalText(String candidate) {
-        if (candidate == null || candidate.isBlank()) {
-            return null;
-        }
-        return candidate.trim();
+        return ScreenMetadataValidator.normalizeOptionalText(candidate);
     }
 
     private static void validatePublicationState(
@@ -507,6 +665,30 @@ public final class ScreenTitle {
 
     public Integer getTotalEpisodeCount() {
         return totalEpisodeCount;
+    }
+
+    public ScreenAiringStatus getAiringStatus() {
+        return airingStatus;
+    }
+
+    public Integer getReleaseYear() {
+        return releaseYear;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public String getOriginalAuthor() {
+        return originalAuthor;
+    }
+
+    public String getDirector() {
+        return director;
+    }
+
+    public String getProductionStudio() {
+        return productionStudio;
     }
 
     @Override

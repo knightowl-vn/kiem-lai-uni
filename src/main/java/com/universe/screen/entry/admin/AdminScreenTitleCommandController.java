@@ -14,6 +14,8 @@ import com.universe.screen.application.usecase.CreateScreenTitleUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
 import com.universe.screen.application.usecase.PublishScreenTitleUseCase;
 import com.universe.screen.application.usecase.UpdateScreenTitleUseCase;
+import com.universe.screen.domain.ScreenAiringStatus;
+import com.universe.screen.domain.ScreenMetadataValidator;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.entry.admin.form.CreateScreenTitleForm;
@@ -107,6 +109,16 @@ public class AdminScreenTitleCommandController {
                 throw new AdminScreenValidationException("Tổng số tập dự kiến phải là số nguyên dương lớn hơn 0.");
             }
 
+            validateReleaseMetadataForm(
+                    form.getStructure(),
+                    form.getAiringStatus(),
+                    form.getReleaseYear(),
+                    form.getCountry(),
+                    form.getOriginalAuthor(),
+                    form.getDirector(),
+                    form.getProductionStudio()
+            );
+
             UUID posterId = null;
             if (form.getPosterFile() != null && !form.getPosterFile().isEmpty()) {
                 if (screenImageMediaPort != null) {
@@ -155,7 +167,13 @@ public class AdminScreenTitleCommandController {
                             form.getPresentation(),
                             posterId,
                             backdropId,
-                            form.getTotalEpisodeCount()
+                            form.getTotalEpisodeCount(),
+                            form.getAiringStatus(),
+                            form.getReleaseYear(),
+                            form.getCountry(),
+                            form.getOriginalAuthor(),
+                            form.getDirector(),
+                            form.getProductionStudio()
                     )
             );
 
@@ -221,6 +239,16 @@ public class AdminScreenTitleCommandController {
             if (form.getStructure() == ScreenStructure.SERIES && form.getTotalEpisodeCount() != null && form.getTotalEpisodeCount() <= 0) {
                 throw new AdminScreenValidationException("Tổng số tập dự kiến phải là số nguyên dương lớn hơn 0.");
             }
+
+            validateReleaseMetadataForm(
+                    form.getStructure(),
+                    form.getAiringStatus(),
+                    form.getReleaseYear(),
+                    form.getCountry(),
+                    form.getOriginalAuthor(),
+                    form.getDirector(),
+                    form.getProductionStudio()
+            );
 
             ScreenTitleDTO existing = null;
             if (getScreenTitleDetailUseCase != null) {
@@ -295,7 +323,14 @@ public class AdminScreenTitleCommandController {
                             form.getPresentation(),
                             posterId,
                             backdropId,
-                            form.getTotalEpisodeCount()
+                            form.getTotalEpisodeCount(),
+                            true,
+                            form.getAiringStatus(),
+                            form.getReleaseYear(),
+                            form.getCountry(),
+                            form.getOriginalAuthor(),
+                            form.getDirector(),
+                            form.getProductionStudio()
                     )
             );
 
@@ -441,6 +476,27 @@ public class AdminScreenTitleCommandController {
         }
         if (presentation == null) {
             throw new AdminScreenValidationException("Vui lòng chọn phong cách thể hiện (Presentation: ANIMATION_3D hoặc LIVE_ACTION).");
+        }
+    }
+
+    private void validateReleaseMetadataForm(
+            ScreenStructure structure,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
+    ) {
+        try {
+            ScreenMetadataValidator.validateAiringStatus(structure, airingStatus);
+            ScreenMetadataValidator.validateReleaseYear(releaseYear);
+            ScreenMetadataValidator.validateCountry(country);
+            ScreenMetadataValidator.validateOriginalAuthor(originalAuthor);
+            ScreenMetadataValidator.validateDirector(director);
+            ScreenMetadataValidator.validateProductionStudio(productionStudio);
+        } catch (IllegalArgumentException ex) {
+            throw new AdminScreenValidationException(ex.getMessage(), ex);
         }
     }
 

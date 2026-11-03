@@ -3,6 +3,7 @@ package com.universe.screen.entry.admin;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleListUseCase;
+import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.entry.admin.form.CreateScreenTitleForm;
@@ -60,6 +61,7 @@ public class AdminScreenTitlePageController {
         model.addAttribute("form", new CreateScreenTitleForm());
         model.addAttribute("structures", ScreenStructure.values());
         model.addAttribute("presentations", ScreenPresentation.values());
+        model.addAttribute("airingStatuses", ScreenAiringStatus.values());
         model.addAttribute("pageTitle", "Tạo Screen Title");
         model.addAttribute("activeMenu", ACTIVE_MENU);
         model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);
@@ -116,13 +118,20 @@ public class AdminScreenTitlePageController {
                     title.presentation(),
                     title.posterMediaAssetId() != null ? title.posterMediaAssetId().toString() : null,
                     title.backdropMediaAssetId() != null ? title.backdropMediaAssetId().toString() : null,
-                    title.totalEpisodeCount()
+                    title.totalEpisodeCount(),
+                    title.airingStatus(),
+                    title.releaseYear(),
+                    title.country(),
+                    title.originalAuthor(),
+                    title.director(),
+                    title.productionStudio()
             );
 
             model.addAttribute("title", title);
             model.addAttribute("form", form);
             model.addAttribute("structures", ScreenStructure.values());
             model.addAttribute("presentations", ScreenPresentation.values());
+            model.addAttribute("airingStatuses", ScreenAiringStatus.values());
             model.addAttribute("pageTitle", "Chỉnh sửa Screen Title");
             model.addAttribute("activeMenu", ACTIVE_MENU);
             model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);

@@ -8,6 +8,7 @@ import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsEx
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
@@ -74,6 +75,29 @@ public class UpdateScreenTitleUseCase {
             }
         }
 
+        ScreenAiringStatus targetAiringStatus;
+        Integer targetReleaseYear;
+        String targetCountry;
+        String targetOriginalAuthor;
+        String targetDirector;
+        String targetProductionStudio;
+
+        if (!command.updateReleaseMetadata()) {
+            targetAiringStatus = existing.getAiringStatus();
+            targetReleaseYear = existing.getReleaseYear();
+            targetCountry = existing.getCountry();
+            targetOriginalAuthor = existing.getOriginalAuthor();
+            targetDirector = existing.getDirector();
+            targetProductionStudio = existing.getProductionStudio();
+        } else {
+            targetAiringStatus = command.airingStatus();
+            targetReleaseYear = command.releaseYear();
+            targetCountry = command.country();
+            targetOriginalAuthor = command.originalAuthor();
+            targetDirector = command.director();
+            targetProductionStudio = command.productionStudio();
+        }
+
         mediaValidationPort.validateImageMediaAsset(command.posterMediaAssetId());
         mediaValidationPort.validateImageMediaAsset(command.backdropMediaAssetId());
 
@@ -89,7 +113,13 @@ public class UpdateScreenTitleUseCase {
                 command.posterMediaAssetId(),
                 command.backdropMediaAssetId(),
                 now,
-                targetTotalEpisodes
+                targetTotalEpisodes,
+                targetAiringStatus,
+                targetReleaseYear,
+                targetCountry,
+                targetOriginalAuthor,
+                targetDirector,
+                targetProductionStudio
         );
 
         ScreenTitle saved = titleRepository.save(existing);
@@ -98,21 +128,6 @@ public class UpdateScreenTitleUseCase {
     }
 
     private static ScreenTitleDTO toDTO(ScreenTitle title) {
-        return new ScreenTitleDTO(
-                title.getId(),
-                title.getSlug(),
-                title.getTitle(),
-                title.getOriginalTitle(),
-                title.getSynopsis(),
-                title.getStructure(),
-                title.getPresentation(),
-                title.getPosterMediaAssetId(),
-                title.getBackdropMediaAssetId(),
-                title.getStatus(),
-                title.getPublishedAt(),
-                title.getCreatedAt(),
-                title.getUpdatedAt(),
-                title.getTotalEpisodeCount()
-        );
+        return ScreenTitleDTO.from(title);
     }
 }

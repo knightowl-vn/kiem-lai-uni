@@ -12,6 +12,7 @@ import com.universe.screen.application.usecase.ArchiveScreenTitleUseCase;
 import com.universe.screen.application.usecase.CreateScreenTitleUseCase;
 import com.universe.screen.application.usecase.PublishScreenTitleUseCase;
 import com.universe.screen.application.usecase.UpdateScreenTitleUseCase;
+import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
@@ -210,6 +211,234 @@ class AdminScreenTitleCommandControllerTest {
                 .uploadPoster(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
         verify(screenImageMediaPort, org.mockito.Mockito.never())
                 .uploadBackdrop(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects FEATURE with ONGOING before media upload")
+    void shouldRejectFeatureWithOngoingAiringStatusBeforeMediaUploadOnCreate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Feature Film");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setPosterFile(posterFile);
+        form.setAiringStatus(ScreenAiringStatus.ONGOING);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("không tương thích với cấu trúc tác phẩm");
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects SERIES with RELEASED before media upload")
+    void shouldRejectSeriesWithReleasedAiringStatusBeforeMediaUploadOnCreate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Series Title");
+        form.setStructure(ScreenStructure.SERIES);
+        form.setPresentation(ScreenPresentation.ANIMATION_3D);
+        form.setPosterFile(posterFile);
+        form.setAiringStatus(ScreenAiringStatus.RELEASED);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("không tương thích với cấu trúc tác phẩm");
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Command: createTitle accepts valid SERIES with ONGOING")
+    void shouldAcceptSeriesWithOngoingAiringStatusOnCreate() {
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Valid Series Title");
+        form.setStructure(ScreenStructure.SERIES);
+        form.setPresentation(ScreenPresentation.ANIMATION_3D);
+        form.setAiringStatus(ScreenAiringStatus.ONGOING);
+
+        ScreenTitleDTO dto = new ScreenTitleDTO(
+                titleId, "valid-series-title", "Valid Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(createScreenTitleUseCase.execute(any(CreateScreenTitleCommand.class))).thenReturn(dto);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+    }
+
+    @Test
+    @DisplayName("Command: createTitle accepts valid FEATURE with RELEASED")
+    void shouldAcceptFeatureWithReleasedAiringStatusOnCreate() {
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Valid Movie Title");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setAiringStatus(ScreenAiringStatus.RELEASED);
+
+        ScreenTitleDTO dto = new ScreenTitleDTO(
+                titleId, "valid-movie-title", "Valid Movie Title", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, null, null,
+                ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(createScreenTitleUseCase.execute(any(CreateScreenTitleCommand.class))).thenReturn(dto);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects releaseYear below minimum before media upload")
+    void shouldRejectReleaseYearBelowMinimumBeforeMediaUploadOnCreate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Old Film");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setPosterFile(posterFile);
+        form.setReleaseYear(1899);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("Năm phát hành phải nằm trong khoảng từ 1900 đến 2100");
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects releaseYear above maximum before media upload")
+    void shouldRejectReleaseYearAboveMaximumBeforeMediaUploadOnCreate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Future Film");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setPosterFile(posterFile);
+        form.setReleaseYear(2101);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("Năm phát hành phải nằm trong khoảng từ 1900 đến 2100");
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects country length exceeding limit before media upload")
+    void shouldRejectCountryExceedingMaxLengthBeforeMediaUploadOnCreate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Film");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setPosterFile(posterFile);
+        form.setCountry("A".repeat(101));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("Quốc gia không được vượt quá 100 ký tự");
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Command: createTitle rejects originalAuthor length exceeding limit before media upload")
+    void shouldRejectOriginalAuthorExceedingMaxLengthBeforeMediaUploadOnCreate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Film");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setPosterFile(posterFile);
+        form.setOriginalAuthor("B".repeat(256));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/new");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("Tác giả gốc (nguyên tác) không được vượt quá 255 ký tự");
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Command: createTitle accepts null airing status and null year")
+    void shouldAcceptNullAiringStatusAndNullYearOnCreate() {
+        CreateScreenTitleForm form = new CreateScreenTitleForm();
+        form.setTitle("Null Metadata Title");
+        form.setStructure(ScreenStructure.SERIES);
+        form.setPresentation(ScreenPresentation.ANIMATION_3D);
+        form.setAiringStatus(null);
+        form.setReleaseYear(null);
+
+        ScreenTitleDTO dto = new ScreenTitleDTO(
+                titleId, "null-metadata-title", "Null Metadata Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(createScreenTitleUseCase.execute(any(CreateScreenTitleCommand.class))).thenReturn(dto);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.createTitle(form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+    }
+
+    @Test
+    @DisplayName("Command: updateTitle rejects FEATURE with ONGOING before media upload")
+    void shouldRejectFeatureWithOngoingAiringStatusBeforeMediaUploadOnUpdate() {
+        org.springframework.mock.web.MockMultipartFile posterFile = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "poster.jpg", "image/jpeg", new byte[]{1, 2, 3}
+        );
+        EditScreenTitleForm form = new EditScreenTitleForm();
+        form.setTitle("Updated Feature");
+        form.setStructure(ScreenStructure.FEATURE);
+        form.setPresentation(ScreenPresentation.LIVE_ACTION);
+        form.setPosterFile(posterFile);
+        form.setAiringStatus(ScreenAiringStatus.ONGOING);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("không tương thích với cấu trúc tác phẩm");
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), any(Long.class), any(), any(), any());
     }
 
     @Test

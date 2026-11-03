@@ -87,6 +87,55 @@
                         <small style="color: #5f6368; display: block; margin-top: 4px;">Để trống nếu chưa biết tổng số tập. Chỉ áp dụng cho SERIES (phim bộ).</small>
                     </div>
 
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                        <div>
+                            <label for="airingStatus" style="display: block; font-weight: 600; margin-bottom: 6px;">Trạng thái phát sóng</label>
+                            <select id="airingStatus" th:field="*{airingStatus}"
+                                    style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; background: #fff;">
+                                <option value="">-- Chưa xác định --</option>
+                                <option th:each="as : ${airingStatuses}" th:value="${as}" th:text="${as.displayName}">Đang chiếu</option>
+                            </select>
+                            <small style="color: #5f6368; display: block; margin-top: 4px;">Sắp chiếu / Đang chiếu / Trọn bộ (SERIES) hoặc Đã phát hành (FEATURE).</small>
+                        </div>
+                        <div>
+                            <label for="releaseYear" style="display: block; font-weight: 600; margin-bottom: 6px;">Năm phát hành</label>
+                            <input id="releaseYear" type="number" min="1900" max="2100" th:field="*{releaseYear}"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                                   placeholder="Ví dụ: 2024">
+                            <small style="color: #5f6368; display: block; margin-top: 4px;">Từ năm 1900 đến 2100.</small>
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                        <div>
+                            <label for="country" style="display: block; font-weight: 600; margin-bottom: 6px;">Quốc gia</label>
+                            <input id="country" type="text" th:field="*{country}" maxlength="100"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                                   placeholder="Ví dụ: Trung Quốc">
+                        </div>
+                        <div>
+                            <label for="originalAuthor" style="display: block; font-weight: 600; margin-bottom: 6px;">Nguyên tác / Tác giả gốc</label>
+                            <input id="originalAuthor" type="text" th:field="*{originalAuthor}" maxlength="255"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                                   placeholder="Ví dụ: Phong Hỏa Hí Chư Hầu">
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                        <div>
+                            <label for="director" style="display: block; font-weight: 600; margin-bottom: 6px;">Đạo diễn</label>
+                            <input id="director" type="text" th:field="*{director}" maxlength="255"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                                   placeholder="Ví dụ: Tên đạo diễn">
+                        </div>
+                        <div>
+                            <label for="productionStudio" style="display: block; font-weight: 600; margin-bottom: 6px;">Đơn vị sản xuất / Studio</label>
+                            <input id="productionStudio" type="text" th:field="*{productionStudio}" maxlength="255"
+                                   style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+                                   placeholder="Ví dụ: Sparkly Key Animation">
+                        </div>
+                    </div>
+
                     <div style="margin-bottom: 20px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;">
                         <label for="posterFile" style="display: block; font-weight: 600; margin-bottom: 6px;">Ảnh Poster</label>
                         <input id="posterFile" type="file" name="posterFile" accept="image/jpeg,image/png,image/webp"

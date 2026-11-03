@@ -42,20 +42,6 @@ public class PublishScreenTitleUseCase {
     }
 
     private static ScreenTitleDTO toDTO(ScreenTitle title) {
-        return new ScreenTitleDTO(
-                title.getId(),
-                title.getSlug(),
-                title.getTitle(),
-                title.getOriginalTitle(),
-                title.getSynopsis(),
-                title.getStructure(),
-                title.getPresentation(),
-                title.getPosterMediaAssetId(),
-                title.getBackdropMediaAssetId(),
-                title.getStatus(),
-                title.getPublishedAt(),
-                title.getCreatedAt(),
-                title.getUpdatedAt()
-        );
+        return ScreenTitleDTO.from(title);
     }
 }

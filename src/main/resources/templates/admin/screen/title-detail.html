@@ -125,6 +125,49 @@
                             </td>
                         </tr>
                         <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Trạng thái phát sóng</td>
+                            <td style="padding: 10px 0;">
+                                <span th:if="${title.airingStatus != null}" th:text="${title.airingStatus.displayName}"
+                                      style="background: #e6f4ea; color: #137333; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Đang chiếu</span>
+                                <span th:unless="${title.airingStatus != null}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Năm phát hành</td>
+                            <td style="padding: 10px 0;">
+                                <span th:if="${title.releaseYear != null}" th:text="${title.releaseYear}">2024</span>
+                                <span th:unless="${title.releaseYear != null}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Quốc gia</td>
+                            <td style="padding: 10px 0;">
+                                <span th:if="${title.country != null and !title.country.isBlank()}" th:text="${title.country}">Trung Quốc</span>
+                                <span th:unless="${title.country != null and !title.country.isBlank()}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Nguyên tác / Tác giả gốc</td>
+                            <td style="padding: 10px 0;">
+                                <span th:if="${title.originalAuthor != null and !title.originalAuthor.isBlank()}" th:text="${title.originalAuthor}">Phong Hỏa Hí Chư Hầu</span>
+                                <span th:unless="${title.originalAuthor != null and !title.originalAuthor.isBlank()}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Đạo diễn</td>
+                            <td style="padding: 10px 0;">
+                                <span th:if="${title.director != null and !title.director.isBlank()}" th:text="${title.director}">Tên đạo diễn</span>
+                                <span th:unless="${title.director != null and !title.director.isBlank()}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
+                            <td style="padding: 10px 0; color: #5f6368; font-weight: 500;">Đơn vị sản xuất / Studio</td>
+                            <td style="padding: 10px 0;">
+                                <span th:if="${title.productionStudio != null and !title.productionStudio.isBlank()}" th:text="${title.productionStudio}">Sparkly Key Animation</span>
+                                <span th:unless="${title.productionStudio != null and !title.productionStudio.isBlank()}" style="color: #80868b;">Chưa thiết lập</span>
+                            </td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #f1f3f4;">
                             <td style="padding: 10px 0; color: #5f6368; font-weight: 500; vertical-align: top;">Ảnh Poster</td>
                             <td style="padding: 10px 0;">
                                 <div th:if="${title.posterMediaAssetId != null}">

@@ -1,5 +1,6 @@
 package com.universe.screen.infrastructure.persistence;
 
+import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
@@ -32,7 +33,13 @@ public final class ScreenTitlePersistenceMapper {
                 domain.getPublishedAt(),
                 domain.getCreatedAt(),
                 domain.getUpdatedAt(),
-                domain.getTotalEpisodeCount()
+                domain.getTotalEpisodeCount(),
+                domain.getAiringStatus() != null ? domain.getAiringStatus().name() : null,
+                domain.getReleaseYear(),
+                domain.getCountry(),
+                domain.getOriginalAuthor(),
+                domain.getDirector(),
+                domain.getProductionStudio()
         );
     }
 
@@ -52,6 +59,12 @@ public final class ScreenTitlePersistenceMapper {
         entity.setCreatedAt(domain.getCreatedAt());
         entity.setUpdatedAt(domain.getUpdatedAt());
         entity.setTotalEpisodeCount(domain.getTotalEpisodeCount());
+        entity.setAiringStatus(domain.getAiringStatus() != null ? domain.getAiringStatus().name() : null);
+        entity.setReleaseYear(domain.getReleaseYear());
+        entity.setCountry(domain.getCountry());
+        entity.setOriginalAuthor(domain.getOriginalAuthor());
+        entity.setDirector(domain.getDirector());
+        entity.setProductionStudio(domain.getProductionStudio());
     }
 
     public static ScreenTitle toDomain(ScreenTitleJpaEntity entity) {
@@ -70,7 +83,13 @@ public final class ScreenTitlePersistenceMapper {
                 entity.getPublishedAt(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
-                entity.getTotalEpisodeCount()
+                entity.getTotalEpisodeCount(),
+                entity.getAiringStatus() != null ? ScreenAiringStatus.valueOf(entity.getAiringStatus()) : null,
+                entity.getReleaseYear(),
+                entity.getCountry(),
+                entity.getOriginalAuthor(),
+                entity.getDirector(),
+                entity.getProductionStudio()
         );
     }
 

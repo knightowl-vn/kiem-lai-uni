@@ -11,6 +11,7 @@ import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsEx
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
@@ -37,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -448,6 +450,160 @@ class ScreenTitleUseCaseTest {
     }
 
     @Test
+    @DisplayName("UpdateTitle: legacy command without release metadata preserves all existing release metadata fields")
+    void shouldPreserveReleaseMetadataOnLegacyCommandUpdate() {
+        ScreenTitle existing = new ScreenTitle(
+                titleId, "series-slug", "Original Series Title", "Original Original Title", "Original Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, now, now,
+                24, ScreenAiringStatus.ONGOING, 2024, "Việt Nam", "Nguyên Tác", "Đạo Diễn", "Studio X"
+        );
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "series-slug", "Updated Series Title", "New Original Title", "New Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, posterId, backdropId, 36
+        );
+
+        Instant updateTime = now.plusSeconds(120);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(10);
+        when(clockPort.now()).thenReturn(updateTime);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.title()).isEqualTo("Updated Series Title");
+        assertThat(result.totalEpisodeCount()).isEqualTo(36);
+        assertThat(result.airingStatus()).isEqualTo(ScreenAiringStatus.ONGOING);
+        assertThat(result.releaseYear()).isEqualTo(2024);
+        assertThat(result.country()).isEqualTo("Việt Nam");
+        assertThat(result.originalAuthor()).isEqualTo("Nguyên Tác");
+        assertThat(result.director()).isEqualTo("Đạo Diễn");
+        assertThat(result.productionStudio()).isEqualTo("Studio X");
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: withoutEpisodeMetadata factory preserves both totalEpisodeCount and release metadata")
+    void shouldPreserveReleaseMetadataAndTotalEpisodeCountOnWithoutEpisodeMetadata() {
+        ScreenTitle existing = new ScreenTitle(
+                titleId, "series-slug", "Original Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, now, now,
+                48, ScreenAiringStatus.COMPLETED, 2023, "Trung Quốc", "Tác Giả Y", "Đạo Diễn Y", "Studio Y"
+        );
+
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
+                titleId, "series-slug", "Renamed Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, posterId, backdropId
+        );
+
+        Instant updateTime = now.plusSeconds(60);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(updateTime);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.title()).isEqualTo("Renamed Series Title");
+        assertThat(result.totalEpisodeCount()).isEqualTo(48);
+        assertThat(result.airingStatus()).isEqualTo(ScreenAiringStatus.COMPLETED);
+        assertThat(result.releaseYear()).isEqualTo(2023);
+        assertThat(result.country()).isEqualTo("Trung Quốc");
+        assertThat(result.originalAuthor()).isEqualTo("Tác Giả Y");
+        assertThat(result.director()).isEqualTo("Đạo Diễn Y");
+        assertThat(result.productionStudio()).isEqualTo("Studio Y");
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: explicit release metadata update overwrites existing metadata")
+    void shouldUpdateReleaseMetadataExplicitly() {
+        ScreenTitle existing = new ScreenTitle(
+                titleId, "feature-slug", "Old Movie Title", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, now, now,
+                null, null, null, null, null, null, null
+        );
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "feature-slug", "Updated Movie Title", "Movie Original", "Movie Synopsis",
+                ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, posterId, backdropId,
+                null, false,
+                ScreenAiringStatus.RELEASED, 2025, "Hàn Quốc", "Tác Giả Hàn", "Đạo Diễn Hàn", "Cinema Studio"
+        );
+
+        Instant updateTime = now.plusSeconds(300);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(updateTime);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.airingStatus()).isEqualTo(ScreenAiringStatus.RELEASED);
+        assertThat(result.releaseYear()).isEqualTo(2025);
+        assertThat(result.country()).isEqualTo("Hàn Quốc");
+        assertThat(result.originalAuthor()).isEqualTo("Tác Giả Hàn");
+        assertThat(result.director()).isEqualTo("Đạo Diễn Hàn");
+        assertThat(result.productionStudio()).isEqualTo("Cinema Studio");
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: explicit release metadata update intentionally clears fields when null")
+    void shouldIntentionallyClearReleaseMetadata() {
+        ScreenTitle existing = new ScreenTitle(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, now, now,
+                24, ScreenAiringStatus.ONGOING, 2024, "Việt Nam", "Tác Giả", "Đạo Diễn", "Studio"
+        );
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, posterId, backdropId,
+                24, false,
+                null, null, null, null, null, null
+        );
+
+        Instant updateTime = now.plusSeconds(300);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(updateTime);
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ScreenTitleDTO result = updateUseCase.execute(command);
+
+        assertThat(result.airingStatus()).isNull();
+        assertThat(result.releaseYear()).isNull();
+        assertThat(result.country()).isNull();
+        assertThat(result.originalAuthor()).isNull();
+        assertThat(result.director()).isNull();
+        assertThat(result.productionStudio()).isNull();
+    }
+
+    @Test
+    @DisplayName("UpdateTitle: changing structure with incompatible retained airing status is safely rejected")
+    void shouldRejectIncompatibleStructureTransitionWithPreservedAiringStatus() {
+        ScreenTitle existing = new ScreenTitle(
+                titleId, "series-slug", "Series Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.DRAFT, null, now, now,
+                24, ScreenAiringStatus.ONGOING, 2024, "Việt Nam", null, null, null
+        );
+
+        UpdateScreenTitleCommand command = UpdateScreenTitleCommand.withoutEpisodeMetadata(
+                titleId, "series-slug", "Converted Feature Title", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.LIVE_ACTION, null, null
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(10));
+
+        assertThatThrownBy(() -> updateUseCase.execute(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("không tương thích");
+
+        verify(titleRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("UpdateTitle: keeping existing slug does not trigger duplicate conflict")
     void shouldAllowSameSlugOnUpdate() {
         ScreenTitle existing = ScreenTitle.createDraft(
@@ -744,10 +900,13 @@ class ScreenTitleUseCaseTest {
     }
 
     @Test
-    @DisplayName("GetScreenTitleDetail: returns title detail by ID")
+    @DisplayName("GetScreenTitleDetail: returns title detail by ID with all metadata and episode counts")
     void shouldReturnTitleDetail() {
         ScreenTitle title = ScreenTitle.createDraft(
-                titleId, "detail-title", "Detail Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+                titleId, "detail-title", "Detail Title", "Original Title", "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, posterId, backdropId, now,
+                24, ScreenAiringStatus.ONGOING, 2024,
+                "Trung Quốc", "Phong Hỏa Hí Chư Hầu", "Đạo Diễn A", "Studio B"
         );
 
         when(titleRepository.findById(titleId)).thenReturn(Optional.of(title));
@@ -757,6 +916,13 @@ class ScreenTitleUseCaseTest {
         assertThat(dto.id()).isEqualTo(titleId);
         assertThat(dto.title()).isEqualTo("Detail Title");
         assertThat(dto.slug()).isEqualTo("detail-title");
+        assertThat(dto.totalEpisodeCount()).isEqualTo(24);
+        assertThat(dto.airingStatus()).isEqualTo(ScreenAiringStatus.ONGOING);
+        assertThat(dto.releaseYear()).isEqualTo(2024);
+        assertThat(dto.country()).isEqualTo("Trung Quốc");
+        assertThat(dto.originalAuthor()).isEqualTo("Phong Hỏa Hí Chư Hầu");
+        assertThat(dto.director()).isEqualTo("Đạo Diễn A");
+        assertThat(dto.productionStudio()).isEqualTo("Studio B");
     }
 
     @Test

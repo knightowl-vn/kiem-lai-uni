@@ -1,5 +1,6 @@
 package com.universe.screen.entry.admin.form;
 
+import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,6 +20,12 @@ public class EditScreenTitleForm {
     private MultipartFile backdropFile;
     private boolean removeBackdrop;
     private Integer totalEpisodeCount;
+    private ScreenAiringStatus airingStatus;
+    private Integer releaseYear;
+    private String country;
+    private String originalAuthor;
+    private String director;
+    private String productionStudio;
 
     public EditScreenTitleForm() {
     }
@@ -32,7 +39,13 @@ public class EditScreenTitleForm {
             ScreenPresentation presentation,
             String posterMediaAssetId,
             String backdropMediaAssetId,
-            Integer totalEpisodeCount
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
     ) {
         this.title = title;
         this.slug = slug;
@@ -43,6 +56,42 @@ public class EditScreenTitleForm {
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
         this.totalEpisodeCount = totalEpisodeCount;
+        this.airingStatus = airingStatus;
+        this.releaseYear = releaseYear;
+        this.country = country;
+        this.originalAuthor = originalAuthor;
+        this.director = director;
+        this.productionStudio = productionStudio;
+    }
+
+    public EditScreenTitleForm(
+            String title,
+            String slug,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            Integer totalEpisodeCount
+    ) {
+        this(
+                title,
+                slug,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
     }
 
     public EditScreenTitleForm(
@@ -160,5 +209,53 @@ public class EditScreenTitleForm {
 
     public void setTotalEpisodeCount(Integer totalEpisodeCount) {
         this.totalEpisodeCount = totalEpisodeCount;
+    }
+
+    public ScreenAiringStatus getAiringStatus() {
+        return airingStatus;
+    }
+
+    public void setAiringStatus(ScreenAiringStatus airingStatus) {
+        this.airingStatus = airingStatus;
+    }
+
+    public Integer getReleaseYear() {
+        return releaseYear;
+    }
+
+    public void setReleaseYear(Integer releaseYear) {
+        this.releaseYear = releaseYear;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
+    }
+
+    public String getOriginalAuthor() {
+        return originalAuthor;
+    }
+
+    public void setOriginalAuthor(String originalAuthor) {
+        this.originalAuthor = originalAuthor;
+    }
+
+    public String getDirector() {
+        return director;
+    }
+
+    public void setDirector(String director) {
+        this.director = director;
+    }
+
+    public String getProductionStudio() {
+        return productionStudio;
+    }
+
+    public void setProductionStudio(String productionStudio) {
+        this.productionStudio = productionStudio;
     }
 }
