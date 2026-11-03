@@ -16,5 +16,8 @@ public interface SpringDataScreenFranchiseMembershipJpaRepository extends JpaRep
     @Query("SELECT m FROM ScreenFranchiseMembershipJpaEntity m WHERE m.franchiseId = :franchiseId ORDER BY m.displayOrder ASC, m.id ASC")
     List<ScreenFranchiseMembershipJpaEntity> findByFranchiseId(@Param("franchiseId") String franchiseId);
 
+    @Query("SELECT m FROM ScreenFranchiseMembershipJpaEntity m WHERE m.titleId = :titleId ORDER BY m.displayOrder ASC, m.id ASC")
+    List<ScreenFranchiseMembershipJpaEntity> findByTitleId(@Param("titleId") String titleId);
+
     boolean existsByFranchiseIdAndTitleId(String franchiseId, String titleId);
 }

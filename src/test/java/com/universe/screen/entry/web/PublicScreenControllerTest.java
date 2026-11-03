@@ -8,7 +8,14 @@ import com.universe.identity.infrastructure.security.CustomAuthenticationFailure
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.screen.application.dto.PublicScreenCatalogItemDTO;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
+import com.universe.screen.application.dto.PublicScreenEntryDetailDTO;
+import com.universe.screen.application.dto.PublicScreenTitleDetailDTO;
+import com.universe.screen.application.exceptions.PublishedScreenEntryNotFoundException;
+import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
 import jakarta.servlet.FilterChain;
@@ -58,6 +65,12 @@ class PublicScreenControllerTest {
 
     @MockBean
     private GetPublicScreenCatalogUseCase getPublicScreenCatalogUseCase;
+
+    @MockBean
+    private GetPublicScreenTitleDetailUseCase getPublicScreenTitleDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;
@@ -207,5 +220,127 @@ class PublicScreenControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("screen/catalog"))
                 .andExpect(model().attribute("catalogPage", equalTo(PublicScreenCatalogPageView.fromDTO(outOfRangeDto))));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Guest GET /screen/{titleSlug} returns 200 OK with titleDetail model and view name")
+    void guestGetTitleDetailReturns200WithDetailView() throws Exception {
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1", "剑来",
+                "Mô tả phim", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                UUID.randomUUID(), null, now, 12, 24, List.of(), null
+        );
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-1")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("screen/detail"))
+                .andExpect(model().attribute("titleDetail", equalTo(PublicScreenTitleDetailView.fromDTO(detailDTO))))
+                .andExpect(model().attribute("activeNav", "screen"))
+                .andExpect(model().attribute("pageTitle", "Kiếm Lai Phần 1 - Kiếm Lai Universe"));
+
+        verify(getPublicScreenTitleDetailUseCase).execute("kiem-lai-1");
+    }
+
+    @Test
+    @WithMockUser(username = "reader@example.com", roles = "USER")
+    @DisplayName("Authenticated USER GET /screen/{titleSlug} returns 200 OK")
+    void authenticatedUserGetTitleDetailReturns200() throws Exception {
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                UUID.randomUUID(), "kiem-lai-movie", "Kiếm Lai Điện Ảnh", null,
+                null, ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null, List.of(), null
+        );
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-movie")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("screen/detail"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Nonexistent or unpublished title slug returns 404 NOT FOUND with not-found view")
+    void nonexistentTitleReturns404WithNotFoundView() throws Exception {
+        when(getPublicScreenTitleDetailUseCase.execute("nonexistent-slug"))
+                .thenThrow(new PublishedScreenTitleNotFoundException("nonexistent-slug"));
+
+        mockMvc.perform(get("/screen/nonexistent-slug"))
+                .andExpect(status().isNotFound())
+                .andExpect(view().name("screen/not-found"))
+                .andExpect(model().attribute("errorTitle", "Tác phẩm không tồn tại"))
+                .andExpect(model().attribute("errorMessage", "Tác phẩm bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản."))
+                .andExpect(model().attribute("activeNav", "screen"))
+                .andExpect(model().attribute("pageTitle", "Không tìm thấy tác phẩm - Kiếm Lai Universe"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Guest GET /screen/{titleSlug}/entries/{entrySlug} returns 200 OK with entryDetail model and view name")
+    void guestGetEntryDetailReturns200WithEntryDetailView() throws Exception {
+        PublicScreenEntryDetailDTO entryDetailDTO = new PublicScreenEntryDetailDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1", ScreenStructure.SERIES,
+                UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1: Khởi đầu", "Tóm tắt tập 1", 1440L, UUID.randomUUID(), false
+        );
+        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(entryDetailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/entries/tap-1"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("screen/entry-detail"))
+                .andExpect(model().attribute("entryDetail", equalTo(PublicScreenEntryDetailView.fromDTO(entryDetailDTO))))
+                .andExpect(model().attribute("activeNav", "screen"))
+                .andExpect(model().attribute("pageTitle", "Tập 1 - Kiếm Lai Phần 1 - Kiếm Lai Universe"));
+
+        verify(getPublicScreenEntryDetailUseCase).execute("kiem-lai-1", "tap-1");
+    }
+
+    @Test
+    @WithMockUser(username = "reader@example.com", roles = "USER")
+    @DisplayName("Authenticated user GET /screen/{titleSlug}/entries/{entrySlug} returns 200 OK")
+    void authenticatedUserGetEntryDetailReturns200() throws Exception {
+        PublicScreenEntryDetailDTO entryDetailDTO = new PublicScreenEntryDetailDTO(
+                UUID.randomUUID(), "kiem-lai-movie", "Kiếm Lai Điện Ảnh", ScreenStructure.FEATURE,
+                UUID.randomUUID(), "ban-chieu-chinh", ScreenEntryType.FEATURE, null,
+                "Bản Chiếu Chính", null, 7200L, null, false
+        );
+        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-movie", "ban-chieu-chinh")).thenReturn(entryDetailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie/entries/ban-chieu-chinh"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("screen/entry-detail"));
+
+        verify(getPublicScreenEntryDetailUseCase).execute("kiem-lai-movie", "ban-chieu-chinh");
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Nonexistent or unpublished entry slug returns 404 NOT FOUND with not-found view")
+    void nonexistentEntryReturns404WithNotFoundView() throws Exception {
+        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-1", "nonexistent-entry"))
+                .thenThrow(new PublishedScreenEntryNotFoundException("kiem-lai-1", "nonexistent-entry"));
+
+        mockMvc.perform(get("/screen/kiem-lai-1/entries/nonexistent-entry"))
+                .andExpect(status().isNotFound())
+                .andExpect(view().name("screen/not-found"))
+                .andExpect(model().attribute("errorTitle", "Tập phim không tồn tại"))
+                .andExpect(model().attribute("errorMessage", "Tập phim hoặc bản phát hành bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản."))
+                .andExpect(model().attribute("activeNav", "screen"))
+                .andExpect(model().attribute("pageTitle", "Không tìm thấy tập phim - Kiếm Lai Universe"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Nonexistent parent title slug for entry detail returns 404 NOT FOUND with not-found view")
+    void nonexistentTitleForEntryDetailReturns404WithNotFoundView() throws Exception {
+        when(getPublicScreenEntryDetailUseCase.execute("nonexistent-title", "tap-1"))
+                .thenThrow(new PublishedScreenTitleNotFoundException("nonexistent-title"));
+
+        mockMvc.perform(get("/screen/nonexistent-title/entries/tap-1"))
+                .andExpect(status().isNotFound())
+                .andExpect(view().name("screen/not-found"))
+                .andExpect(model().attribute("errorTitle", "Tác phẩm không tồn tại"))
+                .andExpect(model().attribute("errorMessage", "Tác phẩm bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản."));
     }
 }

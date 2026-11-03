@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title th:text="${pageTitle}">Chi tiết phim - Kiếm Lai Universe</title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" th:href="@{/css/theme.css}">
+    <link rel="stylesheet" th:href="@{/css/navbar.css}">
+    <link rel="stylesheet" th:href="@{/css/shared/comments.css}">
+    <link rel="stylesheet" th:href="@{/css/shared/comment-report-modal.css}">
+    <link rel="stylesheet" th:href="@{/css/screen/screen.css}">
+</head>
+
+<body>
+
+    <div th:replace="~{fragments/navbar :: navbar}"></div>
+
+    <main class="screen-detail-container">
+
+        <!-- Navigation Breadcrumb -->
+        <nav class="screen-detail-breadcrumb" aria-label="Đường dẫn điều hướng">
+            <a th:href="@{/screen}" class="screen-detail-back-link">
+                &larr; Quay lại danh mục phim
+            </a>
+        </nav>
+
+        <!-- A. Main Information Card (Hero) -->
+        <article class="screen-detail-hero" aria-label="Thông tin tác phẩm">
+            <!-- Left: Poster Column -->
+            <div class="screen-detail-poster-wrap">
+                <img th:if="${titleDetail.posterMediaAssetId != null}"
+                     class="screen-detail-poster"
+                     th:src="${titleDetail.displayPosterUrl()}"
+                     th:data-fallback-src="${titleDetail.fallbackPosterUrl()}"
+                     th:alt="${titleDetail.title}"
+                     loading="lazy"
+                     onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
+                <div class="screen-detail-poster-placeholder"
+                     th:style="${titleDetail.posterMediaAssetId != null ? 'display: none;' : ''}"
+                     aria-hidden="true">
+                    <svg class="screen-placeholder-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+                        <path d="m9 8 7 4-7 4Z"></path>
+                    </svg>
+                    <span class="screen-placeholder-text" th:text="${titleDetail.title}">Kiếm Lai</span>
+                </div>
+            </div>
+
+            <!-- Right: Info, Badges, Metadata, Synopsis & Action Row -->
+            <div class="screen-detail-info">
+                <!-- 1. Display Title & 2. Original Title -->
+                <header class="screen-detail-header">
+                    <h1 class="screen-detail-title" th:text="${titleDetail.title}">Tên tác phẩm</h1>
+                    <p th:if="${titleDetail.hasOriginalTitle()}" class="screen-detail-original-title" th:text="${titleDetail.originalTitle}">Tên gốc</p>
+                </header>
+
+                <!-- 2.1 Compact Badges: Structure, Presentation, Airing Status, Year, Episode Progress -->
+                <div class="screen-detail-badges" aria-label="Thông tin nhanh">
+                    <span class="screen-badge" th:text="${titleDetail.structureDisplayName()}">Phim bộ</span>
+                    <span class="screen-badge" th:text="${titleDetail.presentationDisplayName()}">Hoạt hình 3D</span>
+                    <span th:if="${titleDetail.hasAiringStatus()}" class="screen-badge screen-badge--airing" th:text="${titleDetail.airingStatusDisplayName()}">Đang chiếu</span>
+                    <span th:if="${titleDetail.hasReleaseYear()}" class="screen-badge" th:text="${titleDetail.releaseYear}">2024</span>
+                    <span th:if="${titleDetail.hasEpisodeProgressBadge()}" class="screen-badge screen-badge--highlight" th:text="${titleDetail.episodeBadgeText()}">Tập 1/24</span>
+                </div>
+
+                <!-- 2.2 Detailed Metadata: 2-Column Grid -->
+                <dl th:if="${titleDetail.hasDetailedMetadata()}" class="screen-detail-metadata-list" aria-label="Thông tin chi tiết">
+                    <div th:if="${titleDetail.hasDuration()}" class="screen-meta-row">
+                        <dt class="screen-meta-label">Thời lượng:</dt>
+                        <dd class="screen-meta-value" th:text="${titleDetail.formattedDuration()}">~26 phút/tập</dd>
+                    </div>
+                    <div th:if="${titleDetail.hasCountry()}" class="screen-meta-row">
+                        <dt class="screen-meta-label">Quốc gia:</dt>
+                        <dd class="screen-meta-value" th:text="${titleDetail.country}">Trung Quốc</dd>
+                    </div>
+                    <div th:if="${titleDetail.hasOriginalAuthor()}" class="screen-meta-row">
+                        <dt class="screen-meta-label">Nguyên tác:</dt>
+                        <dd class="screen-meta-value" th:text="${titleDetail.originalAuthor}">Phong Hỏa Hí Chư Hầu</dd>
+                    </div>
+                    <div th:if="${titleDetail.hasReleaseYear()}" class="screen-meta-row">
+                        <dt class="screen-meta-label">Năm phát hành:</dt>
+                        <dd class="screen-meta-value" th:text="${titleDetail.releaseYear}">2024</dd>
+                    </div>
+                    <div th:if="${titleDetail.hasDirector()}" class="screen-meta-row">
+                        <dt class="screen-meta-label">Đạo diễn:</dt>
+                        <dd class="screen-meta-value" th:text="${titleDetail.director}">Tên đạo diễn</dd>
+                    </div>
+                    <div th:if="${titleDetail.hasProductionStudio()}" class="screen-meta-row">
+                        <dt class="screen-meta-label">Đơn vị sản xuất:</dt>
+                        <dd class="screen-meta-value" th:text="${titleDetail.productionStudio}">Sparkly Key Animation</dd>
+                    </div>
+                </dl>
+
+                <!-- 2.3 Tóm tắt (Synopsis) -->
+                <div class="screen-detail-synopsis">
+                    <h2 class="screen-detail-synopsis-label">Tóm tắt</h2>
+                    <p th:if="${titleDetail.synopsis != null and !titleDetail.synopsis.isBlank()}"
+                       class="screen-detail-synopsis-text"
+                       th:text="${titleDetail.synopsis}">
+                        Mô tả tóm tắt nội dung phim.
+                    </p>
+                    <p th:unless="${titleDetail.synopsis != null and !titleDetail.synopsis.isBlank()}"
+                       class="screen-detail-synopsis-empty">
+                        Chưa có phần tóm tắt nội dung cho tác phẩm này.
+                    </p>
+                </div>
+
+                <!-- 2.4 Primary Action Row: [▶ Xem ngay] and [☆ Theo dõi] in same row -->
+                <div class="screen-detail-actions" aria-label="Thao tác tác phẩm">
+                    <!-- Watch Now Action -->
+                    <a th:if="${titleDetail.hasEligibleWatchEntry()}"
+                       th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${titleDetail.firstEligibleWatchEntry().slug})}"
+                       class="screen-action-btn screen-action-btn--primary">
+                        <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <span>Xem ngay</span>
+                    </a>
+                    <button th:unless="${titleDetail.hasEligibleWatchEntry()}"
+                            type="button"
+                            class="screen-action-btn screen-action-btn--primary screen-action-btn--disabled"
+                            disabled
+                            aria-disabled="true"
+                            title="Chưa có tập phim nào để xem">
+                        <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        <span>Xem ngay</span>
+                    </button>
+
+                    <!-- Follow Action (Disabled until persistent following is implemented) -->
+                    <button type="button"
+                            class="screen-action-btn screen-action-btn--secondary screen-action-btn--disabled"
+                            disabled
+                            aria-disabled="true"
+                            title="Tính năng theo dõi tác phẩm đang được phát triển">
+                        <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+                        </svg>
+                        <span>Theo dõi</span>
+                    </button>
+                </div>
+            </div>
+        </article>
+
+        <!-- B. Related Installments / Multi-Franchise Navigation Section -->
+        <div th:if="${titleDetail.hasFranchises()}" class="screen-franchise-container">
+            <section th:each="franchise : ${titleDetail.franchises()}"
+                     class="screen-franchise-section"
+                     th:attr="aria-label=${'Phần phim cùng franchise ' + franchise.name}">
+                <div class="screen-section-header">
+                    <h2 class="screen-section-title">Các phần liên kết</h2>
+                    <span class="screen-franchise-label">
+                        Franchise: <strong th:text="${franchise.name}">Kiếm Lai</strong>
+                    </span>
+                </div>
+
+                <nav class="screen-franchise-nav" th:attr="aria-label=${'Danh sách phần phim trong ' + franchise.name}">
+                    <th:block th:each="inst : ${franchise.installments}">
+                        <!-- Current installment: not clickable, marked [Đang xem] -->
+                        <span th:if="${inst.isCurrent}"
+                              class="screen-franchise-item is-current"
+                              aria-current="page">
+                            <span class="screen-franchise-item-title" th:text="${inst.title}">Phần 1</span>
+                            <span class="screen-franchise-item-badge">Đang xem</span>
+                        </span>
+
+                        <!-- Sibling installment: clickable navigation link -->
+                        <a th:unless="${inst.isCurrent}"
+                           th:href="@{/screen/{slug}(slug=${inst.slug})}"
+                           class="screen-franchise-item">
+                            <span class="screen-franchise-item-title" th:text="${inst.title}">Phần 2</span>
+                            <span class="screen-franchise-item-badge" th:text="${inst.structure.name() == 'SERIES' ? 'Phim bộ' : 'Phim lẻ'}">Phim bộ</span>
+                        </a>
+                    </th:block>
+                </nav>
+            </section>
+        </div>
+
+        <!-- C. Selectable Content: [Danh sách tập] [Nhân vật] (Horizontally Aligned Tabs) -->
+        <section class="screen-content-tabs-section" aria-label="Nội dung chi tiết tác phẩm">
+            <div class="screen-tabs-nav" role="tablist" aria-label="Chuyển đổi nội dung tác phẩm">
+                <button type="button"
+                        id="tab-episodes"
+                        class="screen-tab-btn is-active"
+                        role="tab"
+                        aria-selected="true"
+                        aria-controls="panel-episodes"
+                        tabindex="0">
+                    Danh sách tập
+                </button>
+                <button type="button"
+                        id="tab-characters"
+                        class="screen-tab-btn"
+                        role="tab"
+                        aria-selected="false"
+                        aria-controls="panel-characters"
+                        tabindex="-1">
+                    Nhân vật
+                </button>
+            </div>
+
+            <!-- Tab 1 Panel: Episodes List (Default) -->
+            <div id="panel-episodes"
+                 class="screen-tab-panel is-active"
+                 role="tabpanel"
+                 aria-labelledby="tab-episodes">
+
+                <!-- Series Episodes Grid -->
+                <div th:if="${titleDetail.structure.name() == 'SERIES'}">
+                    <div th:if="${!titleDetail.episodes().isEmpty()}" class="screen-episode-grid" aria-label="Danh sách các tập phim">
+                        <a th:each="ep : ${titleDetail.episodes()}"
+                           th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${ep.slug})}"
+                           class="screen-episode-chip"
+                           th:title="${ep.title}">
+                            <span th:text="${ep.displayHeading()}">Tập 1</span>
+                        </a>
+                    </div>
+
+                    <!-- Specials if any -->
+                    <div th:if="${!titleDetail.specials().isEmpty()}" class="screen-entry-subgroup">
+                        <h3 class="screen-subsection-title">Tập đặc biệt / Ngoại truyện</h3>
+                        <div class="screen-episode-grid">
+                            <a th:each="sp : ${titleDetail.specials()}"
+                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${sp.slug})}"
+                               class="screen-episode-chip"
+                               th:title="${sp.title}">
+                                <span th:text="${sp.displayHeading()}">Ngoại truyện 1</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Trailers if any -->
+                    <div th:if="${!titleDetail.trailers().isEmpty()}" class="screen-entry-subgroup">
+                        <h3 class="screen-subsection-title">Trailer & Teaser</h3>
+                        <div class="screen-episode-grid">
+                            <a th:each="tr : ${titleDetail.trailers()}"
+                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${tr.slug})}"
+                               class="screen-episode-chip"
+                               th:title="${tr.title}">
+                                <span th:text="${tr.displayHeading()}">Trailer 1</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Empty state if series has no episodes -->
+                    <div th:if="${titleDetail.episodes().isEmpty() and titleDetail.specials().isEmpty() and titleDetail.trailers().isEmpty()}" class="screen-section-empty-state">
+                        <p class="screen-empty-title">Chưa có tập phim nào được xuất bản</p>
+                        <p class="screen-empty-description">Các tập phim của tác phẩm này sẽ xuất hiện tại đây khi được phát hành.</p>
+                    </div>
+                </div>
+
+                <!-- Feature Entry Display -->
+                <div th:if="${titleDetail.structure.name() == 'FEATURE'}">
+                    <div th:if="${!titleDetail.features().isEmpty()}" class="screen-feature-container">
+                        <a th:each="feat : ${titleDetail.features()}"
+                           th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${feat.slug})}"
+                           class="screen-feature-chip">
+                            <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <span th:text="${feat.title != null and !feat.title.isBlank() ? feat.title : 'Bản chiếu chính'}">Bản chiếu chính</span>
+                            <span th:if="${feat.formattedDuration() != null}" class="screen-chip-duration" th:text="${feat.formattedDuration()}">120:00</span>
+                        </a>
+                    </div>
+                    <div th:if="${titleDetail.features().isEmpty()}" class="screen-section-empty-state">
+                        <p class="screen-empty-title">Bản phim chính chưa được xuất bản</p>
+                        <p class="screen-empty-description">Bản phát hành chính thức sẽ xuất hiện tại đây khi hoàn tất xử lý.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2 Panel: Characters (Honest Compact Empty State) -->
+            <div id="panel-characters"
+                 class="screen-tab-panel"
+                 role="tabpanel"
+                 aria-labelledby="tab-characters"
+                 hidden>
+                <div class="screen-section-empty-state">
+                    <svg class="screen-empty-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    <h3 class="screen-empty-title">Thông tin nhân vật đang được cập nhật</h3>
+                    <p class="screen-empty-description">Dữ liệu liên kết nhân vật từ Wiki sẽ hiển thị tại đây khi sẵn sàng.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- D. Comments: Shared Interaction Comments (Permanent Section OUTSIDE Tabs) -->
+        <section id="screenDiscussion"
+                 class="screen-section-card screen-discussion-section"
+                 aria-labelledby="screenDiscussionHeading"
+                 th:attr="data-title-id=${titleDetail.id},
+                          data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},
+                          data-login-url=@{/login(returnTo=${'/screen/' + titleDetail.slug + '#screenDiscussion'})},
+                          data-csrf-token=${_csrf != null ? _csrf.token : ''},
+                          data-csrf-header=${_csrf != null ? _csrf.headerName : ''}">
+            <header class="screen-discussion-header">
+                <div class="screen-discussion-heading-row">
+                    <h2 id="screenDiscussionHeading" class="screen-discussion-title">Bình luận</h2>
+                    <span class="screen-discussion-count-badge" id="screenDiscussionCountBadge" aria-live="polite">0 bình luận</span>
+                </div>
+            </header>
+
+            <!-- Root Comment Composer -->
+            <div class="kl-comment-composer screen-comment-composer screen-comment-composer--root" id="screenRootComposer">
+                <form class="kl-comment-composer__form screen-comment-composer-form" id="screenRootComposerForm">
+                    <label for="screenRootComposerInput" class="visually-hidden">Viết bình luận</label>
+                    <textarea id="screenRootComposerInput"
+                              class="kl-comment-composer__input screen-comment-textarea"
+                              rows="3"
+                              placeholder="Chia sẻ ý kiến của bạn về tác phẩm này..."
+                              maxlength="2000"></textarea>
+                    <div class="kl-comment-composer__footer screen-comment-composer-footer">
+                        <span class="kl-comment-composer__status kl-comment-composer__error screen-comment-composer-error" id="screenRootComposerError" role="alert" aria-live="polite" hidden></span>
+                        <div class="kl-comment-composer__actions screen-comment-composer-actions">
+                            <button type="submit" class="kl-comment-composer__submit screen-comment-btn screen-comment-btn--primary" id="screenRootComposerSubmit">
+                                Gửi
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Status & Error Region -->
+            <div id="screenDiscussionStatus" class="screen-discussion-status" role="status" aria-live="polite"></div>
+
+            <!-- Thread List -->
+            <div id="screenDiscussionThreadList" class="screen-discussion-thread-list" role="feed" aria-busy="false" aria-label="Danh sách bình luận"></div>
+
+            <!-- Load More Container -->
+            <div class="screen-discussion-footer" id="screenDiscussionFooter" hidden>
+                <button type="button" class="screen-comment-btn screen-comment-btn--secondary" id="screenDiscussionLoadMoreBtn">
+                    Tải thêm bình luận
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Theme and Shared Scripts -->
+    <script th:src="@{/js/theme.js}"></script>
+    <script th:src="@{/js/shared/relative-time.js}"></script>
+    <script th:src="@{/js/shared/comment-presentation.js}"></script>
+    <script th:src="@{/js/shared/comment-report-modal.js}"></script>
+    <script th:src="@{/js/screen/screen-comments.js}"></script>
+
+    <!-- Tabs Switching Minimal Vanilla JS -->
+    <script>
+        (function() {
+            var tabEpisodes = document.getElementById('tab-episodes');
+            var tabCharacters = document.getElementById('tab-characters');
+            var panelEpisodes = document.getElementById('panel-episodes');
+            var panelCharacters = document.getElementById('panel-characters');
+
+            if (!tabEpisodes || !tabCharacters || !panelEpisodes || !panelCharacters) {
+                return;
+            }
+
+            function selectTab(selectedTab, selectedPanel, otherTab, otherPanel) {
+                selectedTab.classList.add('is-active');
+                selectedTab.setAttribute('aria-selected', 'true');
+                selectedTab.setAttribute('tabindex', '0');
+                selectedPanel.classList.add('is-active');
+                selectedPanel.removeAttribute('hidden');
+
+                otherTab.classList.remove('is-active');
+                otherTab.setAttribute('aria-selected', 'false');
+                otherTab.setAttribute('tabindex', '-1');
+                otherPanel.classList.remove('is-active');
+                otherPanel.setAttribute('hidden', '');
+            }
+
+            tabEpisodes.addEventListener('click', function() {
+                selectTab(tabEpisodes, panelEpisodes, tabCharacters, panelCharacters);
+            });
+
+            tabCharacters.addEventListener('click', function() {
+                selectTab(tabCharacters, panelCharacters, tabEpisodes, panelEpisodes);
+            });
+
+            // Keyboard navigation (Arrow keys)
+            tabEpisodes.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    tabCharacters.focus();
+                    selectTab(tabCharacters, panelCharacters, tabEpisodes, panelEpisodes);
+                }
+            });
+
+            tabCharacters.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    tabEpisodes.focus();
+                    selectTab(tabEpisodes, panelEpisodes, tabCharacters, panelCharacters);
+                }
+            });
+
+            // Initialize Comments module on DOM load
+            if (typeof ScreenTitleComments !== 'undefined' && ScreenTitleComments.init) {
+                ScreenTitleComments.init(document);
+            }
+        })();
+    </script>
+
+</body>
+</html>

@@ -8,6 +8,8 @@ import com.universe.identity.infrastructure.security.CustomAuthenticationFailure
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -49,6 +51,12 @@ class PublicScreenNavbarRenderingTest {
 
     @MockBean
     private GetPublicScreenCatalogUseCase getPublicScreenCatalogUseCase;
+
+    @MockBean
+    private GetPublicScreenTitleDetailUseCase getPublicScreenTitleDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;

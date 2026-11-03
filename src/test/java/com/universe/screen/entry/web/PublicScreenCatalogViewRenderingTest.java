@@ -9,6 +9,8 @@ import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.screen.application.dto.PublicScreenCatalogItemDTO;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
 import jakarta.servlet.FilterChain;
@@ -54,6 +56,12 @@ class PublicScreenCatalogViewRenderingTest {
 
     @MockBean
     private GetPublicScreenCatalogUseCase getPublicScreenCatalogUseCase;
+
+    @MockBean
+    private GetPublicScreenTitleDetailUseCase getPublicScreenTitleDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;
@@ -163,9 +171,9 @@ class PublicScreenCatalogViewRenderingTest {
                 .andExpect(content().string(not(containsString("Trần Bình An bắt đầu bước vào con đường tu tiên."))))
                 .andExpect(content().string(not(containsString("Hoạt hình 3D"))))
                 .andExpect(content().string(not(containsString("Người đóng"))))
-                // Corrective 1: No premature F2 detail links emitted
-                .andExpect(content().string(not(containsString("href=\"/screen/kiem-lai-donghua-1\""))))
-                .andExpect(content().string(not(containsString("href=\"/screen/kiem-lai-movie-1\""))))
+                // MS-08F2: Semantic detail links emitted for catalog cards
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-donghua-1\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-movie-1\"")))
                 // Neither empty state nor out-of-range state is rendered
                 .andExpect(content().string(not(containsString("screen-empty-state"))))
                 .andExpect(content().string(not(containsString("screen-out-of-range-state"))))

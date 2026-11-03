@@ -3,11 +3,18 @@ package com.universe.screen.entry.web;
 import com.universe.configuration.SecurityBeanConfig;
 import com.universe.identity.application.ports.CurrentUserQueryPort;
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
-import com.universe.shared.security.AuthenticatedEmailResolver;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
+import com.universe.screen.application.dto.PublicScreenEntryDetailDTO;
+import com.universe.screen.application.dto.PublicScreenTitleDetailDTO;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenPresentation;
+import com.universe.screen.domain.ScreenStructure;
+import com.universe.shared.security.AuthenticatedEmailResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -26,6 +33,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -51,6 +59,12 @@ class PublicScreenSecurityIntegrationTest {
 
     @MockBean
     private GetPublicScreenCatalogUseCase getPublicScreenCatalogUseCase;
+
+    @MockBean
+    private GetPublicScreenTitleDetailUseCase getPublicScreenTitleDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;
@@ -85,6 +99,20 @@ class PublicScreenSecurityIntegrationTest {
 
         when(getPublicScreenCatalogUseCase.execute(any(Integer.class), any(Integer.class)))
                 .thenReturn(new PublicScreenCatalogPageDTO(List.of(), 0, 12, 0L, 0, true, true));
+
+        when(getPublicScreenTitleDetailUseCase.execute(any()))
+                .thenReturn(new PublicScreenTitleDetailDTO(
+                        UUID.randomUUID(), "test-slug", "Test Title", null,
+                        null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                        null, null, java.time.Instant.now(), null, null, List.of(), null
+                ));
+
+        when(getPublicScreenEntryDetailUseCase.execute(any(), any()))
+                .thenReturn(new PublicScreenEntryDetailDTO(
+                        UUID.randomUUID(), "test-slug", "Test Title", ScreenStructure.SERIES,
+                        UUID.randomUUID(), "entry-slug", ScreenEntryType.EPISODE, 1,
+                        "Entry Title", null, 1200L, null, false
+                ));
     }
 
     @Test
@@ -142,5 +170,63 @@ class PublicScreenSecurityIntegrationTest {
     void authenticatedDeleteScreenIsRejected() throws Exception {
         mockMvc.perform(delete("/screen").with(csrf()))
                 .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Security: Anonymous guest can access GET /screen/{titleSlug} without redirecting to login")
+    void anonymousGuestCanAccessGetScreenTitleDetail() throws Exception {
+        mockMvc.perform(get("/screen/test-slug"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated USER can access GET /screen/{titleSlug}")
+    void authenticatedUserCanAccessGetScreenTitleDetail() throws Exception {
+        mockMvc.perform(get("/screen/test-slug"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Security: Anonymous mutation POST /screen/{titleSlug} is rejected (redirects to login)")
+    void anonymousPostScreenTitleDetailIsRejected() throws Exception {
+        mockMvc.perform(post("/screen/test-slug").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(username = "user@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated mutation POST /screen/{titleSlug} is rejected (read-only)")
+    void authenticatedPostScreenTitleDetailIsRejected() throws Exception {
+        mockMvc.perform(post("/screen/test-slug").with(csrf()))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Security: Anonymous guest can access GET /screen/{titleSlug}/entries/{entrySlug} without redirecting to login")
+    void anonymousGuestCanAccessGetScreenEntryDetail() throws Exception {
+        mockMvc.perform(get("/screen/test-slug/entries/entry-slug"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated USER can access GET /screen/{titleSlug}/entries/{entrySlug}")
+    void authenticatedUserCanAccessGetScreenEntryDetail() throws Exception {
+        mockMvc.perform(get("/screen/test-slug/entries/entry-slug"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Security: Anonymous mutation POST /screen/{titleSlug}/entries/{entrySlug} is rejected (redirects to login)")
+    void anonymousPostScreenEntryDetailIsRejected() throws Exception {
+        mockMvc.perform(post("/screen/test-slug/entries/entry-slug").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern("**/login"));
     }
 }

@@ -107,6 +107,17 @@ public class ScreenFranchiseMembershipPersistenceAdapter implements ScreenFranch
     }
 
     @Override
+    public List<ScreenFranchiseMembership> findByTitleId(UUID titleId) {
+        if (titleId == null) {
+            return Collections.emptyList();
+        }
+        return repository.findByTitleId(titleId.toString())
+                .stream()
+                .map(ScreenFranchiseMembershipPersistenceMapper::toDomain)
+                .toList();
+    }
+
+    @Override
     public boolean existsById(UUID id) {
         if (id == null) {
             return false;

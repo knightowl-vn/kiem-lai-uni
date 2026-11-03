@@ -26,6 +26,8 @@ public interface ScreenFranchiseMembershipRepositoryPort {
 
     List<ScreenFranchiseMembership> findByFranchiseId(UUID franchiseId);
 
+    List<ScreenFranchiseMembership> findByTitleId(UUID titleId);
+
     boolean existsById(UUID id);
 
     boolean existsByFranchiseIdAndTitleId(UUID franchiseId, UUID titleId);

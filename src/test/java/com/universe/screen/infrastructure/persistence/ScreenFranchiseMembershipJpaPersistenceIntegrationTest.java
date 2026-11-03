@@ -291,4 +291,24 @@ class ScreenFranchiseMembershipJpaPersistenceIntegrationTest {
         assertThat(membershipRepository.existsByFranchiseIdAndTitleId(franchise.getId(), title.getId())).isFalse();
         assertThat(membershipRepository.findByFranchiseId(franchise.getId())).isEmpty();
     }
+
+    @Test
+    @DisplayName("Should retrieve memberships by titleId ordered by displayOrder ASC and id ASC")
+    void shouldRetrieveMembershipsByTitleId() {
+        ScreenFranchise franchise1 = createFranchise("franchise-title-query-1", "Franchise Title Query 1");
+        ScreenTitle title = createTitle("title-membership-query", "Title Membership Query");
+
+        ScreenFranchiseMembership m1 = new ScreenFranchiseMembership(
+                UUID.randomUUID(), franchise1.getId(), title.getId(), 0
+        );
+        membershipRepository.save(m1);
+
+        List<ScreenFranchiseMembership> found = membershipRepository.findByTitleId(title.getId());
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).getFranchiseId()).isEqualTo(franchise1.getId());
+        assertThat(found.get(0).getTitleId()).isEqualTo(title.getId());
+
+        List<ScreenFranchiseMembership> empty = membershipRepository.findByTitleId(UUID.randomUUID());
+        assertThat(empty).isEmpty();
+    }
 }

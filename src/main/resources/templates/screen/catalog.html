@@ -59,7 +59,8 @@
         <!-- Catalog Grid -->
         <section th:unless="${catalogPage.items.isEmpty()}" class="screen-catalog-grid" aria-label="Danh sách tác phẩm">
             <article th:each="item : ${catalogPage.items}" class="screen-card">
-                <!-- Poster Wrapper -->
+                <a th:href="@{/screen/{slug}(slug=${item.slug})}" class="screen-card-link" th:attr="aria-label=${item.title}">
+                    <!-- Poster Wrapper -->
                 <div class="screen-card-poster-wrap">
                     <img th:if="${item.posterMediaAssetId != null}"
                          class="screen-card-poster"
@@ -91,6 +92,7 @@
                         <span class="screen-card-title-text" th:text="${item.originalTitle}">Tên gốc</span>
                     </p>
                 </div>
+                </a>
             </article>
         </section>
 
