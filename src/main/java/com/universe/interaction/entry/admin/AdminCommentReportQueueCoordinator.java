@@ -13,8 +13,8 @@ import com.universe.interaction.entry.admin.dto.AdminCommentReportTargetDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportUserDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.dto.ScreenTitleReportTargetDTO;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.springframework.stereotype.Service;
@@ -47,20 +47,20 @@ public class AdminCommentReportQueueCoordinator {
     private final UserIdentityContract userIdentityContract;
     private final ChapterListQueryPort chapterListQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
-    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private final ScreenDiscussionContract screenDiscussionContract;
 
     public AdminCommentReportQueueCoordinator(
             InteractionReportQueueQueryPort queueQueryPort,
             UserIdentityContract userIdentityContract,
             ChapterListQueryPort chapterListQueryPort,
             WikiArticleQueryPort wikiArticleQueryPort,
-            ScreenTitleRepositoryPort screenTitleRepositoryPort
+            ScreenDiscussionContract screenDiscussionContract
     ) {
         this.queueQueryPort = Objects.requireNonNull(queueQueryPort, "InteractionReportQueueQueryPort cannot be null");
         this.userIdentityContract = Objects.requireNonNull(userIdentityContract, "UserIdentityContract cannot be null");
         this.chapterListQueryPort = Objects.requireNonNull(chapterListQueryPort, "ChapterListQueryPort cannot be null");
         this.wikiArticleQueryPort = Objects.requireNonNull(wikiArticleQueryPort, "WikiArticleQueryPort cannot be null");
-        this.screenTitleRepositoryPort = Objects.requireNonNull(screenTitleRepositoryPort, "ScreenTitleRepositoryPort cannot be null");
+        this.screenDiscussionContract = Objects.requireNonNull(screenDiscussionContract, "ScreenDiscussionContract cannot be null");
     }
 
     /**
@@ -123,9 +123,9 @@ public class AdminCommentReportQueueCoordinator {
                 ? Map.of()
                 : Objects.requireNonNullElse(wikiArticleQueryPort.findListItemsByIds(articleIds), Map.of());
 
-        Map<UUID, ScreenTitle> screenTitles = screenTitleIds.isEmpty()
+        Map<UUID, ScreenTitleReportTargetDTO> screenTitles = screenTitleIds.isEmpty()
                 ? Map.of()
-                : Objects.requireNonNullElse(screenTitleRepositoryPort.findTitlesByIds(screenTitleIds), Map.of());
+                : Objects.requireNonNullElse(screenDiscussionContract.findReportTargetTitlesByIds(screenTitleIds), Map.of());
 
         // 4. Compose enriched items in original queue order
         List<AdminCommentReportQueueItemDTO> enrichedItems = new ArrayList<>(rawItems.size());
@@ -179,7 +179,7 @@ public class AdminCommentReportQueueCoordinator {
             UUID targetId,
             Map<UUID, ChapterListItemDTO> chapters,
             Map<UUID, WikiArticleListItemDTO> articles,
-            Map<UUID, ScreenTitle> screenTitles
+            Map<UUID, ScreenTitleReportTargetDTO> screenTitles
     ) {
         if (targetType == CommentTargetType.NOVEL_CHAPTER) {
             ChapterListItemDTO chapter = chapters.get(targetId);
@@ -188,7 +188,7 @@ public class AdminCommentReportQueueCoordinator {
             WikiArticleListItemDTO article = articles.get(targetId);
             return AdminCommentReportTargetDTO.forWikiArticle(targetId, article);
         } else if (targetType == CommentTargetType.SCREEN_TITLE) {
-            ScreenTitle title = screenTitles.get(targetId);
+            ScreenTitleReportTargetDTO title = screenTitles.get(targetId);
             return AdminCommentReportTargetDTO.forScreenTitle(targetId, title);
         }
         return AdminCommentReportTargetDTO.unresolved(targetType, targetId);

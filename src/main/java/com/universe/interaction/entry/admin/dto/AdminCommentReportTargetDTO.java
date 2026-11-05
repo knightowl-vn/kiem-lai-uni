@@ -2,7 +2,7 @@ package com.universe.interaction.entry.admin.dto;
 
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.dto.ScreenTitleReportTargetDTO;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 
 import java.util.Objects;
@@ -91,16 +91,16 @@ public record AdminCommentReportTargetDTO(
         return unresolved(CommentTargetType.WIKI_ARTICLE, targetId);
     }
 
-    public static AdminCommentReportTargetDTO forScreenTitle(UUID targetId, ScreenTitle title, String episodeBadge) {
+    public static AdminCommentReportTargetDTO forScreenTitle(UUID targetId, ScreenTitleReportTargetDTO title, String episodeBadge) {
         Objects.requireNonNull(targetId, "targetId cannot be null");
         if (title != null) {
             return new AdminCommentReportTargetDTO(
                     CommentTargetType.SCREEN_TITLE,
                     targetId,
                     true,
-                    title.getTitle(),
-                    title.getSlug(),
-                    title.getStatus() != null ? title.getStatus().name() : null,
+                    title.title(),
+                    title.slug(),
+                    title.status(),
                     null,
                     null,
                     episodeBadge
@@ -109,7 +109,7 @@ public record AdminCommentReportTargetDTO(
         return unresolved(CommentTargetType.SCREEN_TITLE, targetId);
     }
 
-    public static AdminCommentReportTargetDTO forScreenTitle(UUID targetId, ScreenTitle title) {
+    public static AdminCommentReportTargetDTO forScreenTitle(UUID targetId, ScreenTitleReportTargetDTO title) {
         return forScreenTitle(targetId, title, null);
     }
 

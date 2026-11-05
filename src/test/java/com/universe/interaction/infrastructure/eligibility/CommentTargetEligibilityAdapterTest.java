@@ -5,11 +5,7 @@ import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenPresentation;
-import com.universe.screen.domain.ScreenPublicationStatus;
-import com.universe.screen.domain.ScreenStructure;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,7 +36,7 @@ class CommentTargetEligibilityAdapterTest {
     private CommunityPostQueryPort communityPostQueryPort;
 
     @Mock
-    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private ScreenDiscussionContract screenDiscussionContract;
 
     private CommentTargetEligibilityAdapter adapter;
 
@@ -55,28 +51,28 @@ class CommentTargetEligibilityAdapterTest {
                 readerChapterAccessQueryPort,
                 wikiArticleQueryPort,
                 communityPostQueryPort,
-                screenTitleRepositoryPort
+                screenDiscussionContract
         );
     }
 
     @Test
     @DisplayName("Should reject null dependency in constructor")
     void shouldRejectNullDependency() {
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null, wikiArticleQueryPort, communityPostQueryPort, screenTitleRepositoryPort))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null, wikiArticleQueryPort, communityPostQueryPort, screenDiscussionContract))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ReaderChapterAccessQueryPort cannot be null.");
 
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, null, communityPostQueryPort, screenTitleRepositoryPort))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, null, communityPostQueryPort, screenDiscussionContract))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("WikiArticleQueryPort cannot be null.");
 
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, null, screenTitleRepositoryPort))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, null, screenDiscussionContract))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("CommunityPostQueryPort cannot be null.");
 
         assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort, communityPostQueryPort, null))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("ScreenTitleRepositoryPort cannot be null.");
+                .hasMessageContaining("ScreenDiscussionContract cannot be null.");
     }
 
     @Test
@@ -90,7 +86,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isTrue();
         verifyNoInteractions(wikiArticleQueryPort);
-        verifyNoInteractions(screenTitleRepositoryPort);
+        verifyNoInteractions(screenDiscussionContract);
     }
 
     @Test
@@ -104,7 +100,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isFalse();
         verifyNoInteractions(wikiArticleQueryPort);
-        verifyNoInteractions(screenTitleRepositoryPort);
+        verifyNoInteractions(screenDiscussionContract);
     }
 
     @Test
@@ -115,7 +111,7 @@ class CommentTargetEligibilityAdapterTest {
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
         verifyNoInteractions(wikiArticleQueryPort);
-        verifyNoInteractions(screenTitleRepositoryPort);
+        verifyNoInteractions(screenDiscussionContract);
     }
 
     @Test
@@ -128,7 +124,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isTrue();
         verifyNoInteractions(readerChapterAccessQueryPort);
-        verifyNoInteractions(screenTitleRepositoryPort);
+        verifyNoInteractions(screenDiscussionContract);
     }
 
     @Test
@@ -141,7 +137,7 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
-        verifyNoInteractions(screenTitleRepositoryPort);
+        verifyNoInteractions(screenDiscussionContract);
     }
 
     @Test
@@ -158,7 +154,7 @@ class CommentTargetEligibilityAdapterTest {
         assertThat(result).isTrue();
         verifyNoInteractions(readerChapterAccessQueryPort);
         verifyNoInteractions(wikiArticleQueryPort);
-        verifyNoInteractions(screenTitleRepositoryPort);
+        verifyNoInteractions(screenDiscussionContract);
     }
 
     @Test
@@ -172,20 +168,14 @@ class CommentTargetEligibilityAdapterTest {
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
         verifyNoInteractions(wikiArticleQueryPort);
-        verifyNoInteractions(screenTitleRepositoryPort);
+        verifyNoInteractions(screenDiscussionContract);
     }
 
     @Test
     @DisplayName("Should return true when SCREEN_TITLE target is published")
     void shouldReturnTrueWhenScreenTitleIsPublished() {
         CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
-        ScreenTitle title = new ScreenTitle(
-                TITLE_ID, "kiem-lai", "Kiếm Lai", null, null,
-                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
-                null, null, ScreenPublicationStatus.PUBLISHED,
-                Instant.now(), Instant.now(), Instant.now(), 24
-        );
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(title));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         boolean result = adapter.isEligible(target);
 
@@ -199,7 +189,7 @@ class CommentTargetEligibilityAdapterTest {
     @DisplayName("Should return false when SCREEN_TITLE target is not found or unpublished")
     void shouldReturnFalseWhenScreenTitleIsUnpublished() {
         CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.empty());
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(false);
 
         boolean result = adapter.isEligible(target);
 

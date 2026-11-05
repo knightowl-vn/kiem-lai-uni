@@ -6,8 +6,8 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.dto.ScreenTitleNavigationDTO;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.springframework.stereotype.Service;
@@ -40,13 +40,13 @@ public class AdminCommentReportContextNavigationCoordinator {
     private final GetInteractionReportDetailUseCase getReportDetailUseCase;
     private final ChapterListQueryPort chapterListQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
-    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private final ScreenDiscussionContract screenDiscussionContract;
 
     public AdminCommentReportContextNavigationCoordinator(
             GetInteractionReportDetailUseCase getReportDetailUseCase,
             ChapterListQueryPort chapterListQueryPort,
             WikiArticleQueryPort wikiArticleQueryPort,
-            ScreenTitleRepositoryPort screenTitleRepositoryPort
+            ScreenDiscussionContract screenDiscussionContract
     ) {
         this.getReportDetailUseCase = Objects.requireNonNull(
                 getReportDetailUseCase,
@@ -60,9 +60,9 @@ public class AdminCommentReportContextNavigationCoordinator {
                 wikiArticleQueryPort,
                 "WikiArticleQueryPort cannot be null"
         );
-        this.screenTitleRepositoryPort = Objects.requireNonNull(
-                screenTitleRepositoryPort,
-                "ScreenTitleRepositoryPort cannot be null"
+        this.screenDiscussionContract = Objects.requireNonNull(
+                screenDiscussionContract,
+                "ScreenDiscussionContract cannot be null"
         );
     }
 
@@ -149,15 +149,8 @@ public class AdminCommentReportContextNavigationCoordinator {
         }
 
         if (raw.targetType() == CommentTargetType.SCREEN_TITLE) {
-            Optional<ScreenTitle> titleOpt = screenTitleRepositoryPort.findById(raw.targetId());
-            if (titleOpt.isEmpty()) {
-                return AdminCommentReportContextNavigationDTO.unavailable(reportId);
-            }
-            ScreenTitle title = titleOpt.get();
-            if (!title.isPublished()) {
-                return AdminCommentReportContextNavigationDTO.unavailable(reportId);
-            }
-            if (title.getSlug() == null || title.getSlug().isBlank()) {
+            Optional<ScreenTitleNavigationDTO> navOpt = screenDiscussionContract.findPublishedNavigationByTitleId(raw.targetId());
+            if (navOpt.isEmpty()) {
                 return AdminCommentReportContextNavigationDTO.unavailable(reportId);
             }
             return AdminCommentReportContextNavigationDTO.available(
@@ -165,7 +158,7 @@ public class AdminCommentReportContextNavigationCoordinator {
                     exactCommentId,
                     threadId,
                     CommentTargetType.SCREEN_TITLE,
-                    title.getSlug().trim(),
+                    navOpt.get().slug(),
                     null
             );
         }

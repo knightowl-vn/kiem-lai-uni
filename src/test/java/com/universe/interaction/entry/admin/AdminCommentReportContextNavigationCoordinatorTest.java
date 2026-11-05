@@ -12,8 +12,8 @@ import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.dto.ScreenTitleNavigationDTO;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +51,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
     private WikiArticleQueryPort wikiArticleQueryPort;
 
     @Mock
-    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private ScreenDiscussionContract screenDiscussionContract;
 
     private AdminCommentReportContextNavigationCoordinator coordinator;
 
@@ -69,7 +69,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                 getReportDetailUseCase,
                 chapterListQueryPort,
                 wikiArticleQueryPort,
-                screenTitleRepositoryPort
+                screenDiscussionContract
         );
     }
 
@@ -80,21 +80,21 @@ class AdminCommentReportContextNavigationCoordinatorTest {
         @Test
         @DisplayName("Enforces non-null dependencies")
         void shouldEnforceNonNullDependencies() {
-            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(null, chapterListQueryPort, wikiArticleQueryPort, screenTitleRepositoryPort))
+            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(null, chapterListQueryPort, wikiArticleQueryPort, screenDiscussionContract))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("GetInteractionReportDetailUseCase cannot be null");
 
-            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, null, wikiArticleQueryPort, screenTitleRepositoryPort))
+            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, null, wikiArticleQueryPort, screenDiscussionContract))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("ChapterListQueryPort cannot be null");
 
-            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, chapterListQueryPort, null, screenTitleRepositoryPort))
+            assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, chapterListQueryPort, null, screenDiscussionContract))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("WikiArticleQueryPort cannot be null");
 
             assertThatThrownBy(() -> new AdminCommentReportContextNavigationCoordinator(getReportDetailUseCase, chapterListQueryPort, wikiArticleQueryPort, null))
                     .isInstanceOf(NullPointerException.class)
-                    .hasMessageContaining("ScreenTitleRepositoryPort cannot be null");
+                    .hasMessageContaining("ScreenDiscussionContract cannot be null");
         }
 
         @Test
@@ -511,10 +511,8 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                     CommentStatus.ACTIVE
             ));
 
-            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-            when(screenTitle.isPublished()).thenReturn(true);
-            when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
-            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+            when(screenDiscussionContract.findPublishedNavigationByTitleId(screenTitleId))
+                    .thenReturn(Optional.of(new ScreenTitleNavigationDTO(screenTitleId, "kiem-lai-hoat-hoa")));
 
             AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
 
@@ -542,10 +540,8 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                     CommentStatus.ACTIVE
             ));
 
-            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-            when(screenTitle.isPublished()).thenReturn(true);
-            when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
-            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+            when(screenDiscussionContract.findPublishedNavigationByTitleId(screenTitleId))
+                    .thenReturn(Optional.of(new ScreenTitleNavigationDTO(screenTitleId, "kiem-lai-hoat-hoa")));
 
             AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
 
@@ -567,7 +563,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                     true,
                     CommentStatus.ACTIVE
             ));
-            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.empty());
+            when(screenDiscussionContract.findPublishedNavigationByTitleId(screenTitleId)).thenReturn(Optional.empty());
 
             AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
 
@@ -587,9 +583,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                     CommentStatus.ACTIVE
             ));
 
-            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-            when(screenTitle.isPublished()).thenReturn(false);
-            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+            when(screenDiscussionContract.findPublishedNavigationByTitleId(screenTitleId)).thenReturn(Optional.empty());
 
             AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
 
@@ -608,10 +602,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                     CommentStatus.ACTIVE
             ));
 
-            ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-            when(screenTitle.isPublished()).thenReturn(true);
-            when(screenTitle.getSlug()).thenReturn("   ");
-            when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+            when(screenDiscussionContract.findPublishedNavigationByTitleId(screenTitleId)).thenReturn(Optional.empty());
 
             AdminCommentReportContextNavigationDTO nav = coordinator.resolveNavigation(reportId);
 

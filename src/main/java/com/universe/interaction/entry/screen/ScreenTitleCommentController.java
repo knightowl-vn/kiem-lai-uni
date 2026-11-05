@@ -35,10 +35,7 @@ import com.universe.interaction.entry.dto.CreateCommentRequest;
 import com.universe.interaction.entry.dto.EditCommentRequest;
 import com.universe.interaction.entry.dto.SubmitCommentReportRequest;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
-import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
-import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,8 +68,7 @@ public class ScreenTitleCommentController {
     private static final Logger log = LoggerFactory.getLogger(ScreenTitleCommentController.class);
     private static final int MAX_PAGE_SIZE = 50;
 
-    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
-    private final ScreenEntryRepositoryPort screenEntryRepositoryPort;
+    private final ScreenDiscussionContract screenDiscussionContract;
     private final ScreenTitleDiscussionQueryCoordinator screenTitleDiscussionQueryCoordinator;
     private final CreateRootCommentUseCase createRootCommentUseCase;
     private final ReplyCommentUseCase replyCommentUseCase;
@@ -83,8 +79,7 @@ public class ScreenTitleCommentController {
     private final SubmitCommentReportUseCase submitCommentReportUseCase;
 
     public ScreenTitleCommentController(
-            ScreenTitleRepositoryPort screenTitleRepositoryPort,
-            ScreenEntryRepositoryPort screenEntryRepositoryPort,
+            ScreenDiscussionContract screenDiscussionContract,
             ScreenTitleDiscussionQueryCoordinator screenTitleDiscussionQueryCoordinator,
             CreateRootCommentUseCase createRootCommentUseCase,
             ReplyCommentUseCase replyCommentUseCase,
@@ -94,8 +89,7 @@ public class ScreenTitleCommentController {
             GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase,
             SubmitCommentReportUseCase submitCommentReportUseCase
     ) {
-        this.screenTitleRepositoryPort = Objects.requireNonNull(screenTitleRepositoryPort, "ScreenTitleRepositoryPort cannot be null.");
-        this.screenEntryRepositoryPort = Objects.requireNonNull(screenEntryRepositoryPort, "ScreenEntryRepositoryPort cannot be null.");
+        this.screenDiscussionContract = Objects.requireNonNull(screenDiscussionContract, "ScreenDiscussionContract cannot be null.");
         this.screenTitleDiscussionQueryCoordinator = Objects.requireNonNull(screenTitleDiscussionQueryCoordinator, "ScreenTitleDiscussionQueryCoordinator cannot be null.");
         this.createRootCommentUseCase = Objects.requireNonNull(createRootCommentUseCase, "CreateRootCommentUseCase cannot be null.");
         this.replyCommentUseCase = Objects.requireNonNull(replyCommentUseCase, "ReplyCommentUseCase cannot be null.");
@@ -311,15 +305,14 @@ public class ScreenTitleCommentController {
     }
 
     private void ensurePublishedTitle(UUID titleId) {
-        screenTitleRepositoryPort.findPublishedById(titleId)
-                .orElseThrow(() -> new PublishedScreenTitleNotFoundException(titleId.toString()));
+        if (!screenDiscussionContract.isPublishedTitle(titleId)) {
+            throw new CommentTargetNotEligibleException("ScreenTitle is not published: " + titleId);
+        }
     }
 
     private void validateOriginScreenEntry(UUID titleId, UUID entryId) {
-        ScreenEntry entry = screenEntryRepositoryPort.findPublishedById(entryId)
-                .orElseThrow(() -> new IllegalArgumentException("Origin ScreenEntry does not exist or is not published: " + entryId));
-        if (!entry.getTitleId().equals(titleId)) {
-            throw new IllegalArgumentException("Origin ScreenEntry does not belong to the specified ScreenTitle: " + entryId);
+        if (!screenDiscussionContract.isValidPublishedOrigin(titleId, entryId)) {
+            throw new IllegalArgumentException("Origin ScreenEntry does not exist or is not published for ScreenTitle: " + entryId);
         }
     }
 
@@ -336,11 +329,6 @@ public class ScreenTitleCommentController {
         if (body.length() > 2000) {
             throw new IllegalArgumentException("Comment body exceeds maximum allowed length of 2000 characters");
         }
-    }
-
-    @ExceptionHandler(PublishedScreenTitleNotFoundException.class)
-    public ResponseEntity<Void> handlePublishedScreenTitleNotFound(PublishedScreenTitleNotFoundException ex) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
     @ExceptionHandler(CommentNotFoundException.class)

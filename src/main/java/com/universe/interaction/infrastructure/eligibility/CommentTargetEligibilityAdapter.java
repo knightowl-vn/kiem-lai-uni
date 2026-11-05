@@ -5,7 +5,7 @@ import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import org.springframework.stereotype.Component;
 
@@ -30,13 +30,13 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
     private final CommunityPostQueryPort communityPostQueryPort;
-    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private final ScreenDiscussionContract screenDiscussionContract;
 
     public CommentTargetEligibilityAdapter(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
             WikiArticleQueryPort wikiArticleQueryPort,
             CommunityPostQueryPort communityPostQueryPort,
-            ScreenTitleRepositoryPort screenTitleRepositoryPort
+            ScreenDiscussionContract screenDiscussionContract
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(
                 readerChapterAccessQueryPort,
@@ -50,9 +50,9 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
                 communityPostQueryPort,
                 "CommunityPostQueryPort cannot be null."
         );
-        this.screenTitleRepositoryPort = Objects.requireNonNull(
-                screenTitleRepositoryPort,
-                "ScreenTitleRepositoryPort cannot be null."
+        this.screenDiscussionContract = Objects.requireNonNull(
+                screenDiscussionContract,
+                "ScreenDiscussionContract cannot be null."
         );
     }
 
@@ -95,6 +95,6 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
         if (titleId == null) {
             return false;
         }
-        return screenTitleRepositoryPort.findPublishedById(titleId).isPresent();
+        return screenDiscussionContract.isPublishedTitle(titleId);
     }
 }

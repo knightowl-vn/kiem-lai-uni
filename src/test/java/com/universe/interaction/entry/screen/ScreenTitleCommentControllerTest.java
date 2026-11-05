@@ -11,6 +11,7 @@ import com.universe.identity.infrastructure.security.CustomAuthenticationFailure
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.interaction.application.exceptions.CommentMutationForbiddenException;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
+import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
 import com.universe.interaction.application.exceptions.CommentThreadIntegrityException;
 import com.universe.interaction.application.exceptions.SelfReportNotAllowedException;
 import com.universe.interaction.application.mutation.CreateRootCommentUseCase;
@@ -33,13 +34,7 @@ import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
-import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
-import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenEntry;
-import com.universe.screen.domain.ScreenEntryType;
-import com.universe.screen.domain.ScreenPublicationStatus;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.shared.security.AuthenticatedEmailResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
@@ -123,10 +118,7 @@ class ScreenTitleCommentControllerTest {
     private AuthenticatedEmailResolver authenticatedEmailResolver;
 
     @MockBean
-    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
-
-    @MockBean
-    private ScreenEntryRepositoryPort screenEntryRepositoryPort;
+    private ScreenDiscussionContract screenDiscussionContract;
 
     @MockBean
     private ScreenTitleDiscussionQueryCoordinator screenTitleDiscussionQueryCoordinator;
@@ -217,7 +209,7 @@ class ScreenTitleCommentControllerTest {
     void guestReadingCommentsFeedOnUnpublishedTitleReturns404() throws Exception {
         when(screenTitleDiscussionQueryCoordinator.getDiscussionFeed(
                 eq(TITLE_ID), any(Integer.class), any(Integer.class), any(), any()
-        )).thenThrow(new PublishedScreenTitleNotFoundException(TITLE_ID.toString()));
+        )).thenThrow(new CommentTargetNotEligibleException("ScreenTitle is not published: " + TITLE_ID));
 
         mockMvc.perform(get("/api/screen/titles/{titleId}/comments", TITLE_ID)
                         .accept(MediaType.APPLICATION_JSON))
@@ -257,8 +249,7 @@ class ScreenTitleCommentControllerTest {
     @WithAnonymousUser
     @DisplayName("Guest can list comment revisions for published title")
     void guestCanListCommentRevisionsForPublishedTitle() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         CommentRevision rev = new CommentRevision(
                 UUID.randomUUID(),
@@ -284,7 +275,7 @@ class ScreenTitleCommentControllerTest {
     @WithAnonymousUser
     @DisplayName("Guest reading revisions on non-existent or unpublished title returns 404")
     void guestReadingRevisionsOnUnpublishedTitleReturns404() throws Exception {
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.empty());
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(false);
 
         mockMvc.perform(get("/api/screen/titles/{titleId}/comments/{commentId}/revisions", TITLE_ID, ROOT_COMMENT_ID)
                         .accept(MediaType.APPLICATION_JSON))
@@ -371,8 +362,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Authenticated user can post root comment on published title")
     void authenticatedUserCanPostRootComment() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         Comment created = Comment.createRoot(
                 ROOT_COMMENT_ID,
@@ -396,8 +386,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Authenticated user can reply to comment on published title")
     void authenticatedUserCanReplyComment() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         Comment root = Comment.createRoot(
                 ROOT_COMMENT_ID,
@@ -431,13 +420,8 @@ class ScreenTitleCommentControllerTest {
     @DisplayName("Authenticated user can post root comment with valid episode origin")
     void authenticatedUserCanPostRootCommentWithValidEpisodeOrigin() throws Exception {
         UUID entryId = UUID.randomUUID();
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
-
-        ScreenEntry mockEntry = Mockito.mock(ScreenEntry.class);
-        when(mockEntry.isPublished()).thenReturn(true);
-        when(mockEntry.getTitleId()).thenReturn(TITLE_ID);
-        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.of(mockEntry));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+        when(screenDiscussionContract.isValidPublishedOrigin(TITLE_ID, entryId)).thenReturn(true);
 
         Comment created = Comment.createRoot(
                 ROOT_COMMENT_ID,
@@ -463,9 +447,8 @@ class ScreenTitleCommentControllerTest {
     @DisplayName("Post root comment with invalid originScreenEntry fails with Bad Request")
     void postRootCommentWithInvalidOriginScreenEntryFailsBadRequest() throws Exception {
         UUID entryId = UUID.randomUUID();
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
-        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.empty());
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+        when(screenDiscussionContract.isValidPublishedOrigin(TITLE_ID, entryId)).thenReturn(false);
 
         mockMvc.perform(post("/api/screen/titles/{titleId}/comments", TITLE_ID)
                         .with(csrf())
@@ -482,13 +465,8 @@ class ScreenTitleCommentControllerTest {
     @DisplayName("Authenticated user can reply comment with valid episode origin")
     void authenticatedUserCanReplyCommentWithValidEpisodeOrigin() throws Exception {
         UUID entryId = UUID.randomUUID();
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
-
-        ScreenEntry mockEntry = Mockito.mock(ScreenEntry.class);
-        when(mockEntry.isPublished()).thenReturn(true);
-        when(mockEntry.getTitleId()).thenReturn(TITLE_ID);
-        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.of(mockEntry));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+        when(screenDiscussionContract.isValidPublishedOrigin(TITLE_ID, entryId)).thenReturn(true);
 
         Comment root = Comment.createRoot(
                 ROOT_COMMENT_ID,
@@ -521,9 +499,8 @@ class ScreenTitleCommentControllerTest {
     @DisplayName("Reply comment with unpublished originScreenEntry fails with Bad Request")
     void replyCommentWithUnpublishedOriginScreenEntryFailsBadRequest() throws Exception {
         UUID entryId = UUID.randomUUID();
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
-        when(screenEntryRepositoryPort.findPublishedById(entryId)).thenReturn(Optional.empty());
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+        when(screenDiscussionContract.isValidPublishedOrigin(TITLE_ID, entryId)).thenReturn(false);
 
         mockMvc.perform(post("/api/screen/titles/{titleId}/comments/{parentCommentId}/replies", TITLE_ID, ROOT_COMMENT_ID)
                         .with(csrf())
@@ -539,8 +516,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Authenticated author can edit their comment")
     void authenticatedAuthorCanEditComment() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
         when(editCommentUseCase.execute(any())).thenReturn(Mockito.mock(Comment.class));
 
         mockMvc.perform(patch("/api/screen/titles/{titleId}/comments/{commentId}", TITLE_ID, ROOT_COMMENT_ID)
@@ -557,8 +533,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Authenticated author can delete their comment")
     void authenticatedAuthorCanDeleteComment() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
         doNothing().when(deleteCommentUseCase).execute(any());
 
         mockMvc.perform(delete("/api/screen/titles/{titleId}/comments/{commentId}", TITLE_ID, ROOT_COMMENT_ID)
@@ -573,8 +548,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Authenticated user can report a comment on published title")
     void authenticatedUserCanReportComment() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
@@ -610,7 +584,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Mutation on unpublished title returns 404")
     void mutationOnUnpublishedTitleReturns404() throws Exception {
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.empty());
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(false);
 
         mockMvc.perform(post("/api/screen/titles/{titleId}/comments", TITLE_ID)
                         .with(csrf())
@@ -624,8 +598,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Cross-target comment mutation throws CommentThreadIntegrityException: returns 400")
     void crossTargetCommentMutationReturns400() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         doThrow(new CommentThreadIntegrityException("Comment does not belong to this ScreenTitle"))
                 .when(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, CommentTarget.screenTitle(TITLE_ID));
@@ -640,8 +613,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Non-author edit throws CommentMutationForbiddenException: returns 403")
     void nonAuthorEditCommentReturns403() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         doThrow(new CommentMutationForbiddenException("Only author can edit comment"))
                 .when(editCommentUseCase).execute(any());
@@ -658,8 +630,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Non-author delete throws CommentMutationForbiddenException: returns 403")
     void nonAuthorDeleteCommentReturns403() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         doThrow(new CommentMutationForbiddenException("Only author can delete comment"))
                 .when(deleteCommentUseCase).execute(any());
@@ -674,8 +645,7 @@ class ScreenTitleCommentControllerTest {
     @WithMockUser(username = "screen_fan", roles = "USER")
     @DisplayName("Self-report throws SelfReportNotAllowedException: returns 400")
     void selfReportReturns400() throws Exception {
-        ScreenTitle mockTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitleRepositoryPort.findPublishedById(TITLE_ID)).thenReturn(Optional.of(mockTitle));
+        when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
 
         doThrow(new SelfReportNotAllowedException("Users cannot report their own comments"))
                 .when(submitCommentReportUseCase).execute(any());

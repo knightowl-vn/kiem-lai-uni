@@ -10,10 +10,8 @@ import com.universe.interaction.entry.admin.dto.AdminCommentReportTargetDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportUserDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
-import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenEntry;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.dto.ScreenTitleReportTargetDTO;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.springframework.stereotype.Service;
@@ -45,23 +43,20 @@ public class AdminCommentReportDetailCoordinator {
     private final UserIdentityContract userIdentityContract;
     private final ChapterListQueryPort chapterListQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
-    private final ScreenTitleRepositoryPort screenTitleRepositoryPort;
-    private final ScreenEntryRepositoryPort screenEntryRepositoryPort;
+    private final ScreenDiscussionContract screenDiscussionContract;
 
     public AdminCommentReportDetailCoordinator(
             GetInteractionReportDetailUseCase getReportDetailUseCase,
             UserIdentityContract userIdentityContract,
             ChapterListQueryPort chapterListQueryPort,
             WikiArticleQueryPort wikiArticleQueryPort,
-            ScreenTitleRepositoryPort screenTitleRepositoryPort,
-            ScreenEntryRepositoryPort screenEntryRepositoryPort
+            ScreenDiscussionContract screenDiscussionContract
     ) {
         this.getReportDetailUseCase = Objects.requireNonNull(getReportDetailUseCase, "GetInteractionReportDetailUseCase cannot be null");
         this.userIdentityContract = Objects.requireNonNull(userIdentityContract, "UserIdentityContract cannot be null");
         this.chapterListQueryPort = Objects.requireNonNull(chapterListQueryPort, "ChapterListQueryPort cannot be null");
         this.wikiArticleQueryPort = Objects.requireNonNull(wikiArticleQueryPort, "WikiArticleQueryPort cannot be null");
-        this.screenTitleRepositoryPort = Objects.requireNonNull(screenTitleRepositoryPort, "ScreenTitleRepositoryPort cannot be null");
-        this.screenEntryRepositoryPort = Objects.requireNonNull(screenEntryRepositoryPort, "ScreenEntryRepositoryPort cannot be null");
+        this.screenDiscussionContract = Objects.requireNonNull(screenDiscussionContract, "ScreenDiscussionContract cannot be null");
     }
 
     /**
@@ -117,13 +112,10 @@ public class AdminCommentReportDetailCoordinator {
                 );
                 target = AdminCommentReportTargetDTO.forWikiArticle(raw.targetId(), articles.get(raw.targetId()));
             } else if (raw.targetType() == CommentTargetType.SCREEN_TITLE) {
-                ScreenTitle title = screenTitleRepositoryPort.findById(raw.targetId()).orElse(null);
+                ScreenTitleReportTargetDTO title = screenDiscussionContract.findReportTargetTitleById(raw.targetId()).orElse(null);
                 String episodeBadge = null;
                 if (raw.originScreenEntryId() != null) {
-                    ScreenEntry entry = screenEntryRepositoryPort.findById(raw.originScreenEntryId()).orElse(null);
-                    if (entry != null) {
-                        episodeBadge = formatEntryBadge(entry);
-                    }
+                    episodeBadge = screenDiscussionContract.findEntryBadgeForReport(raw.targetId(), raw.originScreenEntryId()).orElse(null);
                 }
                 target = AdminCommentReportTargetDTO.forScreenTitle(raw.targetId(), title, episodeBadge);
             } else {
@@ -165,17 +157,5 @@ public class AdminCommentReportDetailCoordinator {
             return AdminCommentReportUserDTO.resolved(userId, profile.displayName(), profile.avatarUrl());
         }
         return AdminCommentReportUserDTO.unresolved(userId);
-    }
-
-    private String formatEntryBadge(ScreenEntry entry) {
-        if (entry == null || entry.getType() == null) {
-            return "";
-        }
-        return switch (entry.getType()) {
-            case EPISODE -> "Tập " + (entry.getNumber() != null ? entry.getNumber() : "");
-            case FEATURE -> "Bản chiếu chính";
-            case SPECIAL -> entry.getNumber() != null ? "Ngoại truyện " + entry.getNumber() : "Ngoại truyện";
-            case TRAILER -> entry.getNumber() != null ? "Trailer " + entry.getNumber() : "Trailer";
-        };
     }
 }

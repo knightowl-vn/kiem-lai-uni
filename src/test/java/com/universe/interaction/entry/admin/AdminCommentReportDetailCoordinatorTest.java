@@ -14,12 +14,8 @@ import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
-import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenEntry;
-import com.universe.screen.domain.ScreenEntryType;
-import com.universe.screen.domain.ScreenPublicationStatus;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.dto.ScreenTitleReportTargetDTO;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,10 +59,7 @@ class AdminCommentReportDetailCoordinatorTest {
     private WikiArticleQueryPort wikiArticleQueryPort;
 
     @Mock
-    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
-
-    @Mock
-    private ScreenEntryRepositoryPort screenEntryRepositoryPort;
+    private ScreenDiscussionContract screenDiscussionContract;
 
     @Captor
     private ArgumentCaptor<Set<UUID>> userIdsCaptor;
@@ -91,8 +84,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 userIdentityContract,
                 chapterListQueryPort,
                 wikiArticleQueryPort,
-                screenTitleRepositoryPort,
-                screenEntryRepositoryPort
+                screenDiscussionContract
         );
     }
 
@@ -559,16 +551,12 @@ class AdminCommentReportDetailCoordinatorTest {
                 authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
         ));
 
-        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
-        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
-        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
-        when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
-
-        ScreenEntry entry = Mockito.mock(ScreenEntry.class);
-        when(entry.getType()).thenReturn(ScreenEntryType.EPISODE);
-        when(entry.getNumber()).thenReturn(1);
-        when(screenEntryRepositoryPort.findById(screenEntryId)).thenReturn(Optional.of(entry));
+        when(screenDiscussionContract.findReportTargetTitleById(screenTitleId)).thenReturn(
+                Optional.of(new ScreenTitleReportTargetDTO(screenTitleId, "Kiếm Lai Hoạt Họa", "kiem-lai-hoat-hoa", "PUBLISHED", true))
+        );
+        when(screenDiscussionContract.findEntryBadgeForReport(screenTitleId, screenEntryId)).thenReturn(
+                Optional.of("Tập 1")
+        );
 
         AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
 
@@ -621,11 +609,9 @@ class AdminCommentReportDetailCoordinatorTest {
                 authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
         ));
 
-        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
-        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
-        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
-        when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.of(screenTitle));
+        when(screenDiscussionContract.findReportTargetTitleById(screenTitleId)).thenReturn(
+                Optional.of(new ScreenTitleReportTargetDTO(screenTitleId, "Kiếm Lai Hoạt Họa", "kiem-lai-hoat-hoa", "PUBLISHED", true))
+        );
 
         AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
 
@@ -635,7 +621,7 @@ class AdminCommentReportDetailCoordinatorTest {
         assertThat(detail.target().title()).isEqualTo("Kiếm Lai Hoạt Họa");
         assertThat(detail.target().episodeBadge()).isNull();
 
-        verify(screenEntryRepositoryPort, never()).findById(any());
+        verify(screenDiscussionContract, never()).findEntryBadgeForReport(any(), any());
     }
 
     @Test
@@ -672,7 +658,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
                 authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
         ));
-        when(screenTitleRepositoryPort.findById(screenTitleId)).thenReturn(Optional.empty());
+        when(screenDiscussionContract.findReportTargetTitleById(screenTitleId)).thenReturn(Optional.empty());
 
         AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
 

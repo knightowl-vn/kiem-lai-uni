@@ -18,9 +18,8 @@ import com.universe.interaction.entry.admin.dto.AdminCommentReportQueueItemDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
-import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
-import com.universe.screen.domain.ScreenPublicationStatus;
-import com.universe.screen.domain.ScreenTitle;
+import com.universe.screen.contracts.dto.ScreenTitleReportTargetDTO;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +60,7 @@ class AdminCommentReportQueueCoordinatorTest {
     private WikiArticleQueryPort wikiArticleQueryPort;
 
     @Mock
-    private ScreenTitleRepositoryPort screenTitleRepositoryPort;
+    private ScreenDiscussionContract screenDiscussionContract;
 
     private AdminCommentReportQueueCoordinator coordinator;
 
@@ -81,20 +80,20 @@ class AdminCommentReportQueueCoordinatorTest {
                 userIdentityContract,
                 chapterListQueryPort,
                 wikiArticleQueryPort,
-                screenTitleRepositoryPort
+                screenDiscussionContract
         );
     }
 
     @Test
     @DisplayName("Constructor enforces non-null dependencies")
     void constructorEnforcesDependencies() {
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(null, userIdentityContract, chapterListQueryPort, wikiArticleQueryPort, screenTitleRepositoryPort))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(null, userIdentityContract, chapterListQueryPort, wikiArticleQueryPort, screenDiscussionContract))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, null, chapterListQueryPort, wikiArticleQueryPort, screenTitleRepositoryPort))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, null, chapterListQueryPort, wikiArticleQueryPort, screenDiscussionContract))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, null, wikiArticleQueryPort, screenTitleRepositoryPort))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, null, wikiArticleQueryPort, screenDiscussionContract))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, chapterListQueryPort, null, screenTitleRepositoryPort))
+        assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, chapterListQueryPort, null, screenDiscussionContract))
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> new AdminCommentReportQueueCoordinator(queueQueryPort, userIdentityContract, chapterListQueryPort, wikiArticleQueryPort, null))
                 .isInstanceOf(NullPointerException.class);
@@ -496,13 +495,8 @@ class AdminCommentReportQueueCoordinatorTest {
                 authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
         ));
 
-        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
-        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
-        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
-
-        when(screenTitleRepositoryPort.findTitlesByIds(Set.of(screenTitleId)))
-                .thenReturn(Map.of(screenTitleId, screenTitle));
+        when(screenDiscussionContract.findReportTargetTitlesByIds(Set.of(screenTitleId)))
+                .thenReturn(Map.of(screenTitleId, new ScreenTitleReportTargetDTO(screenTitleId, "Kiếm Lai Hoạt Họa", "kiem-lai-hoat-hoa", "PUBLISHED", true)));
 
         AdminCommentReportQueuePageDTO result = coordinator.getReportQueue(defaultFilter);
 
@@ -541,7 +535,7 @@ class AdminCommentReportQueueCoordinatorTest {
                 reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null, "reporter"),
                 authorId, new UserPublicProfileDTO(authorId, "Author", null, "author")
         ));
-        when(screenTitleRepositoryPort.findTitlesByIds(Set.of(screenTitleId))).thenReturn(Map.of());
+        when(screenDiscussionContract.findReportTargetTitlesByIds(Set.of(screenTitleId))).thenReturn(Map.of());
 
         AdminCommentReportQueuePageDTO result = coordinator.getReportQueue(defaultFilter);
 
@@ -595,12 +589,8 @@ class AdminCommentReportQueueCoordinatorTest {
         when(wikiArticleQueryPort.findListItemsByIds(Set.of(articleId))).thenReturn(Map.of(
                 articleId, new WikiArticleListItemDTO(articleId, "Trần Bình An", "tran-binh-an", "CHARACTER", "PUBLISHED", UUID.randomUUID(), Instant.now(), Instant.now(), 1L)
         ));
-        ScreenTitle screenTitle = Mockito.mock(ScreenTitle.class);
-        when(screenTitle.getTitle()).thenReturn("Kiếm Lai Hoạt Họa");
-        when(screenTitle.getSlug()).thenReturn("kiem-lai-hoat-hoa");
-        when(screenTitle.getStatus()).thenReturn(ScreenPublicationStatus.PUBLISHED);
-        when(screenTitleRepositoryPort.findTitlesByIds(Set.of(screenTitleId)))
-                .thenReturn(Map.of(screenTitleId, screenTitle));
+        when(screenDiscussionContract.findReportTargetTitlesByIds(Set.of(screenTitleId)))
+                .thenReturn(Map.of(screenTitleId, new ScreenTitleReportTargetDTO(screenTitleId, "Kiếm Lai Hoạt Họa", "kiem-lai-hoat-hoa", "PUBLISHED", true)));
 
         AdminCommentReportQueuePageDTO result = coordinator.getReportQueue(defaultFilter);
 
