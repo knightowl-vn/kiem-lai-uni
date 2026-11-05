@@ -9,6 +9,7 @@ import com.universe.media.application.storage.MediaUploadSessionService;
 import com.universe.media.application.storage.StorageKeyAllocationService;
 import com.universe.media.domain.MediaUploadSession;
 import com.universe.media.domain.MediaUploadSessionStatus;
+import com.universe.media.domain.StorageProviderId;
 import com.universe.screen.infrastructure.persistence.ScreenTestDatabaseTargetGuard;
 import com.universe.shared.time.ClockPort;
 import com.universe.test.TestDatabaseSupport;
@@ -121,7 +122,12 @@ class MediaUploadSessionInitiationMySQLIntegrationTest {
 
         @Bean
         public MultipartStoragePort multipartStoragePort() {
-            return org.mockito.Mockito.mock(MultipartStoragePort.class);
+            return org.mockito.Mockito.mock(MultipartStoragePort.class, invocation -> {
+                if ("providerId".equals(invocation.getMethod().getName())) {
+                    return StorageProviderId.of("b2");
+                }
+                return org.mockito.Mockito.RETURNS_DEFAULTS.answer(invocation);
+            });
         }
     }
 
@@ -147,7 +153,10 @@ class MediaUploadSessionInitiationMySQLIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        lifecycleCoordinator.resetForNewTest(() -> reset(multipartStoragePort));
+        lifecycleCoordinator.resetForNewTest(() -> {
+            reset(multipartStoragePort);
+            org.mockito.Mockito.lenient().when(multipartStoragePort.providerId()).thenReturn(StorageProviderId.of("b2"));
+        });
     }
 
     @AfterEach

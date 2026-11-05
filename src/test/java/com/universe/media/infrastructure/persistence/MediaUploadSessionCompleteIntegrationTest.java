@@ -145,7 +145,12 @@ class MediaUploadSessionCompleteIntegrationTest {
 
         @Bean
         public MultipartStoragePort multipartStoragePort() {
-            return Mockito.mock(MultipartStoragePort.class);
+            return Mockito.mock(MultipartStoragePort.class, invocation -> {
+                if ("providerId".equals(invocation.getMethod().getName())) {
+                    return StorageProviderId.of("b2");
+                }
+                return Mockito.RETURNS_DEFAULTS.answer(invocation);
+            });
         }
     }
 
@@ -206,6 +211,7 @@ class MediaUploadSessionCompleteIntegrationTest {
                 storageKeyAllocationService,
                 mediaUploadSessionPersistenceAdapter
         );
+        Mockito.lenient().when(multipartStoragePort.providerId()).thenReturn(B2_PROVIDER);
 
         // Fixture-specific real persistence spy tracking:
         // Automatically capture every MediaAsset ID saved through the real persistence adapter
