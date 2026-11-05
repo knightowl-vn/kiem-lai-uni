@@ -114,6 +114,7 @@ class UpdatePublishedWikiArticleTransactionalAtomicityIntegrationTest {
     }
 
     private void cleanupDatabase() {
+        jdbcTemplate.execute("DELETE FROM wiki_contribution_credits");
         jdbcTemplate.execute("DELETE FROM wiki_contribution_workflow_events");
         jdbcTemplate.execute("DELETE FROM wiki_contribution_sources");
         jdbcTemplate.execute("DELETE FROM wiki_contributions");
