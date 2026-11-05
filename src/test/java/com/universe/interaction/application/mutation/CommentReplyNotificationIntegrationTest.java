@@ -27,6 +27,7 @@ import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.SystemClockAdapter;
 import com.universe.test.TestDatabaseSupport;
 import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.notification.contracts.command.NotificationDispatchCommand;
 import com.universe.notification.contracts.port.NotificationDispatchPort;
@@ -122,6 +123,9 @@ class CommentReplyNotificationIntegrationTest {
 
     @MockBean
     private CommunityPostInteractionMutationPort communityPostInteractionMutationPort;
+
+    @MockBean
+    private ScreenDiscussionContract screenDiscussionContract;
 
     @Autowired
     private CreateRootCommentUseCase createRootCommentUseCase;

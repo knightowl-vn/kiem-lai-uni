@@ -84,6 +84,7 @@ class CommentFlywayRuntimeVerificationTest {
                 "author_user_id",
                 "parent_comment_id",
                 "thread_root_comment_id",
+                "origin_screen_entry_id",
                 "body",
                 "status",
                 "created_at",

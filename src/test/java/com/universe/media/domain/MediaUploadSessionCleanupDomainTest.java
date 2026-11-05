@@ -255,7 +255,7 @@ class MediaUploadSessionCleanupDomainTest {
         @Test
         @DisplayName("Rejects candidate when providerUploadId is blank")
         void rejectsBlankProviderUploadId() {
-            MediaUploadSession session = createSession(
+            assertThatThrownBy(() -> createSession(
                     MediaUploadSessionStatus.ABORTED,
                     UploadSessionCleanupStatus.PENDING,
                     "   ",
@@ -265,12 +265,9 @@ class MediaUploadSessionCleanupDomainTest {
                     null,
                     null,
                     0
-            );
-
-            assertThat(session.isLocallyEligibleForCleanup(T1)).isFalse();
-            assertThatThrownBy(() -> session.validateLocalCleanupEligibility(T1))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("providerUploadId is missing or blank");
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Upload session field [providerUploadId] must not be blank.");
         }
 
         @Test

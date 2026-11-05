@@ -15,6 +15,7 @@ import com.universe.interaction.infrastructure.persistence.InteractionReportPers
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
 import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
+import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.notification.infrastructure.persistence.NotificationPersistenceAdapter;
 import com.universe.novel.infrastructure.persistence.reader.ReaderChapterAccessQueryPersistenceAdapter;
@@ -109,6 +110,9 @@ class CommentMutationSpringWiringIntegrationTest {
 
     @MockBean
     private CommunityPostInteractionMutationPort communityPostInteractionMutationPort;
+
+    @MockBean
+    private ScreenDiscussionContract screenDiscussionContract;
 
     @Autowired
     private CommentRepositoryPort commentRepositoryPort;
