@@ -35,7 +35,7 @@
         </nav>
 
         <!-- Entry Detail Card -->
-        <article class="screen-entry-detail-card" aria-label="Thông tin chi tiết tập phim">
+        <article class="screen-entry-detail-card" aria-label="Thông tin chi tiết nội dung">
             <header class="screen-entry-detail-header">
                 <span class="screen-badge screen-badge--highlight" th:text="${entryDetail.displayHeading()}">Tập 1</span>
                 <h1 class="screen-entry-detail-title" th:text="${entryDetail.entryTitle}">Tên tập phim</h1>
@@ -76,14 +76,14 @@
                 <div class="screen-playback-notice-content">
                     <h2 class="screen-playback-notice-title">Trình phát video đang được hoàn thiện</h2>
                     <p class="screen-playback-notice-description">
-                        Tính năng xem video trực tuyến cho tập phim này sẽ sẵn sàng ở giai đoạn phát triển tiếp theo (MS-08G).
+                        Tính năng xem video trực tuyến cho nội dung này sẽ sẵn sàng ở giai đoạn phát triển tiếp theo (MS-08G).
                     </p>
                 </div>
             </div>
 
             <!-- Synopsis if present -->
             <div class="screen-entry-detail-synopsis" th:if="${entryDetail.entrySynopsis != null and !entryDetail.entrySynopsis.isBlank()}">
-                <h2 class="screen-entry-synopsis-label">Tóm tắt tập</h2>
+                <h2 class="screen-entry-synopsis-label">Tóm tắt</h2>
                 <p class="screen-entry-synopsis-text" th:text="${entryDetail.entrySynopsis}">
                     Nội dung tóm tắt của tập phim.
                 </p>

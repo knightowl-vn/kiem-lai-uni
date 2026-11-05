@@ -236,6 +236,12 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("Quốc gia:")))
                 .andExpect(content().string(containsString("Trung Quốc")))
                 .andExpect(content().string(containsString("Năm phát hành:")))
+                // Semantic tab button: FEATURE renders 'Bản phát hành', not 'Danh sách tập'
+                .andExpect(content().string(containsString("Bản phát hành")))
+                .andExpect(content().string(not(containsString("Danh sách tập"))))
+                .andExpect(content().string(containsString("Chưa có bản phát hành nào được xuất bản")))
+                .andExpect(content().string(not(containsString("Bản phim chính chưa được xuất bản"))))
+                .andExpect(content().string(containsString("title=\"Chưa có bản phát hành nào để xem\"")))
                 // Boundary: Director and Studio not rendered when null
                 .andExpect(content().string(not(containsString("Đạo diễn:"))))
                 .andExpect(content().string(not(containsString("Đơn vị sản xuất:"))))
@@ -425,5 +431,224 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("src=\"/js/shared/interaction-reactions.js\"")))
                 .andExpect(content().string(containsString("href=\"/css/shared/comments.css\"")))
                 .andExpect(content().string(containsString("src=\"/js/shared/comment-presentation.js\"")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: FEATURE title with main feature, specials, and trailers renders all in subgroups under 'Bản phát hành'")
+    void shouldRenderFeatureWithSpecialsAndTrailersInSubgroups() throws Exception {
+        UUID titleId = UUID.randomUUID();
+
+        PublicScreenEntryDTO feat = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "ban-chieu-chinh", ScreenEntryType.FEATURE, null,
+                "Bản Chiếu Rạp", "Bản phát hành chính thức", 7200L, null, true
+        );
+        PublicScreenEntryDTO sp = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "ngoai-truyen-1", ScreenEntryType.SPECIAL, 1,
+                "Ngoại truyện hậu trường", null, 900L, null, true
+        );
+        PublicScreenEntryDTO tr = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "trailer-chinh-thuc", ScreenEntryType.TRAILER, 1,
+                "Trailer chính thức", null, 150L, null, true
+        );
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-movie-full", "Kiếm Lai Điện Ảnh Bản Đầy Đủ", null,
+                "Mô tả phim điện ảnh.", ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null,
+                List.of(feat, sp, tr), List.of(),
+                ScreenAiringStatus.RELEASED, 2024, "Trung Quốc", "Phong Hỏa Hí Chư Hầu", null, null, 120
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-movie-full")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie-full"))
+                .andExpect(status().isOk())
+                // Tab label
+                .andExpect(content().string(containsString("Bản phát hành")))
+                .andExpect(content().string(not(containsString("Danh sách tập"))))
+                // Watch CTA points to main feature
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-movie-full/entries/ban-chieu-chinh\"")))
+                .andExpect(content().string(containsString("Xem ngay")))
+                // Feature chip
+                .andExpect(content().string(containsString("screen-feature-chip")))
+                .andExpect(content().string(containsString("Bản Chiếu Rạp")))
+                .andExpect(content().string(containsString("2:00:00")))
+                // Subgroups
+                .andExpect(content().string(containsString("Tập đặc biệt / Ngoại truyện")))
+                .andExpect(content().string(containsString("Ngoại truyện 1")))
+                .andExpect(content().string(containsString("Trailer & Teaser")))
+                .andExpect(content().string(containsString("Trailer 1")))
+                // No empty state and no unreleased-main-feature hint
+                .andExpect(content().string(not(containsString("Chưa có bản phát hành nào được xuất bản"))))
+                .andExpect(content().string(not(containsString("Bản phim chính chưa được xuất bản"))))
+                .andExpect(content().string(not(containsString("screen-feature-unreleased-hint"))));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: FEATURE with only trailer renders trailer subgroup and indicates main feature is unreleased")
+    void shouldRenderFeatureWithOnlyTrailerIndicatingUnreleasedMainFeature() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        PublicScreenEntryDTO tr = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "trailer-teaser", ScreenEntryType.TRAILER, 1,
+                "Teaser chính thức", null, 90L, null, true
+        );
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-movie-trailer-only", "Kiếm Lai Điện Ảnh Teaser", null,
+                "Mô tả phim điện ảnh sắp chiếu.", ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null,
+                List.of(tr), List.of(),
+                ScreenAiringStatus.UPCOMING, 2025, "Trung Quốc", "Phong Hỏa Hí Chư Hầu", null, null, 120
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-movie-trailer-only")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie-trailer-only"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Bản phát hành")))
+                .andExpect(content().string(containsString("Trailer & Teaser")))
+                .andExpect(content().string(containsString("Teaser chính thức")))
+                .andExpect(content().string(containsString("screen-feature-unreleased-hint")))
+                .andExpect(content().string(containsString("Bản phim chính chưa được xuất bản")))
+                .andExpect(content().string(not(containsString("Chưa có bản phát hành nào được xuất bản"))))
+                .andExpect(content().string(not(containsString("screen-feature-chip"))))
+                .andExpect(content().string(containsString("title=\"Chưa có bản phát hành nào để xem\"")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: FEATURE with only special renders special subgroup and indicates main feature is unreleased")
+    void shouldRenderFeatureWithOnlySpecialIndicatingUnreleasedMainFeature() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        PublicScreenEntryDTO sp = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "ngoai-truyen-movie", ScreenEntryType.SPECIAL, 1,
+                "Hậu trường đặc biệt", null, 600L, null, true
+        );
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-movie-special-only", "Kiếm Lai Điện Ảnh Hậu Trường", null,
+                "Mô tả hậu trường phim điện ảnh.", ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null,
+                List.of(sp), List.of(),
+                ScreenAiringStatus.UPCOMING, 2025, "Trung Quốc", "Phong Hỏa Hí Chư Hầu", null, null, 120
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-movie-special-only")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie-special-only"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Bản phát hành")))
+                .andExpect(content().string(containsString("Tập đặc biệt / Ngoại truyện")))
+                .andExpect(content().string(containsString("Hậu trường đặc biệt")))
+                .andExpect(content().string(containsString("screen-feature-unreleased-hint")))
+                .andExpect(content().string(containsString("Bản phim chính chưa được xuất bản")))
+                .andExpect(content().string(not(containsString("Chưa có bản phát hành nào được xuất bản"))))
+                .andExpect(content().string(not(containsString("screen-feature-chip"))))
+                .andExpect(content().string(containsString("title=\"Chưa có bản phát hành nào để xem\"")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: Renders ambient hero backdrop when present and gracefully omits when absent")
+    void shouldRenderAmbientBackdropWhenPresentAndOmitWhenAbsent() throws Exception {
+        UUID titleWithBackdropId = UUID.randomUUID();
+        UUID backdropMediaId = UUID.randomUUID();
+
+        PublicScreenTitleDetailDTO withBackdrop = new PublicScreenTitleDetailDTO(
+                titleWithBackdropId, "title-with-backdrop", "Tác Phẩm Có Backdrop", null,
+                "Mô tả tác phẩm.", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, backdropMediaId, now, 1, 12,
+                List.of(), List.of()
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("title-with-backdrop")).thenReturn(withBackdrop);
+
+        mockMvc.perform(get("/screen/title-with-backdrop"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("has-backdrop")))
+                .andExpect(content().string(containsString("screen-detail-backdrop-wrap")))
+                .andExpect(content().string(containsString("/media/assets/" + backdropMediaId + "/variants/w1200")))
+                .andExpect(content().string(containsString("/media/assets/" + backdropMediaId + "/content")))
+                .andExpect(content().string(containsString("data-fallback-src")))
+                .andExpect(content().string(containsString("onerror=")));
+
+        UUID titleWithoutBackdropId = UUID.randomUUID();
+        PublicScreenTitleDetailDTO withoutBackdrop = new PublicScreenTitleDetailDTO(
+                titleWithoutBackdropId, "title-no-backdrop", "Tác Phẩm Không Backdrop", null,
+                "Mô tả tác phẩm.", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now, 1, 12,
+                List.of(), List.of()
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("title-no-backdrop")).thenReturn(withoutBackdrop);
+
+        mockMvc.perform(get("/screen/title-no-backdrop"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("has-backdrop"))))
+                .andExpect(content().string(not(containsString("screen-detail-backdrop-wrap"))))
+                .andExpect(content().string(not(containsString("/variants/w1200"))));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: Renders clear informative hint when franchise contains only the current visible title")
+    void shouldRenderFranchiseEmptyHintWhenFranchiseHasOnlyCurrentTitle() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        UUID franchiseId = UUID.randomUUID();
+
+        PublicScreenFranchiseDTO franchise = new PublicScreenFranchiseDTO(
+                franchiseId, "Vũ Trụ Độc Bản", "vu-tru-doc-ban",
+                List.of(
+                        new PublicScreenFranchiseInstallmentDTO(titleId, "title-solo", "Tác Phẩm Độc Bản", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, true)
+                )
+        );
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "title-solo", "Tác Phẩm Độc Bản", null,
+                "Mô tả.", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null,
+                List.of(), List.of(franchise)
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("title-solo")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/title-solo"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("screen-franchise-section")))
+                .andExpect(content().string(containsString("Vũ Trụ Độc Bản")))
+                .andExpect(content().string(containsString("Đang xem")))
+                .andExpect(content().string(containsString("screen-franchise-empty-hint")))
+                .andExpect(content().string(containsString("Hiện chưa có phần phim liên kết nào khác trong franchise này.")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: Public entry detail route for FEATURE renders accurate non-episodic labels")
+    void shouldRenderFeatureEntryDetailWithProperTerminology() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        UUID entryId = UUID.randomUUID();
+
+        PublicScreenEntryDetailDTO featEntryDetail = new PublicScreenEntryDetailDTO(
+                titleId, "kiem-lai-movie", "Kiếm Lai Điện Ảnh", ScreenStructure.FEATURE,
+                entryId, "chieu-rap", ScreenEntryType.FEATURE, null,
+                "Bản Chiếu Rạp", "Nội dung tóm tắt bản chiếu rạp.",
+                7200L, null, true
+        );
+
+        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-movie", "chieu-rap")).thenReturn(featEntryDetail);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie/entries/chieu-rap"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Bản chiếu chính")))
+                .andExpect(content().string(containsString("Bản Chiếu Rạp")))
+                .andExpect(content().string(containsString("Quay lại tác phẩm:")))
+                .andExpect(content().string(containsString("Kiếm Lai Điện Ảnh")))
+                .andExpect(content().string(containsString("2:00:00")))
+                .andExpect(content().string(containsString("Tóm tắt</h2>")))
+                .andExpect(content().string(not(containsString("Tóm tắt tập</h2>"))))
+                .andExpect(content().string(containsString("Tính năng xem video trực tuyến cho nội dung này sẽ sẵn sàng")))
+                .andExpect(content().string(not(containsString("cho tập phim này"))));
     }
 }

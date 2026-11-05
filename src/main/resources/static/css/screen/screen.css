@@ -214,9 +214,15 @@
 
 /* Accessible Reduced-Motion Support */
 @media (prefers-reduced-motion: reduce) {
-    .screen-card-title-text {
+    .screen-card-title-text,
+    .screen-card-poster-wrap,
+    .screen-franchise-item,
+    .screen-episode-chip,
+    .screen-feature-chip,
+    .screen-detail-backdrop {
         transition: none !important;
         transform: none !important;
+        animation: none !important;
     }
 }
 
@@ -449,6 +455,7 @@
 
 /* --- Main Info Hero --- */
 .screen-detail-hero {
+    position: relative;
     display: grid;
     grid-template-columns: 240px 1fr;
     gap: 32px;
@@ -458,6 +465,121 @@
     padding: 28px;
     box-shadow: 0 2px 8px var(--shadow-color);
     margin-bottom: 36px;
+    overflow: hidden;
+}
+
+/* Ambient Hero Backdrop */
+.screen-detail-hero.has-backdrop {
+    background-color: #17191c;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.screen-detail-backdrop-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+    border-radius: 12px;
+    background-color: #17191c;
+}
+
+.screen-detail-backdrop {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    filter: blur(14px) brightness(0.3);
+    transform: scale(1.08);
+}
+
+.screen-detail-backdrop-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.4) 0%,
+        rgba(0, 0, 0, 0.65) 100%
+    );
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-poster-wrap,
+.screen-detail-hero.has-backdrop .screen-detail-info {
+    position: relative;
+    z-index: 1;
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-title {
+    color: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-original-title {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.screen-detail-hero.has-backdrop .screen-meta-label {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.screen-detail-hero.has-backdrop .screen-meta-value {
+    color: #ffffff;
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis {
+    border-top-color: rgba(255, 255, 255, 0.15);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis-label {
+    color: #ffffff;
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis-text {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis-empty {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.screen-detail-hero.has-backdrop .screen-badge {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.screen-detail-hero.has-backdrop .screen-badge--highlight {
+    background: rgba(26, 115, 232, 0.25);
+    color: #93c5fd;
+    border-color: rgba(26, 115, 232, 0.4);
+}
+
+.screen-detail-hero.has-backdrop .screen-badge--airing {
+    background: rgba(19, 115, 51, 0.25);
+    color: #86efac;
+    border-color: rgba(19, 115, 51, 0.4);
+}
+
+.screen-detail-hero.has-backdrop .screen-action-btn--secondary {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.screen-detail-hero.has-backdrop .screen-action-btn--disabled,
+.screen-detail-hero.has-backdrop .screen-action-btn[disabled] {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-poster-wrap {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-poster-placeholder {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
 }
 
 .screen-detail-poster-wrap {
@@ -816,6 +938,8 @@
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 500;
+    max-width: 100%;
+    box-sizing: border-box;
     transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -837,6 +961,7 @@
 
 .screen-franchise-item-title {
     line-height: 1.25;
+    word-break: break-word;
 }
 
 .screen-franchise-item-badge {
@@ -848,11 +973,20 @@
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.02em;
+    flex-shrink: 0;
 }
 
 .screen-franchise-item.is-current .screen-franchise-item-badge {
     background: var(--accent-color, #1a73e8);
     color: #ffffff;
+}
+
+.screen-franchise-empty-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 12px 0 0 0;
+    font-style: italic;
+    line-height: 1.45;
 }
 
 /* --- Published Entries Section --- */
@@ -1117,6 +1251,9 @@
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 600;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-break: break-word;
     transition: all 0.15s ease;
 }
 
@@ -1134,6 +1271,24 @@
     background: rgba(0, 0, 0, 0.06);
     padding: 2px 6px;
     border-radius: 4px;
+}
+
+/* Feature Main Release Unreleased Notice (when companion content exists) */
+.screen-feature-unreleased-hint {
+    padding: 14px 18px;
+    background: var(--surface-secondary);
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    margin-top: 12px;
+    margin-bottom: 20px;
+}
+
+.screen-feature-unreleased-text {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    margin: 0;
+    font-style: italic;
+    line-height: 1.5;
 }
 
 /* --- Public Episode / Entry Detail Page --- */
@@ -1678,6 +1833,23 @@
 }
 
 @media (max-width: 640px) {
+    .screen-detail-container {
+        padding: 16px 14px 48px;
+    }
+
+    .screen-franchise-section,
+    .screen-section-card,
+    .screen-content-tabs-section,
+    .screen-entries-section,
+    .screen-entry-detail-card {
+        padding: 18px 14px;
+    }
+
+    .screen-playback-notice {
+        padding: 14px 16px;
+        gap: 12px;
+    }
+
     .screen-detail-hero {
         grid-template-columns: 1fr;
         text-align: center;

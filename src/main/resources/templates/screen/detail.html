@@ -36,7 +36,18 @@
         </nav>
 
         <!-- A. Main Information Card (Hero) -->
-        <article class="screen-detail-hero" aria-label="Thông tin tác phẩm">
+        <article class="screen-detail-hero" th:classappend="${titleDetail.hasBackdrop()} ? ' has-backdrop' : ''" aria-label="Thông tin tác phẩm">
+            <!-- Ambient Backdrop if present -->
+            <div th:if="${titleDetail.hasBackdrop()}" class="screen-detail-backdrop-wrap" aria-hidden="true">
+                <img class="screen-detail-backdrop"
+                     th:src="${titleDetail.displayBackdropUrl()}"
+                     th:data-fallback-src="${titleDetail.fallbackBackdropUrl()}"
+                     alt=""
+                     loading="lazy"
+                     onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; }">
+                <div class="screen-detail-backdrop-overlay"></div>
+            </div>
+
             <!-- Left: Poster Column -->
             <div class="screen-detail-poster-wrap">
                 <img th:if="${titleDetail.posterMediaAssetId != null}"
@@ -132,7 +143,7 @@
                             class="screen-action-btn screen-action-btn--primary screen-action-btn--disabled"
                             disabled
                             aria-disabled="true"
-                            title="Chưa có tập phim nào để xem">
+                            th:title="${titleDetail.structure.name() == 'FEATURE' ? 'Chưa có bản phát hành nào để xem' : 'Chưa có tập phim nào để xem'}">
                         <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                             <path d="M8 5v14l11-7z"/>
                         </svg>
@@ -185,10 +196,13 @@
                         </a>
                     </th:block>
                 </nav>
+                <p th:if="${franchise.installments.size() == 1}" class="screen-franchise-empty-hint">
+                    Hiện chưa có phần phim liên kết nào khác trong franchise này.
+                </p>
             </section>
         </div>
 
-        <!-- C. Selectable Content: [Danh sách tập] [Nhân vật] (Horizontally Aligned Tabs) -->
+        <!-- C. Selectable Content: [Nội dung phát hành] [Nhân vật] (Horizontally Aligned Tabs) -->
         <section class="screen-content-tabs-section" aria-label="Nội dung chi tiết tác phẩm">
             <div class="screen-tabs-nav" role="tablist" aria-label="Chuyển đổi nội dung tác phẩm">
                 <button type="button"
@@ -197,7 +211,8 @@
                         role="tab"
                         aria-selected="true"
                         aria-controls="panel-episodes"
-                        tabindex="0">
+                        tabindex="0"
+                        th:text="${titleDetail.structure.name() == 'FEATURE' ? 'Bản phát hành' : 'Danh sách tập'}">
                     Danh sách tập
                 </button>
                 <button type="button"
@@ -263,6 +278,7 @@
 
                 <!-- Feature Entry Display -->
                 <div th:if="${titleDetail.structure.name() == 'FEATURE'}">
+                    <!-- Main Feature if published -->
                     <div th:if="${!titleDetail.features().isEmpty()}" class="screen-feature-container">
                         <a th:each="feat : ${titleDetail.features()}"
                            th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${feat.slug})}"
@@ -274,8 +290,41 @@
                             <span th:if="${feat.formattedDuration() != null}" class="screen-chip-duration" th:text="${feat.formattedDuration()}">120:00</span>
                         </a>
                     </div>
-                    <div th:if="${titleDetail.features().isEmpty()}" class="screen-section-empty-state">
-                        <p class="screen-empty-title">Bản phim chính chưa được xuất bản</p>
+
+                    <!-- Unreleased main feature notice when companion entries exist -->
+                    <div th:if="${titleDetail.features().isEmpty() and (!titleDetail.specials().isEmpty() or !titleDetail.trailers().isEmpty())}" class="screen-feature-unreleased-hint">
+                        <p class="screen-feature-unreleased-text">Bản phim chính chưa được xuất bản</p>
+                    </div>
+
+                    <!-- Specials if any -->
+                    <div th:if="${!titleDetail.specials().isEmpty()}" class="screen-entry-subgroup">
+                        <h3 class="screen-subsection-title">Tập đặc biệt / Ngoại truyện</h3>
+                        <div class="screen-episode-grid">
+                            <a th:each="sp : ${titleDetail.specials()}"
+                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${sp.slug})}"
+                               class="screen-episode-chip"
+                               th:title="${sp.title}">
+                                <span th:text="${sp.displayHeading()}">Ngoại truyện 1</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Trailers if any -->
+                    <div th:if="${!titleDetail.trailers().isEmpty()}" class="screen-entry-subgroup">
+                        <h3 class="screen-subsection-title">Trailer & Teaser</h3>
+                        <div class="screen-episode-grid">
+                            <a th:each="tr : ${titleDetail.trailers()}"
+                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${tr.slug})}"
+                               class="screen-episode-chip"
+                               th:title="${tr.title}">
+                                <span th:text="${tr.displayHeading()}">Trailer 1</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Full empty state: ONLY when features, specials, and trailers are ALL empty -->
+                    <div th:if="${titleDetail.features().isEmpty() and titleDetail.specials().isEmpty() and titleDetail.trailers().isEmpty()}" class="screen-section-empty-state">
+                        <p class="screen-empty-title">Chưa có bản phát hành nào được xuất bản</p>
                         <p class="screen-empty-description">Bản phát hành chính thức sẽ xuất hiện tại đây khi hoàn tất xử lý.</p>
                     </div>
                 </div>
