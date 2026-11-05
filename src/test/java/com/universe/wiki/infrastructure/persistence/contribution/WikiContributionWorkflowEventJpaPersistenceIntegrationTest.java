@@ -7,6 +7,7 @@ import com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome;
 import com.universe.wiki.domain.contribution.WikiContributionStatus;
 import com.universe.wiki.domain.contribution.WikiContributionType;
 import com.universe.wiki.domain.contribution.WikiContributionWorkflowEvent;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,9 @@ class WikiContributionWorkflowEventJpaPersistenceIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
-    void setUp() {
+    @AfterEach
+    void cleanUp() {
+        jdbcTemplate.execute("DELETE FROM wiki_contribution_credits");
         jdbcTemplate.execute("DELETE FROM wiki_contribution_workflow_events");
         jdbcTemplate.execute("DELETE FROM wiki_contribution_sources");
         jdbcTemplate.execute("DELETE FROM wiki_contributions");
