@@ -78,6 +78,8 @@ public class PublicScreenArchitectureTest {
                     .that().haveSimpleNameStartingWith("PublicScreenTitleDetailDTO")
                     .or().haveSimpleNameStartingWith("PublicScreenEntryDTO")
                     .or().haveSimpleNameStartingWith("PublicScreenEntryDetailDTO")
+                    .or().haveSimpleNameStartingWith("PublicScreenWatchDTO")
+                    .or().haveSimpleNameStartingWith("ScreenPlaybackDeliveryInfo")
                     .or().haveSimpleNameStartingWith("PublicScreenFranchise")
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "com.universe.media..",
@@ -98,6 +100,32 @@ public class PublicScreenArchitectureTest {
                             "com.universe.media.."
                     )
                     .because("GetPublicScreenEntryDetailUseCase must remain decoupled from infrastructure, persistence, and foreign modules");
+
+    @ArchTest
+    public static final ArchRule publicWatchUseCaseMustNotDependOnJpaOrPersistence =
+            noClasses()
+                    .that().haveSimpleName("GetPublicScreenWatchUseCase")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.universe.screen.infrastructure..",
+                            "jakarta.persistence..",
+                            "org.springframework.data..",
+                            "org.hibernate..",
+                            "com.universe.media.."
+                    )
+                    .because("GetPublicScreenWatchUseCase must remain decoupled from infrastructure, persistence, and foreign modules");
+
+    @ArchTest
+    public static final ArchRule publicVideoDeliveryPortMustNotDependOnJpaOrPersistence =
+            noClasses()
+                    .that().haveSimpleName("ScreenVideoDeliveryPort")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.universe.screen.infrastructure..",
+                            "jakarta.persistence..",
+                            "org.springframework.data..",
+                            "org.hibernate..",
+                            "com.universe.media.."
+                    )
+                    .because("ScreenVideoDeliveryPort must remain pure application port decoupled from infrastructure and foreign modules");
 
     @ArchTest
     public static final ArchRule publicExceptionHandlerMustNotDependOnPersistenceOrStorage =

@@ -201,9 +201,26 @@ public record PublicScreenTitleDetailView(
         return firstEligibleWatchEntry() != null;
     }
 
+    /**
+     * True if the earliest eligible main entry has an authoritatively playable video.
+     */
+    public boolean hasPlayableWatchEntry() {
+        PublicScreenEntryView first = firstEligibleWatchEntry();
+        return first != null && first.hasPlayableVideo();
+    }
+
+    /**
+     * User-facing action text for the primary title Watch CTA:
+     * Always displays "Xem ngay" when a published default main entry exists,
+     * directing users to the unified watch experience.
+     */
+    public String watchActionText() {
+        return "Xem ngay";
+    }
+
     public String watchNowUrl() {
         PublicScreenEntryView first = firstEligibleWatchEntry();
-        return first != null ? "/screen/" + slug + "/entries/" + first.slug() : null;
+        return first != null ? "/screen/" + slug + "/watch/" + first.slug() : null;
     }
 
     /**

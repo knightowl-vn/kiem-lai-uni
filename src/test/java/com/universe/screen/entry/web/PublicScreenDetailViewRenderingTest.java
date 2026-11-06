@@ -10,11 +10,13 @@ import com.universe.screen.application.dto.PublicScreenEntryDetailDTO;
 import com.universe.screen.application.dto.PublicScreenFranchiseDTO;
 import com.universe.screen.application.dto.PublicScreenFranchiseInstallmentDTO;
 import com.universe.screen.application.dto.PublicScreenTitleDetailDTO;
+import com.universe.screen.application.dto.PublicScreenWatchDTO;
 import com.universe.screen.application.exceptions.PublishedScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenWatchUseCase;
 import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
@@ -48,6 +50,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = PublicScreenController.class)
@@ -70,6 +73,9 @@ class PublicScreenDetailViewRenderingTest {
 
     @MockBean
     private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenWatchUseCase getPublicScreenWatchUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;
@@ -172,7 +178,7 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("Tóm tắt")))
                 .andExpect(content().string(containsString("Thiếu niên Trần Bình An quật khởi")))
                 // Action area: Watch now selects earliest published episode + Follow action disabled
-                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-1/entries/tap-1\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-1/watch/tap-1\"")))
                 .andExpect(content().string(containsString("Xem ngay")))
                 .andExpect(content().string(containsString("Theo dõi")))
                 // Franchise section
@@ -190,8 +196,8 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("id=\"panel-episodes\"")))
                 .andExpect(content().string(containsString("id=\"panel-characters\"")))
                 // Compact episode chips in episodes tab
-                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-1/entries/tap-1\"")))
-                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-1/entries/tap-2\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-1/watch/tap-1\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-1/watch/tap-2\"")))
                 // Character tab honest empty state
                 .andExpect(content().string(containsString("Thông tin nhân vật đang được cập nhật")))
                 // Shared Comments Section outside tabs
@@ -340,36 +346,23 @@ class PublicScreenDetailViewRenderingTest {
 
     @Test
     @WithAnonymousUser
-    @DisplayName("SSR: Renders public entry detail route with parent breadcrumb, duration, and transparent MS-08G video notice")
-    void shouldRenderEntryDetailPageWithTransparentPlaybackNotice() throws Exception {
+    @DisplayName("SSR: Legacy entry route redirects 302 to canonical watch route")
+    void shouldRedirectLegacyEntryRouteToCanonicalWatchRoute() throws Exception {
         UUID titleId = UUID.randomUUID();
         UUID entryId = UUID.randomUUID();
 
-        PublicScreenEntryDetailDTO entryDetail = new PublicScreenEntryDetailDTO(
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
                 titleId, "kiem-lai-1", "Kiếm Lai Phần 1", ScreenStructure.SERIES,
-                entryId, "tap-1", ScreenEntryType.EPISODE, 1,
-                "Tập 1: Xuất Thế", "Nội dung tóm tắt của tập 1.",
-                1440L, null, false
+                ScreenPresentation.ANIMATION_3D, null, entryId, "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế", "Nội dung tóm tắt của tập 1.",
+                1440L, null, false, null, null, null, null, List.of()
         );
 
-        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(entryDetail);
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
 
         mockMvc.perform(get("/screen/kiem-lai-1/entries/tap-1"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Quay lại tác phẩm:")))
-                .andExpect(content().string(containsString("Kiếm Lai Phần 1")))
-                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-1\"")))
-                .andExpect(content().string(containsString("Tập 1: Xuất Thế")))
-                .andExpect(content().string(containsString("24:00")))
-                .andExpect(content().string(containsString("Nội dung tóm tắt của tập 1.")))
-                .andExpect(content().string(containsString("Trình phát video đang được hoàn thiện")))
-                .andExpect(content().string(containsString("MS-08G")))
-                // Comments & CSRF attributes on entry detail
-                .andExpect(content().string(containsString("<meta name=\"_csrf\"")))
-                .andExpect(content().string(containsString("<meta name=\"_csrf_header\" content=\"X-CSRF-TOKEN\"")))
-                .andExpect(content().string(containsString("id=\"screenDiscussion\"")))
-                .andExpect(content().string(containsString("data-csrf-header=\"X-CSRF-TOKEN\"")))
-                .andExpect(content().string(containsString("data-csrf-token=")));
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/screen/kiem-lai-1/watch/tap-1"));
     }
 
     @Test
@@ -401,8 +394,8 @@ class PublicScreenDetailViewRenderingTest {
 
     @Test
     @WithAnonymousUser
-    @DisplayName("SSR: Shared interaction reactions stylesheet and script are included on both title and entry detail pages")
-    void shouldIncludeSharedReactionAssetsOnBothTitleAndEntryPages() throws Exception {
+    @DisplayName("SSR: Shared interaction reactions stylesheet and script are included on both title and watch pages")
+    void shouldIncludeSharedReactionAssetsOnBothTitleAndWatchPages() throws Exception {
         UUID titleId = UUID.randomUUID();
         PublicScreenTitleDetailDTO titleDTO = new PublicScreenTitleDetailDTO(
                 titleId, "kiem-lai-1", "Kiếm Lai Phần 1", null,
@@ -418,14 +411,15 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("href=\"/css/shared/comments.css\"")))
                 .andExpect(content().string(containsString("src=\"/js/shared/comment-presentation.js\"")));
 
-        PublicScreenEntryDetailDTO entryDTO = new PublicScreenEntryDetailDTO(
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
                 titleId, "kiem-lai-1", "Kiếm Lai Phần 1", ScreenStructure.SERIES,
-                UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
-                "Tập 1", null, 1200L, null, false
+                ScreenPresentation.ANIMATION_3D, null, UUID.randomUUID(), "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1", null, 1200L, null,
+                false, null, null, null, null, List.of()
         );
-        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(entryDTO);
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
 
-        mockMvc.perform(get("/screen/kiem-lai-1/entries/tap-1"))
+        mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/css/shared/interaction-reactions.css\"")))
                 .andExpect(content().string(containsString("src=\"/js/shared/interaction-reactions.js\"")))
@@ -468,7 +462,7 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("Bản phát hành")))
                 .andExpect(content().string(not(containsString("Danh sách tập"))))
                 // Watch CTA points to main feature
-                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-movie-full/entries/ban-chieu-chinh\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-movie-full/watch/ban-chieu-chinh\"")))
                 .andExpect(content().string(containsString("Xem ngay")))
                 // Feature chip
                 .andExpect(content().string(containsString("screen-feature-chip")))
@@ -625,30 +619,90 @@ class PublicScreenDetailViewRenderingTest {
 
     @Test
     @WithAnonymousUser
-    @DisplayName("SSR: Public entry detail route for FEATURE renders accurate non-episodic labels")
-    void shouldRenderFeatureEntryDetailWithProperTerminology() throws Exception {
+    @DisplayName("SSR: Legacy FEATURE entry route redirects to canonical watch route")
+    void shouldRedirectLegacyFeatureEntryRouteToWatch() throws Exception {
         UUID titleId = UUID.randomUUID();
         UUID entryId = UUID.randomUUID();
 
-        PublicScreenEntryDetailDTO featEntryDetail = new PublicScreenEntryDetailDTO(
+        PublicScreenWatchDTO featWatchDTO = new PublicScreenWatchDTO(
                 titleId, "kiem-lai-movie", "Kiếm Lai Điện Ảnh", ScreenStructure.FEATURE,
-                entryId, "chieu-rap", ScreenEntryType.FEATURE, null,
-                "Bản Chiếu Rạp", "Nội dung tóm tắt bản chiếu rạp.",
-                7200L, null, true
+                ScreenPresentation.ANIMATION_3D, null, entryId, "chieu-rap",
+                ScreenEntryType.FEATURE, null, "Bản Chiếu Rạp", "Nội dung tóm tắt bản chiếu rạp.",
+                7200L, null, true, "/media/videos/movie.mp4", "video/mp4",
+                null, null, List.of()
         );
 
-        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-movie", "chieu-rap")).thenReturn(featEntryDetail);
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-movie", "chieu-rap")).thenReturn(featWatchDTO);
 
         mockMvc.perform(get("/screen/kiem-lai-movie/entries/chieu-rap"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/screen/kiem-lai-movie/watch/chieu-rap"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: SERIES detail page renders Xem ngay when earliest episode video is not playable")
+    void shouldRenderSeriesDetailPageWithWatchNowCtaWhenDefaultEpisodeIsNotPlayable() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        PublicScreenEntryDTO ep1 = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, 1440L, null, false
+        );
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-unplayable", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now, 1, 24, List.of(ep1), List.of()
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-unplayable")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-unplayable"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Bản chiếu chính")))
-                .andExpect(content().string(containsString("Bản Chiếu Rạp")))
-                .andExpect(content().string(containsString("Quay lại tác phẩm:")))
-                .andExpect(content().string(containsString("Kiếm Lai Điện Ảnh")))
-                .andExpect(content().string(containsString("2:00:00")))
-                .andExpect(content().string(containsString("Tóm tắt</h2>")))
-                .andExpect(content().string(not(containsString("Tóm tắt tập</h2>"))))
-                .andExpect(content().string(containsString("Tính năng xem video trực tuyến cho nội dung này sẽ sẵn sàng")))
-                .andExpect(content().string(not(containsString("cho tập phim này"))));
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-unplayable/watch/tap-1\"")))
+                .andExpect(content().string(containsString("Xem ngay")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: FEATURE detail page renders Xem ngay when main feature is not playable")
+    void shouldRenderFeatureDetailPageWithWatchNowCtaWhenFeatureIsNotPlayable() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        PublicScreenEntryDTO feat = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "ban-chieu-chinh", ScreenEntryType.FEATURE, null,
+                "Bản Chiếu Chính", null, 7200L, null, false
+        );
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-movie-unplayable", "Kiếm Lai Điện Ảnh", null, null,
+                ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null, List.of(feat), List.of()
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-movie-unplayable")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie-unplayable"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-movie-unplayable/watch/ban-chieu-chinh\"")))
+                .andExpect(content().string(containsString("Xem ngay")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: Title detail page renders disabled watch CTA when no eligible watch entry exists")
+    void shouldRenderDisabledWatchCtaWhenNoEligibleWatchEntryExists() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-empty", "Kiếm Lai Trống", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now, null, null, List.of(), List.of()
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-empty")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-empty"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("screen-action-btn--disabled")))
+                .andExpect(content().string(containsString("disabled")))
+                .andExpect(content().string(not(containsString("/watch/"))));
     }
 }

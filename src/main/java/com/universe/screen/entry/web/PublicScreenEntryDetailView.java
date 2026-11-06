@@ -100,6 +100,10 @@ public record PublicScreenEntryDetailView(
         return "/screen/" + titleSlug;
     }
 
+    public String watchUrl() {
+        return "/screen/" + titleSlug + "/watch/" + entrySlug;
+    }
+
     public String pageTitle() {
         return displayHeading() + " - " + titleDisplayName + " - Kiếm Lai Universe";
     }

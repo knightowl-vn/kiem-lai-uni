@@ -131,12 +131,12 @@
                 <div class="screen-detail-actions" aria-label="Thao tác tác phẩm">
                     <!-- Watch Now Action -->
                     <a th:if="${titleDetail.hasEligibleWatchEntry()}"
-                       th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${titleDetail.firstEligibleWatchEntry().slug})}"
+                       th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${titleDetail.firstEligibleWatchEntry().slug})}"
                        class="screen-action-btn screen-action-btn--primary">
                         <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                             <path d="M8 5v14l11-7z"/>
                         </svg>
-                        <span>Xem ngay</span>
+                        <span th:text="${titleDetail.watchActionText()}">Xem ngay</span>
                     </a>
                     <button th:unless="${titleDetail.hasEligibleWatchEntry()}"
                             type="button"
@@ -236,7 +236,7 @@
                 <div th:if="${titleDetail.structure.name() == 'SERIES'}">
                     <div th:if="${!titleDetail.episodes().isEmpty()}" class="screen-episode-grid" aria-label="Danh sách các tập phim">
                         <a th:each="ep : ${titleDetail.episodes()}"
-                           th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${ep.slug})}"
+                           th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${ep.slug})}"
                            class="screen-episode-chip"
                            th:title="${ep.title}">
                             <span th:text="${ep.displayHeading()}">Tập 1</span>
@@ -248,7 +248,7 @@
                         <h3 class="screen-subsection-title">Tập đặc biệt / Ngoại truyện</h3>
                         <div class="screen-episode-grid">
                             <a th:each="sp : ${titleDetail.specials()}"
-                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${sp.slug})}"
+                               th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${sp.slug})}"
                                class="screen-episode-chip"
                                th:title="${sp.title}">
                                 <span th:text="${sp.displayHeading()}">Ngoại truyện 1</span>
@@ -261,7 +261,7 @@
                         <h3 class="screen-subsection-title">Trailer & Teaser</h3>
                         <div class="screen-episode-grid">
                             <a th:each="tr : ${titleDetail.trailers()}"
-                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${tr.slug})}"
+                               th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${tr.slug})}"
                                class="screen-episode-chip"
                                th:title="${tr.title}">
                                 <span th:text="${tr.displayHeading()}">Trailer 1</span>
@@ -281,7 +281,7 @@
                     <!-- Main Feature if published -->
                     <div th:if="${!titleDetail.features().isEmpty()}" class="screen-feature-container">
                         <a th:each="feat : ${titleDetail.features()}"
-                           th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${feat.slug})}"
+                           th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${feat.slug})}"
                            class="screen-feature-chip">
                             <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                                 <path d="M8 5v14l11-7z"/>
@@ -301,7 +301,7 @@
                         <h3 class="screen-subsection-title">Tập đặc biệt / Ngoại truyện</h3>
                         <div class="screen-episode-grid">
                             <a th:each="sp : ${titleDetail.specials()}"
-                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${sp.slug})}"
+                               th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${sp.slug})}"
                                class="screen-episode-chip"
                                th:title="${sp.title}">
                                 <span th:text="${sp.displayHeading()}">Ngoại truyện 1</span>
@@ -314,7 +314,7 @@
                         <h3 class="screen-subsection-title">Trailer & Teaser</h3>
                         <div class="screen-episode-grid">
                             <a th:each="tr : ${titleDetail.trailers()}"
-                               th:href="@{/screen/{titleSlug}/entries/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${tr.slug})}"
+                               th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${titleDetail.slug}, entrySlug=${tr.slug})}"
                                class="screen-episode-chip"
                                th:title="${tr.title}">
                                 <span th:text="${tr.displayHeading()}">Trailer 1</span>

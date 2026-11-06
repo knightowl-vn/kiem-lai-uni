@@ -413,10 +413,31 @@ class PublicScreenTitleDetailViewTest {
         PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(series);
 
         assertThat(view.hasEligibleWatchEntry()).isTrue();
+        assertThat(view.hasPlayableWatchEntry()).isTrue();
+        assertThat(view.watchActionText()).isEqualTo("Xem ngay");
         assertThat(view.firstEligibleWatchEntry()).isNotNull();
         assertThat(view.firstEligibleWatchEntry().slug()).isEqualTo("tap-1");
         assertThat(view.firstEligibleWatchEntry().number()).isEqualTo(1);
-        assertThat(view.watchNowUrl()).isEqualTo("/screen/kiem-lai-1/entries/tap-1");
+        assertThat(view.watchNowUrl()).isEqualTo("/screen/kiem-lai-1/watch/tap-1");
+    }
+
+    @Test
+    @DisplayName("Should return Xem ngay for watch action text even when default entry video is not playable")
+    void shouldReturnXemNgayWhenDefaultEntryVideoNotPlayable() {
+        PublicScreenEntryDTO ep1 = new PublicScreenEntryDTO(
+                UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, 1440L, null, false
+        );
+        PublicScreenTitleDetailDTO series = new PublicScreenTitleDetailDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, now, 1, 24, List.of(ep1), List.of()
+        );
+        PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(series);
+
+        assertThat(view.hasEligibleWatchEntry()).isTrue();
+        assertThat(view.hasPlayableWatchEntry()).isFalse();
+        assertThat(view.watchActionText()).isEqualTo("Xem ngay");
+        assertThat(view.watchNowUrl()).isEqualTo("/screen/kiem-lai-1/watch/tap-1");
     }
 
     @Test
@@ -434,8 +455,10 @@ class PublicScreenTitleDetailViewTest {
         PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(feature);
 
         assertThat(view.hasEligibleWatchEntry()).isTrue();
+        assertThat(view.hasPlayableWatchEntry()).isTrue();
+        assertThat(view.watchActionText()).isEqualTo("Xem ngay");
         assertThat(view.firstEligibleWatchEntry().slug()).isEqualTo("ban-chieu-chinh");
-        assertThat(view.watchNowUrl()).isEqualTo("/screen/kiem-lai-movie/entries/ban-chieu-chinh");
+        assertThat(view.watchNowUrl()).isEqualTo("/screen/kiem-lai-movie/watch/ban-chieu-chinh");
     }
 
     @Test
@@ -449,6 +472,7 @@ class PublicScreenTitleDetailViewTest {
         PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(empty);
 
         assertThat(view.hasEligibleWatchEntry()).isFalse();
+        assertThat(view.hasPlayableWatchEntry()).isFalse();
         assertThat(view.firstEligibleWatchEntry()).isNull();
         assertThat(view.watchNowUrl()).isNull();
     }

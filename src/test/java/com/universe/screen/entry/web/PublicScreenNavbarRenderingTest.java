@@ -10,6 +10,7 @@ import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenWatchUseCase;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -57,6 +58,9 @@ class PublicScreenNavbarRenderingTest {
 
     @MockBean
     private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenWatchUseCase getPublicScreenWatchUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;

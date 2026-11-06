@@ -5,6 +5,7 @@ import com.universe.screen.application.exceptions.PublishedScreenEntryNotFoundEx
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenTitle;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ import java.util.Objects;
  *   <li>Parent title must be PUBLISHED;</li>
  *   <li>Requested entry must be PUBLISHED and belong to the parent title;</li>
  *   <li>Unknown, DRAFT, ARCHIVED, or mismatched entries throw {@link PublishedScreenEntryNotFoundException};</li>
+ *   <li>Authoritative media playability is verified via {@link ScreenVideoDeliveryPort};</li>
  *   <li>Zero exposure of unpublished storage or media keys.</li>
  * </ul>
  */
@@ -30,13 +32,16 @@ public class GetPublicScreenEntryDetailUseCase {
 
     private final ScreenTitleRepositoryPort titleRepositoryPort;
     private final ScreenEntryRepositoryPort entryRepositoryPort;
+    private final ScreenVideoDeliveryPort videoDeliveryPort;
 
     public GetPublicScreenEntryDetailUseCase(
             ScreenTitleRepositoryPort titleRepositoryPort,
-            ScreenEntryRepositoryPort entryRepositoryPort
+            ScreenEntryRepositoryPort entryRepositoryPort,
+            ScreenVideoDeliveryPort videoDeliveryPort
     ) {
         this.titleRepositoryPort = Objects.requireNonNull(titleRepositoryPort, "ScreenTitleRepositoryPort cannot be null.");
         this.entryRepositoryPort = Objects.requireNonNull(entryRepositoryPort, "ScreenEntryRepositoryPort cannot be null.");
+        this.videoDeliveryPort = Objects.requireNonNull(videoDeliveryPort, "ScreenVideoDeliveryPort cannot be null.");
     }
 
     public PublicScreenEntryDetailDTO execute(String titleSlug, String entrySlug) {
@@ -56,6 +61,9 @@ public class GetPublicScreenEntryDetailUseCase {
         ScreenEntry entry = entryRepositoryPort.findPublishedByTitleIdAndSlug(title.getId(), normalizedEntrySlug)
                 .orElseThrow(() -> new PublishedScreenEntryNotFoundException(entrySlug));
 
+        boolean hasPlayableVideo = entry.getVideoMediaAssetId() != null
+                && videoDeliveryPort.resolvePlaybackDelivery(entry.getVideoMediaAssetId()).isPresent();
+
         return new PublicScreenEntryDetailDTO(
                 title.getId(),
                 title.getSlug(),
@@ -69,7 +77,7 @@ public class GetPublicScreenEntryDetailUseCase {
                 entry.getSynopsis(),
                 entry.getDurationSeconds(),
                 entry.getThumbnailMediaAssetId(),
-                entry.getVideoMediaAssetId() != null
+                hasPlayableVideo
         );
     }
 }

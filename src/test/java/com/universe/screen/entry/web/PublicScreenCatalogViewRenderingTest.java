@@ -11,6 +11,7 @@ import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenWatchUseCase;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
 import jakarta.servlet.FilterChain;
@@ -62,6 +63,9 @@ class PublicScreenCatalogViewRenderingTest {
 
     @MockBean
     private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenWatchUseCase getPublicScreenWatchUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;

@@ -10,11 +10,13 @@ import com.universe.screen.application.dto.PublicScreenCatalogItemDTO;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
 import com.universe.screen.application.dto.PublicScreenEntryDetailDTO;
 import com.universe.screen.application.dto.PublicScreenTitleDetailDTO;
+import com.universe.screen.application.dto.PublicScreenWatchDTO;
 import com.universe.screen.application.exceptions.PublishedScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenWatchUseCase;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
@@ -54,6 +56,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -77,6 +80,9 @@ class PublicScreenControllerTest {
 
     @MockBean
     private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenWatchUseCase getPublicScreenWatchUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;
@@ -292,54 +298,64 @@ class PublicScreenControllerTest {
 
     @Test
     @WithAnonymousUser
-    @DisplayName("Guest GET /screen/{titleSlug}/entries/{entrySlug} returns 200 OK with entryDetail model and view name")
-    void guestGetEntryDetailReturns200WithEntryDetailView() throws Exception {
-        PublicScreenEntryDetailDTO entryDetailDTO = new PublicScreenEntryDetailDTO(
+    @DisplayName("Guest GET /screen/{titleSlug}/entries/{entrySlug} redirects 302 to canonical watch route")
+    void guestGetEntryDetailRedirectsToCanonicalWatchRoute() throws Exception {
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
                 UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1", ScreenStructure.SERIES,
-                UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
-                "Tập 1: Khởi đầu", "Tóm tắt tập 1", 1440L, UUID.randomUUID(), false
+                ScreenPresentation.ANIMATION_3D, null, UUID.randomUUID(), "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1", null, 1440L, null,
+                true, "/media/videos/ep1.mp4", "video/mp4", null, null, List.of()
         );
-        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(entryDetailDTO);
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
 
         mockMvc.perform(get("/screen/kiem-lai-1/entries/tap-1"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("screen/entry-detail"))
-                .andExpect(model().attribute("entryDetail", equalTo(PublicScreenEntryDetailView.fromDTO(entryDetailDTO))))
-                .andExpect(model().attribute("activeNav", "screen"))
-                .andExpect(model().attribute("pageTitle", "Tập 1 - Kiếm Lai Phần 1 - Kiếm Lai Universe"))
-                .andExpect(model().attributeExists("csrfToken"))
-                .andExpect(model().attributeExists("csrfHeader"))
-                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/screen/kiem-lai-1/watch/tap-1"));
 
-        verify(getPublicScreenEntryDetailUseCase).execute("kiem-lai-1", "tap-1");
+        verify(getPublicScreenWatchUseCase).execute("kiem-lai-1", "tap-1");
     }
 
     @Test
     @WithMockUser(username = "reader@example.com", roles = "USER")
-    @DisplayName("Authenticated user GET /screen/{titleSlug}/entries/{entrySlug} returns 200 OK")
-    void authenticatedUserGetEntryDetailReturns200() throws Exception {
-        PublicScreenEntryDetailDTO entryDetailDTO = new PublicScreenEntryDetailDTO(
+    @DisplayName("Authenticated user GET /screen/{titleSlug}/entries/{entrySlug} redirects 302 to canonical watch route")
+    void authenticatedUserGetEntryDetailRedirectsToCanonicalWatchRoute() throws Exception {
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
                 UUID.randomUUID(), "kiem-lai-movie", "Kiếm Lai Điện Ảnh", ScreenStructure.FEATURE,
-                UUID.randomUUID(), "ban-chieu-chinh", ScreenEntryType.FEATURE, null,
-                "Bản Chiếu Chính", null, 7200L, null, false
+                ScreenPresentation.ANIMATION_3D, null, UUID.randomUUID(), "ban-chieu-chinh",
+                ScreenEntryType.FEATURE, null, "Bản Chiếu Chính", null, 7200L, null,
+                true, "/media/videos/movie.mp4", "video/mp4", null, null, List.of()
         );
-        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-movie", "ban-chieu-chinh")).thenReturn(entryDetailDTO);
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-movie", "ban-chieu-chinh")).thenReturn(watchDTO);
 
         mockMvc.perform(get("/screen/kiem-lai-movie/entries/ban-chieu-chinh"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("screen/entry-detail"))
-                .andExpect(model().attributeExists("csrfToken"))
-                .andExpect(model().attributeExists("csrfHeader"))
-                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/screen/kiem-lai-movie/watch/ban-chieu-chinh"));
 
-        verify(getPublicScreenEntryDetailUseCase).execute("kiem-lai-movie", "ban-chieu-chinh");
+        verify(getPublicScreenWatchUseCase).execute("kiem-lai-movie", "ban-chieu-chinh");
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /screen/{titleSlug}/entries/{entrySlug} preserves comment query params and adds screenDiscussion fragment")
+    void entryDetailRedirectPreservesCommentDeepLinksAndFragment() throws Exception {
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1", ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D, null, UUID.randomUUID(), "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1", null, 1440L, null,
+                true, "/media/videos/ep1.mp4", "video/mp4", null, null, List.of()
+        );
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/entries/tap-1?commentId=c123&threadId=t456"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/screen/kiem-lai-1/watch/tap-1?commentId=c123&threadId=t456#screenDiscussion"));
     }
 
     @Test
     @WithAnonymousUser
     @DisplayName("Nonexistent or unpublished entry slug returns 404 NOT FOUND with not-found view")
     void nonexistentEntryReturns404WithNotFoundView() throws Exception {
-        when(getPublicScreenEntryDetailUseCase.execute("kiem-lai-1", "nonexistent-entry"))
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "nonexistent-entry"))
                 .thenThrow(new PublishedScreenEntryNotFoundException("kiem-lai-1", "nonexistent-entry"));
 
         mockMvc.perform(get("/screen/kiem-lai-1/entries/nonexistent-entry"))
@@ -355,7 +371,7 @@ class PublicScreenControllerTest {
     @WithAnonymousUser
     @DisplayName("Nonexistent parent title slug for entry detail returns 404 NOT FOUND with not-found view")
     void nonexistentTitleForEntryDetailReturns404WithNotFoundView() throws Exception {
-        when(getPublicScreenEntryDetailUseCase.execute("nonexistent-title", "tap-1"))
+        when(getPublicScreenWatchUseCase.execute("nonexistent-title", "tap-1"))
                 .thenThrow(new PublishedScreenTitleNotFoundException("nonexistent-title"));
 
         mockMvc.perform(get("/screen/nonexistent-title/entries/tap-1"))
@@ -383,5 +399,84 @@ class PublicScreenControllerTest {
         assertNotNull(requestToken);
         assertEquals(requestToken.getToken(), result.getModelAndView().getModel().get("csrfToken"));
         assertEquals(requestToken.getHeaderName(), result.getModelAndView().getModel().get("csrfHeader"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Guest GET /screen/{titleSlug}/watch/{entrySlug} returns 200 OK with watchView model and watch view name")
+    void guestGetWatchRouteReturns200WithWatchView() throws Exception {
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1: Khởi đầu", "Tóm tắt tập 1", 1440L, UUID.randomUUID(),
+                true, "/media/assets/vid-1/content", "video/mp4",
+                null, null, List.of()
+        );
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-1"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("screen/watch"))
+                .andExpect(model().attribute("watchView", equalTo(PublicScreenWatchView.fromDTO(watchDTO))))
+                .andExpect(model().attribute("activeNav", "screen"))
+                .andExpect(model().attribute("pageTitle", "Tập 1 - Kiếm Lai Phần 1 - Kiếm Lai Universe"))
+                .andExpect(model().attributeExists("csrfToken"))
+                .andExpect(model().attributeExists("csrfHeader"))
+                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
+
+        verify(getPublicScreenWatchUseCase).execute("kiem-lai-1", "tap-1");
+    }
+
+    @Test
+    @WithMockUser(username = "reader@example.com", roles = "USER")
+    @DisplayName("Authenticated user GET /screen/{titleSlug}/watch/{entrySlug} returns 200 OK")
+    void authenticatedUserGetWatchRouteReturns200() throws Exception {
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-movie", "Kiếm Lai Phim Lẻ",
+                ScreenStructure.FEATURE, ScreenPresentation.ANIMATION_3D,
+                null, UUID.randomUUID(), "ban-chieu-chinh", ScreenEntryType.FEATURE, null,
+                "Bản Chiếu Chính", null, 7200L, null,
+                false, null, null,
+                null, null, List.of()
+        );
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-movie", "ban-chieu-chinh")).thenReturn(watchDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-movie/watch/ban-chieu-chinh"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("screen/watch"))
+                .andExpect(model().attributeExists("csrfToken"))
+                .andExpect(model().attributeExists("csrfHeader"))
+                .andExpect(model().attribute("csrfHeader", equalTo("X-CSRF-TOKEN")));
+
+        verify(getPublicScreenWatchUseCase).execute("kiem-lai-movie", "ban-chieu-chinh");
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Nonexistent or unpublished title slug for watch route returns 404 with not-found view")
+    void nonexistentTitleForWatchRouteReturns404WithNotFoundView() throws Exception {
+        when(getPublicScreenWatchUseCase.execute("nonexistent-title", "tap-1"))
+                .thenThrow(new PublishedScreenTitleNotFoundException("nonexistent-title"));
+
+        mockMvc.perform(get("/screen/nonexistent-title/watch/tap-1"))
+                .andExpect(status().isNotFound())
+                .andExpect(view().name("screen/not-found"))
+                .andExpect(model().attribute("errorTitle", "Tác phẩm không tồn tại"))
+                .andExpect(model().attribute("errorMessage", "Tác phẩm bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản."));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Nonexistent or unpublished entry slug for watch route returns 404 with not-found view")
+    void nonexistentEntryForWatchRouteReturns404WithNotFoundView() throws Exception {
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "nonexistent-entry"))
+                .thenThrow(new PublishedScreenEntryNotFoundException("kiem-lai-1", "nonexistent-entry"));
+
+        mockMvc.perform(get("/screen/kiem-lai-1/watch/nonexistent-entry"))
+                .andExpect(status().isNotFound())
+                .andExpect(view().name("screen/not-found"))
+                .andExpect(model().attribute("errorTitle", "Tập phim không tồn tại"))
+                .andExpect(model().attribute("errorMessage", "Tập phim hoặc bản phát hành bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản."));
     }
 }

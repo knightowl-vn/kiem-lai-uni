@@ -64,8 +64,19 @@
                      onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; }">
             </div>
 
-            <!-- Playback Notice (Transparent Boundary for MS-08G) -->
-            <div class="screen-playback-notice" role="status" aria-label="Thông báo phát video">
+            <!-- Watch Action CTA (When video is authoritatively playable) -->
+            <div th:if="${entryDetail.hasPlayableVideo()}" class="screen-entry-watch-cta-wrap">
+                <a th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${entryDetail.titleSlug}, entrySlug=${entryDetail.entrySlug})}"
+                   class="screen-action-btn screen-action-btn--primary screen-entry-watch-btn">
+                    <svg class="screen-action-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    <span>Xem ngay</span>
+                </a>
+            </div>
+
+            <!-- Playback Notice (When video is not yet playable) -->
+            <div th:unless="${entryDetail.hasPlayableVideo()}" class="screen-playback-notice" role="status" aria-label="Thông báo phát video">
                 <div class="screen-playback-notice-icon">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <circle cx="12" cy="12" r="10"></circle>

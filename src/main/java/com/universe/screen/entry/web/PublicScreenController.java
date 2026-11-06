@@ -3,9 +3,11 @@ package com.universe.screen.entry.web;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
 import com.universe.screen.application.dto.PublicScreenEntryDetailDTO;
 import com.universe.screen.application.dto.PublicScreenTitleDetailDTO;
+import com.universe.screen.application.dto.PublicScreenWatchDTO;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenWatchUseCase;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.stereotype.Controller;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Objects;
 
@@ -37,11 +40,13 @@ public class PublicScreenController {
     private final GetPublicScreenCatalogUseCase getPublicScreenCatalogUseCase;
     private final GetPublicScreenTitleDetailUseCase getPublicScreenTitleDetailUseCase;
     private final GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
+    private final GetPublicScreenWatchUseCase getPublicScreenWatchUseCase;
 
     public PublicScreenController(
             GetPublicScreenCatalogUseCase getPublicScreenCatalogUseCase,
             GetPublicScreenTitleDetailUseCase getPublicScreenTitleDetailUseCase,
-            GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase
+            GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase,
+            GetPublicScreenWatchUseCase getPublicScreenWatchUseCase
     ) {
         this.getPublicScreenCatalogUseCase = Objects.requireNonNull(
                 getPublicScreenCatalogUseCase,
@@ -54,6 +59,10 @@ public class PublicScreenController {
         this.getPublicScreenEntryDetailUseCase = Objects.requireNonNull(
                 getPublicScreenEntryDetailUseCase,
                 "GetPublicScreenEntryDetailUseCase cannot be null."
+        );
+        this.getPublicScreenWatchUseCase = Objects.requireNonNull(
+                getPublicScreenWatchUseCase,
+                "GetPublicScreenWatchUseCase cannot be null."
         );
     }
 
@@ -92,22 +101,57 @@ public class PublicScreenController {
         return "screen/detail";
     }
 
+    /**
+     * Backward-compatible entry route redirecting to canonical watch destination:
+     * {@code /screen/{titleSlug}/watch/{entrySlug}}.
+     *
+     * <p>Enforces published-only and entry-ownership validation to prevent data leakage,
+     * while preserving query parameters (e.g. comment/thread deep links) and discussion fragment.
+     */
     @GetMapping("/{titleSlug}/entries/{entrySlug}")
     public String entryDetailPage(
+            @PathVariable String titleSlug,
+            @PathVariable String entrySlug,
+            HttpServletRequest request
+    ) {
+        // Enforce published-only and title/entry ownership verification to preserve privacy contract
+        getPublicScreenWatchUseCase.execute(titleSlug, entrySlug);
+
+        // Build canonical redirect URL with query params and discussion anchor preserved
+        UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/screen/{titleSlug}/watch/{entrySlug}");
+        if (request != null && request.getParameterMap() != null) {
+            request.getParameterMap().forEach((key, values) -> {
+                if (values != null) {
+                    for (String val : values) {
+                        builder.queryParam(key, val);
+                    }
+                }
+            });
+        }
+        if (request != null && (request.getParameter("commentId") != null || request.getParameter("threadId") != null)) {
+            builder.fragment("screenDiscussion");
+        }
+
+        String destination = builder.buildAndExpand(titleSlug, entrySlug).toUriString();
+        return "redirect:" + destination;
+    }
+
+    @GetMapping("/{titleSlug}/watch/{entrySlug}")
+    public String watchPage(
             @PathVariable String titleSlug,
             @PathVariable String entrySlug,
             HttpServletRequest request,
             Model model
     ) {
-        PublicScreenEntryDetailDTO entryDTO = getPublicScreenEntryDetailUseCase.execute(titleSlug, entrySlug);
-        PublicScreenEntryDetailView entryDetail = PublicScreenEntryDetailView.fromDTO(entryDTO);
+        PublicScreenWatchDTO watchDTO = getPublicScreenWatchUseCase.execute(titleSlug, entrySlug);
+        PublicScreenWatchView watchView = PublicScreenWatchView.fromDTO(watchDTO);
 
-        model.addAttribute("entryDetail", entryDetail);
+        model.addAttribute("watchView", watchView);
         model.addAttribute("activeNav", "screen");
-        model.addAttribute("pageTitle", entryDetail.pageTitle());
+        model.addAttribute("pageTitle", watchView.pageTitle());
         exposeCsrfToken(request, model);
 
-        return "screen/entry-detail";
+        return "screen/watch";
     }
 
     private void exposeCsrfToken(HttpServletRequest request, Model model) {

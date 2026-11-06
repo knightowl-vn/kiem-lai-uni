@@ -1,10 +1,12 @@
 package com.universe.screen.application.usecase;
 
 import com.universe.screen.application.dto.PublicScreenEntryDetailDTO;
+import com.universe.screen.application.dto.ScreenPlaybackDeliveryInfo;
 import com.universe.screen.application.exceptions.PublishedScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
@@ -39,17 +41,20 @@ class GetPublicScreenEntryDetailUseCaseTest {
     @Mock
     private ScreenEntryRepositoryPort entryRepositoryPort;
 
+    @Mock
+    private ScreenVideoDeliveryPort videoDeliveryPort;
+
     private GetPublicScreenEntryDetailUseCase useCase;
 
     private final Instant now = Instant.parse("2026-11-01T10:00:00Z");
 
     @BeforeEach
     void setUp() {
-        useCase = new GetPublicScreenEntryDetailUseCase(titleRepositoryPort, entryRepositoryPort);
+        useCase = new GetPublicScreenEntryDetailUseCase(titleRepositoryPort, entryRepositoryPort, videoDeliveryPort);
     }
 
     @Test
-    @DisplayName("Should retrieve published entry detail under published title successfully")
+    @DisplayName("Should retrieve published entry detail under published title successfully with playable video")
     void shouldRetrievePublishedEntryDetailSuccessfully() {
         UUID titleId = UUID.randomUUID();
         UUID entryId = UUID.randomUUID();
@@ -70,6 +75,8 @@ class GetPublicScreenEntryDetailUseCaseTest {
 
         when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
         when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(entry));
+        when(videoDeliveryPort.resolvePlaybackDelivery(videoId))
+                .thenReturn(Optional.of(new ScreenPlaybackDeliveryInfo(videoId, "/media/assets/" + videoId + "/content", "video/mp4")));
 
         PublicScreenEntryDetailDTO result = useCase.execute("kiem-lai-1", "tap-1");
 
@@ -90,6 +97,36 @@ class GetPublicScreenEntryDetailUseCaseTest {
 
         verify(titleRepositoryPort).findPublishedBySlug("kiem-lai-1");
         verify(entryRepositoryPort).findPublishedByTitleIdAndSlug(titleId, "tap-1");
+        verify(videoDeliveryPort).resolvePlaybackDelivery(videoId);
+    }
+
+    @Test
+    @DisplayName("Should set hasPlayableVideo to false when video asset is attached but not authoritatively playable")
+    void shouldSetHasPlayableVideoFalseWhenVideoAssetNotPlayable() {
+        UUID titleId = UUID.randomUUID();
+        UUID entryId = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+
+        ScreenTitle title = new ScreenTitle(
+                titleId, "kiem-lai-1", "Kiếm Lai Phần 1", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, now, now, now, 24
+        );
+
+        ScreenEntry entry = new ScreenEntry(
+                entryId, titleId, "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, videoId, null, 1440L,
+                ScreenPublicationStatus.PUBLISHED, now, now, now
+        );
+
+        when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+        when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(entry));
+        when(videoDeliveryPort.resolvePlaybackDelivery(videoId)).thenReturn(Optional.empty());
+
+        PublicScreenEntryDetailDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+        assertThat(result.hasPlayableVideo()).isFalse();
+        verify(videoDeliveryPort).resolvePlaybackDelivery(videoId);
     }
 
     @Test

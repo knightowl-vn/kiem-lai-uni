@@ -2078,7 +2078,7 @@
                 badgeEl.className = 'screen-comment-origin-badge';
                 badgeEl.textContent = comment.origin.badgeText;
                 if (comment.origin.entrySlug && titleSlug) {
-                    badgeEl.href = '/screen/' + encodeURIComponent(titleSlug) + '/entries/' + encodeURIComponent(comment.origin.entrySlug);
+                    badgeEl.href = '/screen/' + encodeURIComponent(titleSlug) + '/watch/' + encodeURIComponent(comment.origin.entrySlug);
                 }
                 const timeEl = headerEl.querySelector('.kl-comment__time') || headerEl.querySelector('.screen-comment-time');
                 if (timeEl) {

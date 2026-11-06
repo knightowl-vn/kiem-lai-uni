@@ -3,11 +3,13 @@ package com.universe.screen.application.usecase;
 import com.universe.screen.application.dto.PublicScreenEntryDTO;
 import com.universe.screen.application.dto.PublicScreenFranchiseDTO;
 import com.universe.screen.application.dto.PublicScreenTitleDetailDTO;
+import com.universe.screen.application.dto.ScreenPlaybackDeliveryInfo;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseMembershipRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenFranchise;
@@ -51,6 +53,9 @@ class GetPublicScreenTitleDetailUseCaseTest {
     @Mock
     private ScreenFranchiseRepositoryPort franchiseRepositoryPort;
 
+    @Mock
+    private ScreenVideoDeliveryPort videoDeliveryPort;
+
     private GetPublicScreenTitleDetailUseCase useCase;
 
     private final Instant now = Instant.parse("2026-11-01T10:00:00Z");
@@ -61,7 +66,8 @@ class GetPublicScreenTitleDetailUseCaseTest {
                 titleRepositoryPort,
                 entryRepositoryPort,
                 franchiseMembershipRepositoryPort,
-                franchiseRepositoryPort
+                franchiseRepositoryPort,
+                videoDeliveryPort
         );
     }
 
@@ -84,12 +90,15 @@ class GetPublicScreenTitleDetailUseCaseTest {
         UUID ep1Id = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID ep2Id = UUID.fromString("00000000-0000-0000-0000-000000000002");
         UUID sp1Id = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        UUID ep1VideoId = UUID.randomUUID();
+        UUID ep2VideoId = UUID.randomUUID();
 
-        ScreenEntry ep2 = new ScreenEntry(ep2Id, titleId, "tap-2", ScreenEntryType.EPISODE, 2, "Tập 2", null, UUID.randomUUID(), null, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now);
+        ScreenEntry ep2 = new ScreenEntry(ep2Id, titleId, "tap-2", ScreenEntryType.EPISODE, 2, "Tập 2", null, ep2VideoId, null, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now);
         ScreenEntry sp1 = new ScreenEntry(sp1Id, titleId, "sp-1", ScreenEntryType.SPECIAL, 1, "Ngoại truyện 1", null, null, null, 600L, ScreenPublicationStatus.PUBLISHED, now, now, now);
-        ScreenEntry ep1 = new ScreenEntry(ep1Id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, UUID.randomUUID(), null, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now);
+        ScreenEntry ep1 = new ScreenEntry(ep1Id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, ep1VideoId, null, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now);
 
         when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(ep2, sp1, ep1));
+        when(videoDeliveryPort.resolvePlaybackDelivery(ep1VideoId)).thenReturn(Optional.of(new ScreenPlaybackDeliveryInfo(ep1VideoId, "/media/assets/" + ep1VideoId + "/content", "video/mp4")));
 
         // Franchise setup
         UUID franchiseId = UUID.randomUUID();
@@ -127,6 +136,8 @@ class GetPublicScreenTitleDetailUseCaseTest {
         assertThat(result.entries().get(0).id()).isEqualTo(ep1Id);
         assertThat(result.entries().get(0).number()).isEqualTo(1);
         assertThat(result.entries().get(0).hasPlayableVideo()).isTrue();
+        verify(videoDeliveryPort).resolvePlaybackDelivery(ep1VideoId);
+        verify(videoDeliveryPort, never()).resolvePlaybackDelivery(ep2VideoId);
         assertThat(result.entries().get(1).id()).isEqualTo(ep2Id);
         assertThat(result.entries().get(1).number()).isEqualTo(2);
         assertThat(result.entries().get(2).id()).isEqualTo(sp1Id);
@@ -159,11 +170,14 @@ class GetPublicScreenTitleDetailUseCaseTest {
 
         UUID featEntryId = UUID.randomUUID();
         UUID trailerEntryId = UUID.randomUUID();
+        UUID featVideoId = UUID.randomUUID();
+        UUID trailerVideoId = UUID.randomUUID();
 
-        ScreenEntry featEntry = new ScreenEntry(featEntryId, titleId, "main-feature", ScreenEntryType.FEATURE, null, "Bản chiếu rạp", null, UUID.randomUUID(), null, 7200L, ScreenPublicationStatus.PUBLISHED, now, now, now);
-        ScreenEntry trailerEntry = new ScreenEntry(trailerEntryId, titleId, "trailer-1", ScreenEntryType.TRAILER, 1, "Trailer 1", null, UUID.randomUUID(), null, 120L, ScreenPublicationStatus.PUBLISHED, now, now, now);
+        ScreenEntry featEntry = new ScreenEntry(featEntryId, titleId, "main-feature", ScreenEntryType.FEATURE, null, "Bản chiếu rạp", null, featVideoId, null, 7200L, ScreenPublicationStatus.PUBLISHED, now, now, now);
+        ScreenEntry trailerEntry = new ScreenEntry(trailerEntryId, titleId, "trailer-1", ScreenEntryType.TRAILER, 1, "Trailer 1", null, trailerVideoId, null, 120L, ScreenPublicationStatus.PUBLISHED, now, now, now);
 
         when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(trailerEntry, featEntry));
+        when(videoDeliveryPort.resolvePlaybackDelivery(featVideoId)).thenReturn(Optional.of(new ScreenPlaybackDeliveryInfo(featVideoId, "/media/assets/" + featVideoId + "/content", "video/mp4")));
         when(franchiseMembershipRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
 
         PublicScreenTitleDetailDTO result = useCase.execute("kiem-lai-movie-1");
@@ -178,6 +192,9 @@ class GetPublicScreenTitleDetailUseCaseTest {
         assertThat(result.entries().get(0).id()).isEqualTo(featEntryId);
         assertThat(result.entries().get(0).type()).isEqualTo(ScreenEntryType.FEATURE);
         assertThat(result.entries().get(0).number()).isNull();
+        assertThat(result.entries().get(0).hasPlayableVideo()).isTrue();
+        verify(videoDeliveryPort).resolvePlaybackDelivery(featVideoId);
+        verify(videoDeliveryPort, never()).resolvePlaybackDelivery(trailerVideoId);
         assertThat(result.entries().get(1).id()).isEqualTo(trailerEntryId);
         assertThat(result.entries().get(1).type()).isEqualTo(ScreenEntryType.TRAILER);
 
@@ -425,5 +442,84 @@ class GetPublicScreenTitleDetailUseCaseTest {
         assertThat(result.director()).isEqualTo("Đạo diễn A");
         assertThat(result.productionStudio()).isEqualTo("Studio B");
         assertThat(result.averageDurationMinutes()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should mark default entry playable when authoritative video delivery info is active and available")
+    void shouldMarkDefaultEntryPlayableWhenAuthoritativeVideoIsActiveAndAvailable() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = new ScreenTitle(
+                titleId, "series-playable", "Series Playable", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, now, now, now, 12
+        );
+
+        UUID epId = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+        ScreenEntry episode1 = new ScreenEntry(epId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, videoId, null, 1200L, ScreenPublicationStatus.PUBLISHED, now, now, now);
+
+        when(titleRepositoryPort.findPublishedBySlug("series-playable")).thenReturn(Optional.of(title));
+        when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(episode1));
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(1);
+        when(franchiseMembershipRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+        when(videoDeliveryPort.resolvePlaybackDelivery(videoId)).thenReturn(Optional.of(new ScreenPlaybackDeliveryInfo(videoId, "/media/assets/" + videoId + "/content", "video/mp4")));
+
+        PublicScreenTitleDetailDTO result = useCase.execute("series-playable");
+
+        assertThat(result.entries()).hasSize(1);
+        assertThat(result.entries().get(0).hasPlayableVideo()).isTrue();
+        verify(videoDeliveryPort).resolvePlaybackDelivery(videoId);
+    }
+
+    @Test
+    @DisplayName("Should mark default entry unplayable when attached video Media asset is not playable")
+    void shouldMarkDefaultEntryUnplayableWhenAttachedVideoMediaAssetIsNotPlayable() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = new ScreenTitle(
+                titleId, "series-unplayable", "Series Unplayable", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, now, now, now, 12
+        );
+
+        UUID epId = UUID.randomUUID();
+        UUID videoId = UUID.randomUUID();
+        ScreenEntry episode1 = new ScreenEntry(epId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, videoId, null, 1200L, ScreenPublicationStatus.PUBLISHED, now, now, now);
+
+        when(titleRepositoryPort.findPublishedBySlug("series-unplayable")).thenReturn(Optional.of(title));
+        when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(episode1));
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(1);
+        when(franchiseMembershipRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+        when(videoDeliveryPort.resolvePlaybackDelivery(videoId)).thenReturn(Optional.empty());
+
+        PublicScreenTitleDetailDTO result = useCase.execute("series-unplayable");
+
+        assertThat(result.entries()).hasSize(1);
+        assertThat(result.entries().get(0).hasPlayableVideo()).isFalse();
+        verify(videoDeliveryPort).resolvePlaybackDelivery(videoId);
+    }
+
+    @Test
+    @DisplayName("Should mark default entry unplayable when no video Media asset is attached without calling delivery port")
+    void shouldMarkDefaultEntryUnplayableWhenNoVideoMediaAssetIsAttached() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = new ScreenTitle(
+                titleId, "series-no-video", "Series No Video", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, now, now, now, 12
+        );
+
+        UUID epId = UUID.randomUUID();
+        ScreenEntry episode1 = new ScreenEntry(epId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1200L, ScreenPublicationStatus.PUBLISHED, now, now, now);
+
+        when(titleRepositoryPort.findPublishedBySlug("series-no-video")).thenReturn(Optional.of(title));
+        when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(episode1));
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(1);
+        when(franchiseMembershipRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+
+        PublicScreenTitleDetailDTO result = useCase.execute("series-no-video");
+
+        assertThat(result.entries()).hasSize(1);
+        assertThat(result.entries().get(0).hasPlayableVideo()).isFalse();
+        verify(videoDeliveryPort, never()).resolvePlaybackDelivery(any());
     }
 }

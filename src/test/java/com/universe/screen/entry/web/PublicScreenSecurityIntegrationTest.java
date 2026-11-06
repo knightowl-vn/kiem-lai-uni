@@ -8,9 +8,11 @@ import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
 import com.universe.screen.application.dto.PublicScreenEntryDetailDTO;
 import com.universe.screen.application.dto.PublicScreenTitleDetailDTO;
+import com.universe.screen.application.dto.PublicScreenWatchDTO;
 import com.universe.screen.application.usecase.GetPublicScreenCatalogUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetPublicScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.GetPublicScreenWatchUseCase;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
@@ -65,6 +67,9 @@ class PublicScreenSecurityIntegrationTest {
 
     @MockBean
     private GetPublicScreenEntryDetailUseCase getPublicScreenEntryDetailUseCase;
+
+    @MockBean
+    private GetPublicScreenWatchUseCase getPublicScreenWatchUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;
@@ -207,18 +212,20 @@ class PublicScreenSecurityIntegrationTest {
 
     @Test
     @WithAnonymousUser
-    @DisplayName("Security: Anonymous guest can access GET /screen/{titleSlug}/entries/{entrySlug} without redirecting to login")
+    @DisplayName("Security: Anonymous guest can access GET /screen/{titleSlug}/entries/{entrySlug} without redirecting to login (redirects to watch)")
     void anonymousGuestCanAccessGetScreenEntryDetail() throws Exception {
         mockMvc.perform(get("/screen/test-slug/entries/entry-slug"))
-                .andExpect(status().isOk());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/screen/test-slug/watch/entry-slug"));
     }
 
     @Test
     @WithMockUser(username = "reader@example.com", roles = "USER")
-    @DisplayName("Security: Authenticated USER can access GET /screen/{titleSlug}/entries/{entrySlug}")
+    @DisplayName("Security: Authenticated USER can access GET /screen/{titleSlug}/entries/{entrySlug} (redirects to watch)")
     void authenticatedUserCanAccessGetScreenEntryDetail() throws Exception {
         mockMvc.perform(get("/screen/test-slug/entries/entry-slug"))
-                .andExpect(status().isOk());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/screen/test-slug/watch/entry-slug"));
     }
 
     @Test
@@ -262,6 +269,51 @@ class PublicScreenSecurityIntegrationTest {
     @DisplayName("Security: Authenticated POST /screen/{titleSlug}/entries/{entrySlug} without CSRF token is rejected by accessDeniedHandler")
     void authenticatedPostEntryDetailWithoutCsrfIsRejectedWithAccessDeniedRedirect() throws Exception {
         mockMvc.perform(post("/screen/test-slug/entries/entry-slug"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Security: Guest GET /screen/{titleSlug}/watch/{entrySlug} is permitted without authentication")
+    void guestGetWatchRouteIsPermittedWithoutAuthentication() throws Exception {
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1440L, null,
+                true, "/media/assets/vid/content", "video/mp4",
+                null, null, List.of()
+        );
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-1"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated user GET /screen/{titleSlug}/watch/{entrySlug} is permitted")
+    void authenticatedUserGetWatchRouteIsPermitted() throws Exception {
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1440L, null,
+                true, "/media/assets/vid/content", "video/mp4",
+                null, null, List.of()
+        );
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-1"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "user@example.com", roles = "USER")
+    @DisplayName("Security: Authenticated POST /screen/{titleSlug}/watch/{entrySlug} without CSRF is rejected by accessDeniedHandler")
+    void authenticatedPostWatchWithoutCsrfIsRejectedWithAccessDeniedRedirect() throws Exception {
+        mockMvc.perform(post("/screen/test-slug/watch/entry-slug"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/access-denied"));
     }

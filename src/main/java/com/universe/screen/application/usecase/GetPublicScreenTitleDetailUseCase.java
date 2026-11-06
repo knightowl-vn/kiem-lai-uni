@@ -9,12 +9,14 @@ import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseMembershipRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenFranchise;
 import com.universe.screen.domain.ScreenFranchiseMembership;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.domain.ScreenTitle;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,17 +49,21 @@ public class GetPublicScreenTitleDetailUseCase {
     private final ScreenEntryRepositoryPort entryRepositoryPort;
     private final ScreenFranchiseMembershipRepositoryPort franchiseMembershipRepositoryPort;
     private final ScreenFranchiseRepositoryPort franchiseRepositoryPort;
+    private final ScreenVideoDeliveryPort videoDeliveryPort;
 
+    @Autowired
     public GetPublicScreenTitleDetailUseCase(
             ScreenTitleRepositoryPort titleRepositoryPort,
             ScreenEntryRepositoryPort entryRepositoryPort,
             ScreenFranchiseMembershipRepositoryPort franchiseMembershipRepositoryPort,
-            ScreenFranchiseRepositoryPort franchiseRepositoryPort
+            ScreenFranchiseRepositoryPort franchiseRepositoryPort,
+            ScreenVideoDeliveryPort videoDeliveryPort
     ) {
         this.titleRepositoryPort = Objects.requireNonNull(titleRepositoryPort, "ScreenTitleRepositoryPort cannot be null.");
         this.entryRepositoryPort = Objects.requireNonNull(entryRepositoryPort, "ScreenEntryRepositoryPort cannot be null.");
         this.franchiseMembershipRepositoryPort = Objects.requireNonNull(franchiseMembershipRepositoryPort, "ScreenFranchiseMembershipRepositoryPort cannot be null.");
         this.franchiseRepositoryPort = Objects.requireNonNull(franchiseRepositoryPort, "ScreenFranchiseRepositoryPort cannot be null.");
+        this.videoDeliveryPort = Objects.requireNonNull(videoDeliveryPort, "ScreenVideoDeliveryPort cannot be null.");
     }
 
     public PublicScreenTitleDetailDTO execute(String titleSlug) {
@@ -74,9 +80,38 @@ public class GetPublicScreenTitleDetailUseCase {
                 : null;
 
         List<ScreenEntry> publishedEntries = entryRepositoryPort.findPublishedByTitleId(title.getId());
-        List<PublicScreenEntryDTO> sortedEntries = publishedEntries.stream()
+        List<ScreenEntry> sortedScreenEntries = publishedEntries.stream()
                 .sorted(ENTRY_ORDER_COMPARATOR)
-                .map(GetPublicScreenTitleDetailUseCase::toEntryDTO)
+                .toList();
+
+        // 1. Identify default main entry for authoritative playback capability check
+        ScreenEntry defaultMainEntry = sortedScreenEntries.stream()
+                .filter(e -> isEligibleMainEntry(title.getStructure(), e))
+                .findFirst()
+                .orElse(null);
+
+        // 2. Authoritatively validate playback capability ONLY for the default main entry (prevents N+1 queries)
+        UUID playableDefaultEntryId = null;
+        if (defaultMainEntry != null && defaultMainEntry.getVideoMediaAssetId() != null) {
+            boolean isPlayable = videoDeliveryPort.resolvePlaybackDelivery(defaultMainEntry.getVideoMediaAssetId()).isPresent();
+            if (isPlayable) {
+                playableDefaultEntryId = defaultMainEntry.getId();
+            }
+        }
+
+        final UUID finalPlayableDefaultEntryId = playableDefaultEntryId;
+        final UUID finalDefaultMainEntryId = defaultMainEntry != null ? defaultMainEntry.getId() : null;
+
+        List<PublicScreenEntryDTO> sortedEntries = sortedScreenEntries.stream()
+                .map(e -> {
+                    boolean playable;
+                    if (e.getId().equals(finalDefaultMainEntryId)) {
+                        playable = e.getId().equals(finalPlayableDefaultEntryId);
+                    } else {
+                        playable = e.getVideoMediaAssetId() != null;
+                    }
+                    return toEntryDTO(e, playable);
+                })
                 .toList();
 
         List<PublicScreenFranchiseDTO> franchises = resolveFranchiseNavigation(title);
@@ -194,7 +229,19 @@ public class GetPublicScreenTitleDetailUseCase {
         return List.copyOf(franchiseDTOs);
     }
 
-    private static PublicScreenEntryDTO toEntryDTO(ScreenEntry entry) {
+    private static boolean isEligibleMainEntry(ScreenStructure structure, ScreenEntry entry) {
+        if (structure == null || entry == null || entry.getType() == null) {
+            return false;
+        }
+        if (structure == ScreenStructure.SERIES) {
+            return entry.getType() == ScreenEntryType.EPISODE;
+        } else if (structure == ScreenStructure.FEATURE) {
+            return entry.getType() == ScreenEntryType.FEATURE;
+        }
+        return false;
+    }
+
+    private static PublicScreenEntryDTO toEntryDTO(ScreenEntry entry, boolean playable) {
         return new PublicScreenEntryDTO(
                 entry.getId(),
                 entry.getSlug(),
@@ -204,7 +251,7 @@ public class GetPublicScreenTitleDetailUseCase {
                 entry.getSynopsis(),
                 entry.getDurationSeconds(),
                 entry.getThumbnailMediaAssetId(),
-                entry.getVideoMediaAssetId() != null
+                playable
         );
     }
 

@@ -459,7 +459,7 @@
     display: grid;
     grid-template-columns: 240px 1fr;
     gap: 32px;
-    background: var(--surface-primary);
+    background: var(--surface-bg, #ffffff);
     border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 28px;
@@ -470,8 +470,8 @@
 
 /* Ambient Hero Backdrop */
 .screen-detail-hero.has-backdrop {
-    background-color: #17191c;
-    border-color: rgba(255, 255, 255, 0.12);
+    background-color: var(--surface-bg, #ffffff);
+    border-color: var(--border-color, #e5e7eb);
 }
 
 .screen-detail-backdrop-wrap {
@@ -481,7 +481,7 @@
     pointer-events: none;
     overflow: hidden;
     border-radius: 12px;
-    background-color: #17191c;
+    background-color: var(--surface-bg, #ffffff);
 }
 
 .screen-detail-backdrop {
@@ -489,7 +489,8 @@
     height: 100%;
     object-fit: cover;
     object-position: center top;
-    filter: blur(14px) brightness(0.3);
+    filter: blur(14px) brightness(1.05) saturate(1.15);
+    opacity: 0.18;
     transform: scale(1.08);
 }
 
@@ -498,8 +499,8 @@
     inset: 0;
     background: linear-gradient(
         to bottom,
-        rgba(0, 0, 0, 0.4) 0%,
-        rgba(0, 0, 0, 0.65) 100%
+        rgba(255, 255, 255, 0.72) 0%,
+        rgba(255, 255, 255, 0.94) 100%
     );
 }
 
@@ -509,75 +510,172 @@
     z-index: 1;
 }
 
+/* Light Mode: Retain crisp high-contrast theme typography & badges */
 .screen-detail-hero.has-backdrop .screen-detail-title {
+    color: var(--text-primary);
+    text-shadow: none;
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-original-title {
+    color: var(--text-secondary);
+}
+
+.screen-detail-hero.has-backdrop .screen-meta-label {
+    color: var(--text-secondary);
+}
+
+.screen-detail-hero.has-backdrop .screen-meta-value {
+    color: var(--text-primary);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis {
+    border-top-color: var(--border-color, #e5e7eb);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis-label {
+    color: var(--text-primary);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis-text {
+    color: var(--text-secondary);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-synopsis-empty {
+    color: var(--text-secondary);
+}
+
+.screen-detail-hero.has-backdrop .screen-badge {
+    background: var(--surface-secondary, #f1f3f5);
+    color: var(--text-primary, #212529);
+    border-color: var(--border-color, #e5e7eb);
+}
+
+.screen-detail-hero.has-backdrop .screen-badge--highlight {
+    background: #e8f0fe;
+    color: #1a73e8;
+    border-color: #d2e3fc;
+}
+
+.screen-detail-hero.has-backdrop .screen-badge--airing {
+    background: #e6f4ea;
+    color: #137333;
+    border-color: #ceead6;
+}
+
+.screen-detail-hero.has-backdrop .screen-action-btn--secondary {
+    background: var(--surface-secondary, #f1f3f5);
+    color: var(--text-primary, #212529);
+    border-color: var(--border-color, #e5e7eb);
+}
+
+.screen-detail-hero.has-backdrop .screen-action-btn--disabled,
+.screen-detail-hero.has-backdrop .screen-action-btn[disabled] {
+    background: var(--surface-secondary, #f1f3f5) !important;
+    color: var(--text-secondary, #6c757d) !important;
+    border-color: var(--border-color, #e5e7eb) !important;
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-poster-wrap {
+    border-color: var(--border-color, #e5e7eb);
+}
+
+.screen-detail-hero.has-backdrop .screen-detail-poster-placeholder {
+    background: var(--surface-secondary, #f1f3f5);
+    color: var(--text-secondary, #6c757d);
+}
+
+/* Dark Mode: Retain immersive cinematic ambient backdrop and white typography */
+html[data-theme="dark"] .screen-detail-hero.has-backdrop {
+    background-color: #17191c;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .screen-detail-backdrop-wrap {
+    background-color: #17191c;
+}
+
+html[data-theme="dark"] .screen-detail-backdrop {
+    filter: blur(14px) brightness(0.3);
+    opacity: 1;
+}
+
+html[data-theme="dark"] .screen-detail-backdrop-overlay {
+    background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.4) 0%,
+        rgba(0, 0, 0, 0.65) 100%
+    );
+}
+
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-title {
     color: #ffffff;
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
-.screen-detail-hero.has-backdrop .screen-detail-original-title {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-original-title {
     color: rgba(255, 255, 255, 0.85);
 }
 
-.screen-detail-hero.has-backdrop .screen-meta-label {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-meta-label {
     color: rgba(255, 255, 255, 0.7);
 }
 
-.screen-detail-hero.has-backdrop .screen-meta-value {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-meta-value {
     color: #ffffff;
 }
 
-.screen-detail-hero.has-backdrop .screen-detail-synopsis {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-synopsis {
     border-top-color: rgba(255, 255, 255, 0.15);
 }
 
-.screen-detail-hero.has-backdrop .screen-detail-synopsis-label {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-synopsis-label {
     color: #ffffff;
 }
 
-.screen-detail-hero.has-backdrop .screen-detail-synopsis-text {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-synopsis-text {
     color: rgba(255, 255, 255, 0.9);
 }
 
-.screen-detail-hero.has-backdrop .screen-detail-synopsis-empty {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-synopsis-empty {
     color: rgba(255, 255, 255, 0.7);
 }
 
-.screen-detail-hero.has-backdrop .screen-badge {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-badge {
     background: rgba(255, 255, 255, 0.12);
     color: rgba(255, 255, 255, 0.9);
     border-color: rgba(255, 255, 255, 0.2);
 }
 
-.screen-detail-hero.has-backdrop .screen-badge--highlight {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-badge--highlight {
     background: rgba(26, 115, 232, 0.25);
     color: #93c5fd;
     border-color: rgba(26, 115, 232, 0.4);
 }
 
-.screen-detail-hero.has-backdrop .screen-badge--airing {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-badge--airing {
     background: rgba(19, 115, 51, 0.25);
     color: #86efac;
     border-color: rgba(19, 115, 51, 0.4);
 }
 
-.screen-detail-hero.has-backdrop .screen-action-btn--secondary {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-action-btn--secondary {
     background: rgba(255, 255, 255, 0.15);
     color: #ffffff;
     border-color: rgba(255, 255, 255, 0.25);
 }
 
-.screen-detail-hero.has-backdrop .screen-action-btn--disabled,
-.screen-detail-hero.has-backdrop .screen-action-btn[disabled] {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-action-btn--disabled,
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-action-btn[disabled] {
     background: rgba(255, 255, 255, 0.1) !important;
     color: rgba(255, 255, 255, 0.6) !important;
     border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
-.screen-detail-hero.has-backdrop .screen-detail-poster-wrap {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-poster-wrap {
     border-color: rgba(255, 255, 255, 0.2);
 }
 
-.screen-detail-hero.has-backdrop .screen-detail-poster-placeholder {
+html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-poster-placeholder {
     background: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.7);
 }
@@ -1964,4 +2062,470 @@ a.screen-comment-origin-badge:focus-visible {
     border-color: rgba(26, 115, 232, 0.4);
     color: var(--accent-color, #1a73e8);
     text-decoration: none;
+}
+
+/* ==========================================================================
+   Screen Watch Foundation Styles — MS-08G1
+   ========================================================================== */
+
+.screen-watch-container {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 20px 20px 56px;
+}
+
+@media (max-width: 767.98px) {
+    .screen-watch-container {
+        padding: 12px 14px 48px;
+    }
+}
+
+@media (max-width: 360px) {
+    .screen-watch-container {
+        padding: 10px 12px 40px;
+    }
+}
+
+.screen-watch-top-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.screen-watch-entry-detail-link {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-color, #1a73e8);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.screen-watch-entry-detail-link:hover,
+.screen-watch-entry-detail-link:focus-visible {
+    text-decoration: underline;
+}
+
+/* Compact Now-Playing Heading directly above the stage */
+.screen-watch-now-playing-title {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--text-primary);
+    margin: 0 0 10px 0;
+}
+
+@media (max-width: 767.98px) {
+    .screen-watch-now-playing-title {
+        font-size: 15px;
+        margin-bottom: 8px;
+    }
+}
+
+.screen-watch-stage {
+    margin-bottom: 14px;
+}
+
+@media (max-width: 767.98px) {
+    .screen-watch-stage {
+        margin-bottom: 10px;
+    }
+}
+
+.screen-watch-player-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 75vh;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px var(--shadow-color);
+    border: 1px solid var(--border-color);
+}
+
+.screen-watch-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #000;
+}
+
+/* Unavailable Visual Stage: 16:9 frame with backdrop image & frosted-glass overlay */
+.screen-watch-stage-unavailable {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 75vh;
+    background: #111315;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px var(--shadow-color);
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.screen-watch-stage-backdrop-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.screen-watch-stage-backdrop-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    filter: blur(2px) brightness(0.65);
+    transform: scale(1.02);
+    pointer-events: none;
+}
+
+.screen-watch-stage-backdrop-img--ambient {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    filter: blur(24px) brightness(0.35);
+    transform: scale(1.12);
+    pointer-events: none;
+}
+
+.screen-watch-stage-foreground-img {
+    position: relative;
+    z-index: 1;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    transition: opacity 0.2s ease;
+}
+
+.screen-watch-stage-foreground-img--landscape {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.screen-watch-stage-foreground-img--portrait {
+    max-width: 88%;
+    max-height: 88%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+}
+
+.screen-watch-stage-backdrop-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.6) 100%);
+    z-index: 0;
+    pointer-events: none;
+}
+
+.screen-watch-stage-empty-backdrop {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, var(--surface-secondary, #292d32) 0%, #111315 100%);
+    pointer-events: none;
+}
+
+.screen-watch-unavailable-card {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(18, 20, 24, 0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    max-width: calc(100% - 24px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+    color: #ffffff;
+    text-align: left;
+}
+
+.screen-watch-unavailable-icon {
+    color: #93c5fd;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.screen-watch-unavailable-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.screen-watch-unavailable-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    margin: 0;
+    color: #ffffff;
+    white-space: nowrap;
+}
+
+.screen-watch-unavailable-description {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.85);
+    margin: 2px 0 0;
+    line-height: 1.4;
+}
+
+@media (max-width: 767.98px) {
+    .screen-watch-unavailable-card {
+        bottom: 8px;
+        left: 8px;
+        padding: 6px 10px;
+        gap: 6px;
+        max-width: calc(100% - 16px);
+    }
+    .screen-watch-unavailable-title {
+        font-size: 12px;
+    }
+    .screen-watch-unavailable-description {
+        display: none;
+    }
+}
+
+/* Sequential Previous / Next Episode Navigation */
+.screen-watch-episode-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+@media (max-width: 767.98px) {
+    .screen-watch-episode-nav {
+        margin-bottom: 12px;
+    }
+}
+
+.screen-watch-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg, #ffffff);
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+}
+
+.screen-watch-nav-btn:hover:not(.screen-watch-nav-btn--disabled) {
+    background: var(--surface-secondary, #f1f3f5);
+    border-color: var(--accent-color, #1a73e8);
+    color: var(--accent-color, #1a73e8);
+}
+
+.screen-watch-nav-btn--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--surface-secondary, #f1f3f5);
+    color: var(--text-secondary);
+    border-color: transparent;
+}
+
+/* Episode Selector / Playlist Section (Unboxed, natural page flow) */
+.screen-watch-playlist-section {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 18px;
+    box-shadow: none;
+}
+
+.screen-watch-playlist-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.screen-watch-playlist-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.screen-watch-playlist-count {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Responsive Grid of Episode Chips */
+.screen-watch-grid {
+    display: grid;
+    gap: 8px;
+}
+
+/* Series Episodes: strictly 3 columns on mobile (360px & 320px) */
+.screen-watch-grid--episodes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+    .screen-watch-grid--episodes {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+    }
+}
+
+@media (min-width: 769px) {
+    .screen-watch-grid--episodes {
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 10px;
+    }
+}
+
+/* Flexible Grid for Features / Specials / Trailers */
+.screen-watch-grid--flexible {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.screen-watch-grid .screen-episode-chip,
+.screen-watch-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-height: 42px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg, #ffffff);
+    color: var(--text-primary);
+    transition: all 0.15s ease;
+    cursor: pointer;
+}
+
+.screen-watch-grid--episodes .screen-episode-chip,
+.screen-watch-grid--episodes .screen-watch-chip {
+    width: 100%;
+    padding: 6px 4px;
+    font-size: 13px;
+}
+
+.screen-watch-grid .screen-episode-chip:hover:not(.is-current),
+.screen-watch-chip:hover:not(.is-current) {
+    background: var(--surface-secondary, #f1f3f5);
+    border-color: var(--accent-color, #1a73e8);
+    color: var(--accent-color, #1a73e8);
+}
+
+.screen-watch-grid .screen-episode-chip.is-current,
+.screen-watch-chip.is-current {
+    background: var(--accent-color, #1a73e8) !important;
+    border-color: var(--accent-color, #1a73e8) !important;
+    color: #ffffff !important;
+    cursor: default;
+    box-shadow: 0 2px 6px rgba(26, 115, 232, 0.35);
+}
+
+.screen-watch-subgroup {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.screen-watch-subgroup-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px;
+}
+
+/* Synopsis Section */
+.screen-watch-synopsis-section {
+    background: var(--surface-bg, #ffffff);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 6px var(--shadow-color);
+}
+
+@media (max-width: 767.98px) {
+    .screen-watch-synopsis-section {
+        padding: 14px 14px;
+        margin-bottom: 16px;
+    }
+}
+
+.screen-watch-synopsis-label {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 6px;
+}
+
+.screen-watch-synopsis-text {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    margin: 0;
+}
+
+.screen-entry-watch-cta-wrap {
+    margin-bottom: 20px;
+}
+
+.screen-entry-watch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+@media (max-width: 600px) {
+    .screen-watch-chip {
+        min-height: 40px;
+        font-size: 12.5px;
+        padding: 6px 6px;
+    }
+
+    .screen-watch-nav-btn {
+        padding: 7px 10px;
+        font-size: 12px;
+    }
 }
