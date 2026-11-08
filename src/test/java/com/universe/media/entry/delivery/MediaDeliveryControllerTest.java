@@ -1230,6 +1230,354 @@ class MediaDeliveryControllerTest {
         }
     }
 
+    @org.junit.jupiter.api.Nested
+    @DisplayName("Exact Streaming Byte Bounds Enforcement Tests (MS-08G3-C4)")
+    class ExactStreamingByteBoundsEnforcementTests {
+
+        private static final UUID BOUNDS_ASSET_ID =
+                UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        private static final String BOUNDS_MIME = "video/mp4";
+        private static final String BOUNDS_HASH =
+                "f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3";
+        private static final byte[] OVERLONG_150 = new byte[150];
+        private static final byte[] OVERLONG_100 = new byte[100];
+        private static final byte[] EXACT_100 = new byte[100];
+
+        static {
+            for (int i = 0; i < OVERLONG_150.length; i++) {
+                OVERLONG_150[i] = (byte) (i & 0xFF);
+            }
+            System.arraycopy(OVERLONG_150, 0, OVERLONG_100, 0, 100);
+            System.arraycopy(OVERLONG_150, 0, EXACT_100, 0, 100);
+        }
+
+        private GetMediaAssetContentMetadataResult boundsMetadata(long size) {
+            return new GetMediaAssetContentMetadataResult(
+                    BOUNDS_ASSET_ID,
+                    1,
+                    size,
+                    BOUNDS_MIME,
+                    BOUNDS_HASH,
+                    null
+            );
+        }
+
+        @Test
+        @DisplayName("Test A: Overlong upstream stream on HTTP 206 delivers exact range slice and closes stream")
+        void testA_OverlongUpstreamOnHttp206DeliversExactRangeSlice() throws Exception {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+
+            // Range bytes=0-49 expects exactly 50 bytes, but upstream provides 100 bytes
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream overlongStream = trackingStream(OVERLONG_100, streamClosed);
+            when(getMediaAssetContentUseCase.openRange(meta, 0, 50)).thenReturn(overlongStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            request.addHeader(HttpHeaders.RANGE, "bytes=0-49");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PARTIAL_CONTENT);
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_LENGTH)).isEqualTo("50");
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE)).isEqualTo("bytes 0-49/100");
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            response.getBody().writeTo(clientOut);
+
+            // Must receive exactly 50 bytes, not 100 bytes
+            byte[] deliveredBytes = clientOut.toByteArray();
+            assertThat(deliveredBytes).hasSize(50);
+            byte[] expectedSlice = new byte[50];
+            System.arraycopy(OVERLONG_100, 0, expectedSlice, 0, 50);
+            assertThat(deliveredBytes).isEqualTo(expectedSlice);
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Test B: Overlong upstream stream on HTTP 200 delivers exact full content and closes stream")
+        void testB_OverlongUpstreamOnHttp200DeliversExactContentLength() throws Exception {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+
+            // Metadata declares 100 bytes, but upstream provides 150 bytes
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream overlongStream = trackingStream(OVERLONG_150, streamClosed);
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(overlongStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_LENGTH)).isEqualTo("100");
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            response.getBody().writeTo(clientOut);
+
+            // Must receive exactly 100 bytes, not 150 bytes
+            byte[] deliveredBytes = clientOut.toByteArray();
+            assertThat(deliveredBytes).hasSize(100);
+            assertThat(deliveredBytes).isEqualTo(EXACT_100);
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Test C: Exact-length stream completes normally without trailing read and closes stream")
+        void testC_ExactLengthStreamCompletesNormallyAndClosesStream() throws Exception {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream exactStream = trackingStream(EXACT_100, streamClosed);
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(exactStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            response.getBody().writeTo(clientOut);
+
+            assertThat(clientOut.toByteArray()).isEqualTo(EXACT_100);
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Test D: Premature EOF on HTTP 200 throws StorageStreamException and closes stream")
+        void testD_PrematureEofOnHttp200ThrowsStorageStreamException() throws Exception {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+
+            byte[] shortBytes = new byte[15];
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream shortStream = trackingStream(shortBytes, streamClosed);
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(shortStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            assertThatThrownBy(() -> response.getBody().writeTo(clientOut))
+                    .isInstanceOf(MediaDeliveryController.StorageStreamException.class)
+                    .hasMessageContaining("Premature upstream EOF")
+                    .hasMessageContaining("15 of 100 bytes");
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Test E: Premature EOF on Range 206 throws StorageStreamException and closes stream")
+        void testE_PrematureEofOnRange206ThrowsStorageStreamException() throws Exception {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+
+            byte[] shortSlice = new byte[20];
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream shortStream = trackingStream(shortSlice, streamClosed);
+            when(getMediaAssetContentUseCase.openRange(meta, 0, 50)).thenReturn(shortStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            request.addHeader(HttpHeaders.RANGE, "bytes=0-49");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            assertThatThrownBy(() -> response.getBody().writeTo(clientOut))
+                    .isInstanceOf(MediaDeliveryController.StorageStreamException.class)
+                    .hasMessageContaining("Premature upstream EOF")
+                    .hasMessageContaining("20 of 50 bytes");
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Test F1: Null input stream on asset delivery when expectedLength > 0 throws StorageStreamException")
+        void testF1_NullInputStreamOnAssetDeliveryThrowsStorageStreamException() {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(null);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            assertThatThrownBy(() -> response.getBody().writeTo(clientOut))
+                    .isInstanceOf(MediaDeliveryController.StorageStreamException.class)
+                    .hasMessageContaining("Storage stream is null");
+        }
+
+        @Test
+        @DisplayName("Test F2: Null content stream on variant delivery when sizeBytes > 0 throws StorageStreamException")
+        void testF2_NullContentOnVariantDeliveryThrowsStorageStreamException() {
+            GetMediaAssetContentResult mockResult = org.mockito.Mockito.mock(GetMediaAssetContentResult.class);
+            when(mockResult.isRedirect()).thenReturn(false);
+            when(mockResult.content()).thenReturn(null);
+            when(mockResult.sizeBytes()).thenReturn(50L);
+            when(mockResult.mimeType()).thenReturn("image/jpeg");
+            when(mockResult.contentHash()).thenReturn(BOUNDS_HASH);
+
+            when(getMediaImageVariantContentUseCase.execute(new GetMediaImageVariantContentQuery(BOUNDS_ASSET_ID, "thumb")))
+                    .thenReturn(mockResult);
+
+            org.springframework.mock.web.MockHttpServletRequest servletRequest =
+                    new org.springframework.mock.web.MockHttpServletRequest("GET",
+                            "/media/assets/" + BOUNDS_ASSET_ID + "/variants/thumb");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverVariantContent(
+                    BOUNDS_ASSET_ID,
+                    "thumb",
+                    new org.springframework.web.context.request.ServletWebRequest(servletRequest)
+            );
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            assertThatThrownBy(() -> response.getBody().writeTo(clientOut))
+                    .isInstanceOf(MediaDeliveryController.StorageStreamException.class)
+                    .hasMessageContaining("Storage stream is null");
+        }
+
+        @Test
+        @DisplayName("Test G: Read boundary capping via tracking InputStream caps len to remaining and halts on boundary")
+        void testG_ReadBoundaryCappingRestrictsRequestedBytesAndHalts() throws Exception {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+
+            // Range bytes=0-49 expects exactly 50 bytes
+            long expectedRangeLength = 50L;
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            java.util.concurrent.atomic.AtomicInteger readCallsAfterExpected = new java.util.concurrent.atomic.AtomicInteger(0);
+            java.util.concurrent.atomic.AtomicBoolean requestedLengthExceeded = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+            InputStream boundaryTrackingStream = new InputStream() {
+                private long supplied = 0;
+
+                @Override
+                public int read() {
+                    if (supplied >= expectedRangeLength) {
+                        readCallsAfterExpected.incrementAndGet();
+                    }
+                    supplied++;
+                    return 0x77;
+                }
+
+                @Override
+                public int read(byte[] b, int off, int len) {
+                    if (supplied >= expectedRangeLength) {
+                        readCallsAfterExpected.incrementAndGet();
+                        return -1;
+                    }
+                    long remaining = expectedRangeLength - supplied;
+                    if (len > remaining) {
+                        requestedLengthExceeded.set(true);
+                    }
+                    int bytesToSupply = (int) Math.min(len, remaining);
+                    for (int i = 0; i < bytesToSupply; i++) {
+                        b[off + i] = 0x77;
+                    }
+                    supplied += bytesToSupply;
+                    return bytesToSupply;
+                }
+
+                @Override
+                public void close() {
+                    streamClosed.set(true);
+                }
+            };
+
+            when(getMediaAssetContentUseCase.openRange(meta, 0, 50)).thenReturn(boundaryTrackingStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            request.addHeader(HttpHeaders.RANGE, "bytes=0-49");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            response.getBody().writeTo(clientOut);
+
+            // Assert exact bytes delivered
+            assertThat(clientOut.toByteArray()).hasSize(50);
+            // Assert len requested was never greater than remaining
+            assertThat(requestedLengthExceeded.get()).isFalse();
+            // Assert inputStream.read was never invoked after reaching expected boundary
+            assertThat(readCallsAfterExpected.get()).isEqualTo(0);
+            // Assert stream was closed
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Test H: Client disconnect on range response exits cleanly without wrapping as upstream truncation")
+        void testH_ClientDisconnectRegressionHandledGracefully() throws Exception {
+            GetMediaAssetContentMetadataResult meta = boundsMetadata(100L);
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(BOUNDS_ASSET_ID)))
+                    .thenReturn(meta);
+
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream stream = trackingStream(OVERLONG_100, streamClosed);
+            when(getMediaAssetContentUseCase.openRange(meta, 0, 50)).thenReturn(stream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + BOUNDS_ASSET_ID + "/content");
+            request.addHeader(HttpHeaders.RANGE, "bytes=0-49");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    BOUNDS_ASSET_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            OutputStream abortingClientOut = new OutputStream() {
+                @Override
+                public void write(int b) throws IOException {
+                    throw new IOException("Connection reset by peer");
+                }
+                @Override
+                public void write(byte[] b, int off, int len) throws IOException {
+                    throw new IOException("Connection reset by peer");
+                }
+            };
+
+            // Must exit cleanly without throwing StorageStreamException
+            response.getBody().writeTo(abortingClientOut);
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+    }
+
     private void assertPartialRange(
             String rangeHeader,
             long startInclusive,

@@ -202,16 +202,12 @@ public class MediaDeliveryController {
                     .build();
         }
 
-        StreamingResponseBody streamingBody = outputStream -> {
-            if (result.content() != null) {
-                copyStream(
-                        assetId,
-                        result.content(),
-                        outputStream,
-                        result.sizeBytes()
-                );
-            }
-        };
+        StreamingResponseBody streamingBody = outputStream -> copyStream(
+                assetId,
+                result.content(),
+                outputStream,
+                result.sizeBytes()
+        );
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL)
@@ -251,17 +247,29 @@ public class MediaDeliveryController {
             long expectedLength
     ) throws IOException {
         if (inputStream == null) {
-            log.error("Storage stream is null for asset {}", assetId);
-            throw new StorageStreamException("Storage stream is null", null);
+            if (expectedLength > 0) {
+                log.error("Storage stream is null for asset {} with expected length {}", assetId, expectedLength);
+                throw new StorageStreamException("Storage stream is null", null);
+            }
+            return;
+        }
+
+        if (expectedLength <= 0) {
+            try (inputStream) {
+                return;
+            }
         }
 
         byte[] buffer = new byte[STREAM_BUFFER_SIZE];
         long transferred = 0;
+        long remaining = expectedLength;
+
         try (inputStream) {
-            while (true) {
+            while (remaining > 0) {
+                int maxToRead = (int) Math.min(buffer.length, remaining);
                 int bytesRead;
                 try {
-                    bytesRead = inputStream.read(buffer);
+                    bytesRead = inputStream.read(buffer, 0, maxToRead);
                 } catch (IOException readEx) {
                     log.error("Storage stream read failure for asset {}: {}",
                             assetId, readEx.getMessage(), readEx);
@@ -279,6 +287,7 @@ public class MediaDeliveryController {
                 try {
                     outputStream.write(buffer, 0, bytesRead);
                     transferred += bytesRead;
+                    remaining -= bytesRead;
                 } catch (IOException writeEx) {
                     if (isClientDisconnect(writeEx)) {
                         log.debug("Client disconnected while writing media stream for asset {}: {}",
