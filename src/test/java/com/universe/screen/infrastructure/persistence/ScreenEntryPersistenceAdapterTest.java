@@ -49,6 +49,9 @@ class ScreenEntryPersistenceAdapterTest {
     @Mock
     private SpringDataScreenEntryJpaRepository repository;
 
+    @Mock
+    private SpringDataScreenTitleJpaRepository titleRepository;
+
     private ScreenEntryPersistenceAdapter adapter;
 
     private final UUID entryId = UUID.randomUUID();
@@ -57,7 +60,7 @@ class ScreenEntryPersistenceAdapterTest {
 
     @BeforeEach
     void setUp() {
-        adapter = new ScreenEntryPersistenceAdapter(repository);
+        adapter = new ScreenEntryPersistenceAdapter(repository, titleRepository);
     }
 
     @Test
@@ -391,5 +394,130 @@ class ScreenEntryPersistenceAdapterTest {
         verify(repository).findLatestPublishedEpisodeNumberByTitleId(titleId.toString());
 
         assertThat(adapter.findLatestPublishedEpisodeNumberByTitleId(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("findVideoMediaAssetIdById returns empty if id is null or repository returns empty")
+    void findVideoMediaAssetIdById_shouldReturnEmptyWhenNullOrNotFound() {
+        assertThat(adapter.findVideoMediaAssetIdById(null)).isEmpty();
+
+        UUID testId = UUID.randomUUID();
+        when(repository.findVideoMediaAssetIdById(testId.toString())).thenReturn(Optional.empty());
+        assertThat(adapter.findVideoMediaAssetIdById(testId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findVideoMediaAssetIdById returns parsed UUID when found")
+    void findVideoMediaAssetIdById_shouldReturnParsedUuidWhenFound() {
+        UUID testId = UUID.randomUUID();
+        UUID videoAssetId = UUID.randomUUID();
+        when(repository.findVideoMediaAssetIdById(testId.toString())).thenReturn(Optional.of(videoAssetId.toString()));
+
+        assertThat(adapter.findVideoMediaAssetIdById(testId)).contains(videoAssetId);
+    }
+
+    @Test
+    @DisplayName("Transaction Contract: hasOtherPublishedReference requires Propagation.MANDATORY")
+    void hasOtherPublishedReference_shouldRequireMandatoryTransactionPropagation() throws NoSuchMethodException {
+        Method method = ScreenEntryPersistenceAdapter.class
+                .getMethod("hasOtherPublishedReference", UUID.class, UUID.class);
+        Transactional annotation = method.getAnnotation(Transactional.class);
+        assertThat(annotation).isNotNull();
+        assertThat(annotation.propagation()).isEqualTo(Propagation.MANDATORY);
+    }
+
+    @Test
+    @DisplayName("hasOtherPublishedReference returns false when assetId is null or count is zero")
+    void hasOtherPublishedReference_shouldReturnFalseWhenNullOrCountZero() {
+        assertThat(adapter.hasOtherPublishedReference(null, UUID.randomUUID())).isFalse();
+
+        UUID videoAssetId = UUID.randomUUID();
+        UUID excludingEntryId = UUID.randomUUID();
+        when(repository.countOtherPublishedReferencesExcluding(videoAssetId.toString(), excludingEntryId.toString()))
+                .thenReturn(0L);
+
+        assertThat(adapter.hasOtherPublishedReference(videoAssetId, excludingEntryId)).isFalse();
+    }
+
+    @Test
+    @DisplayName("hasOtherPublishedReference returns true when count with excludingEntryId is greater than zero")
+    void hasOtherPublishedReference_shouldReturnTrueWhenCountGreaterThanZeroWithExclusion() {
+        UUID videoAssetId = UUID.randomUUID();
+        UUID excludingEntryId = UUID.randomUUID();
+
+        when(repository.countOtherPublishedReferencesExcluding(videoAssetId.toString(), excludingEntryId.toString()))
+                .thenReturn(1L);
+
+        assertThat(adapter.hasOtherPublishedReference(videoAssetId, excludingEntryId)).isTrue();
+        verify(repository).countOtherPublishedReferencesExcluding(videoAssetId.toString(), excludingEntryId.toString());
+    }
+
+    @Test
+    @DisplayName("hasOtherPublishedReference delegates to countOtherPublishedReferences without exclusion when excludingEntryId is null")
+    void hasOtherPublishedReference_shouldDelegateToCountWithoutExclusionWhenNullExcludingId() {
+        UUID videoAssetId = UUID.randomUUID();
+
+        when(repository.countOtherPublishedReferences(videoAssetId.toString()))
+                .thenReturn(2L);
+
+        assertThat(adapter.hasOtherPublishedReference(videoAssetId, null)).isTrue();
+        verify(repository).countOtherPublishedReferences(videoAssetId.toString());
+    }
+
+    @Test
+    @DisplayName("Transaction Contract: findPublishedEntryVideoBindingsByTitleIdCurrentRead and findEntryVideoBindingsByTitleIdCurrentRead require Propagation.MANDATORY")
+    void currentReadBindingMethods_shouldRequireMandatoryTransactionPropagation() throws NoSuchMethodException {
+        Method pubMethod = ScreenEntryPersistenceAdapter.class
+                .getMethod("findPublishedEntryVideoBindingsByTitleIdCurrentRead", UUID.class);
+        Transactional pubTx = pubMethod.getAnnotation(Transactional.class);
+        assertThat(pubTx).isNotNull();
+        assertThat(pubTx.propagation()).isEqualTo(Propagation.MANDATORY);
+
+        Method allMethod = ScreenEntryPersistenceAdapter.class
+                .getMethod("findEntryVideoBindingsByTitleIdCurrentRead", UUID.class);
+        Transactional allTx = allMethod.getAnnotation(Transactional.class);
+        assertThat(allTx).isNotNull();
+        assertThat(allTx.propagation()).isEqualTo(Propagation.MANDATORY);
+    }
+
+    @Test
+    @DisplayName("PersistenceAdapter: findPublishedEntryVideoBindingsByTitleIdCurrentRead maps scalar Object[] rows to EntryVideoBinding")
+    void shouldMapScalarRowsForFindPublishedEntryVideoBindingsByTitleIdCurrentRead() {
+        UUID entry1Id = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID entry2Id = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID video1Id = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        when(repository.findPublishedEntryVideoBindingsByTitleIdCurrentRead(titleId.toString()))
+                .thenReturn(List.of(
+                        new Object[]{entry1Id.toString(), video1Id.toString()},
+                        new Object[]{entry2Id.toString(), null}
+                ));
+
+        List<ScreenEntryRepositoryPort.EntryVideoBinding> bindings =
+                adapter.findPublishedEntryVideoBindingsByTitleIdCurrentRead(titleId);
+
+        assertThat(bindings).containsExactly(
+                new ScreenEntryRepositoryPort.EntryVideoBinding(entry1Id, video1Id),
+                new ScreenEntryRepositoryPort.EntryVideoBinding(entry2Id, null)
+        );
+        assertThat(adapter.findPublishedEntryVideoBindingsByTitleIdCurrentRead(null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("PersistenceAdapter: findEntryVideoBindingsByTitleIdCurrentRead maps scalar Object[] rows to EntryVideoBinding")
+    void shouldMapScalarRowsForFindEntryVideoBindingsByTitleIdCurrentRead() {
+        UUID entry1Id = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID video1Id = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        when(repository.findEntryVideoBindingsByTitleIdCurrentRead(titleId.toString()))
+                .thenReturn(List.<Object[]>of(new Object[]{entry1Id.toString(), video1Id.toString()}));
+
+        List<ScreenEntryRepositoryPort.EntryVideoBinding> bindings =
+                adapter.findEntryVideoBindingsByTitleIdCurrentRead(titleId);
+
+        assertThat(bindings).containsExactly(
+                new ScreenEntryRepositoryPort.EntryVideoBinding(entry1Id, video1Id)
+        );
+        assertThat(adapter.findEntryVideoBindingsByTitleIdCurrentRead(null)).isEmpty();
     }
 }

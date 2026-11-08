@@ -7,10 +7,14 @@ import com.universe.screen.application.exceptions.ScreenEntryVideoNotAttachedExc
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
+import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +49,9 @@ class ReplaceScreenEntryVideoUseCaseTest {
     private ScreenMediaValidationPort mediaValidationPort;
 
     @Mock
+    private ScreenMediaVisibilityPort mediaVisibilityPort;
+
+    @Mock
     private ClockPort clockPort;
 
     private ReplaceScreenEntryVideoUseCase useCase;
@@ -63,6 +70,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
                 titleRepository,
                 entryRepository,
                 mediaValidationPort,
+                mediaVisibilityPort,
                 clockPort
         );
     }
@@ -73,6 +81,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, oldVideoId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
         when(clockPort.now()).thenReturn(now);
         when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -95,6 +104,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         entry.publish(publishedAt);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
         when(clockPort.now()).thenReturn(now);
         when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -117,6 +127,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, newVideoId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         ScreenEntryDTO result = useCase.execute(titleId, entryId, newVideoId, oldVideoId);
@@ -139,13 +150,13 @@ class ReplaceScreenEntryVideoUseCaseTest {
 
         verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).save(any());
-        verify(mediaValidationPort, never()).lockAndValidateVideoMediaAsset(any());
     }
 
     @Test
     @DisplayName("Replace: fails when entry does not exist")
     void shouldFailWhenEntryNotFound() {
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, newVideoId, oldVideoId))
@@ -163,6 +174,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, otherTitleId, oldVideoId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, newVideoId, oldVideoId))
@@ -179,6 +191,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, null);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, newVideoId, oldVideoId))
@@ -197,6 +210,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, oldVideoId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, newVideoId, unexpectedOldVideoId))
@@ -244,6 +258,7 @@ class ReplaceScreenEntryVideoUseCaseTest {
         UUID replacementVideo2 = UUID.randomUUID();
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         // First execution: entry has oldVideoId
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
         when(clockPort.now()).thenReturn(now);
@@ -263,6 +278,17 @@ class ReplaceScreenEntryVideoUseCaseTest {
 
         // Verify entry was not overwritten with replacementVideo2
         assertThat(entry.getVideoMediaAssetId()).isEqualTo(replacementVideo1);
+    }
+
+    private ScreenTitle createTitle(UUID id) {
+        return ScreenTitle.createDraft(
+                id,
+                "title-slug",
+                "Title Name",
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                t0
+        );
     }
 
     private ScreenEntry createEntry(UUID id, UUID tId, UUID currentVideoId) {

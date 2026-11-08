@@ -6,9 +6,13 @@ import com.universe.screen.application.exceptions.ScreenEntryVideoAlreadyAttache
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenPresentation;
+import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,6 +46,9 @@ class AttachScreenEntryVideoUseCaseTest {
     private ScreenMediaValidationPort mediaValidationPort;
 
     @Mock
+    private ScreenMediaVisibilityPort mediaVisibilityPort;
+
+    @Mock
     private ClockPort clockPort;
 
     private AttachScreenEntryVideoUseCase useCase;
@@ -57,6 +64,7 @@ class AttachScreenEntryVideoUseCaseTest {
                 titleRepository,
                 entryRepository,
                 mediaValidationPort,
+                mediaVisibilityPort,
                 clockPort
         );
     }
@@ -67,6 +75,7 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, null);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
         when(clockPort.now()).thenReturn(now);
         when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -99,6 +108,7 @@ class AttachScreenEntryVideoUseCaseTest {
     @DisplayName("Attach: fails when entry does not exist")
     void shouldFailWhenEntryNotFound() {
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
@@ -116,6 +126,7 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, otherTitleId, null);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
@@ -132,6 +143,7 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, videoAssetId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         ScreenEntryDTO result = useCase.execute(titleId, entryId, videoAssetId);
@@ -151,6 +163,7 @@ class AttachScreenEntryVideoUseCaseTest {
         ScreenEntry entry = createEntry(entryId, titleId, existingVideoId);
 
         when(titleRepository.existsById(titleId)).thenReturn(true);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(createTitle(titleId)));
         when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
         assertThatThrownBy(() -> useCase.execute(titleId, entryId, videoAssetId))
@@ -174,6 +187,17 @@ class AttachScreenEntryVideoUseCaseTest {
         verify(mediaValidationPort).lockAndValidateVideoMediaAsset(videoAssetId);
         verify(entryRepository, never()).findByIdForUpdate(any());
         verify(entryRepository, never()).save(any());
+    }
+
+    private ScreenTitle createTitle(UUID id) {
+        return ScreenTitle.createDraft(
+                id,
+                "title-slug",
+                "Title Name",
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                now
+        );
     }
 
     private ScreenEntry createEntry(UUID id, UUID tId, UUID currentVideoId) {

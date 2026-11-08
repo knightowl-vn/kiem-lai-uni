@@ -34,11 +34,56 @@ public interface ScreenEntryRepositoryPort {
     List<ScreenEntry> findByTitleId(UUID titleId);
 
     /**
+     * Authoritative scalar projection for an entry's current video MediaAsset binding.
+     *
+     * <p>Used by post-lock current-read consistency checks to bypass Hibernate L1 entity
+     * identity caching and observe fresh database column values.
+     *
+     * @param entryId           non-null ScreenEntry UUID
+     * @param videoMediaAssetId attached video MediaAsset UUID, or null if detached
+     */
+    record EntryVideoBinding(UUID entryId, UUID videoMediaAssetId) {
+        public EntryVideoBinding {
+            java.util.Objects.requireNonNull(entryId, "entryId cannot be null.");
+        }
+    }
+
+    /**
      * Generic retrieval of published entries for a title (excludes DRAFT and ARCHIVED).
      * NOTE: GENERIC ENTRY ORDER != PUBLIC NAVIGATION ORDER.
      * Total order is deterministic by id ASC only.
      */
     List<ScreenEntry> findPublishedByTitleId(UUID titleId);
+
+    /**
+     * Executes an InnoDB locking current-read returning authoritative scalar
+     * {@code (entryId, videoMediaAssetId)} bindings for PUBLISHED child entries of a title,
+     * bypassing Hibernate's L1 persistence context cache.
+     *
+     * @param titleId parent ScreenTitle UUID
+     * @return list of bindings ordered by {@code entryId ASC}
+     */
+    default List<EntryVideoBinding> findPublishedEntryVideoBindingsByTitleIdCurrentRead(UUID titleId) {
+        return findPublishedByTitleId(titleId).stream()
+                .sorted(java.util.Comparator.comparing(ScreenEntry::getId))
+                .map(entry -> new EntryVideoBinding(entry.getId(), entry.getVideoMediaAssetId()))
+                .toList();
+    }
+
+    /**
+     * Executes an InnoDB locking current-read returning authoritative scalar
+     * {@code (entryId, videoMediaAssetId)} bindings for all child entries of a title,
+     * bypassing Hibernate's L1 persistence context cache.
+     *
+     * @param titleId parent ScreenTitle UUID
+     * @return list of bindings ordered by {@code entryId ASC}
+     */
+    default List<EntryVideoBinding> findEntryVideoBindingsByTitleIdCurrentRead(UUID titleId) {
+        return findByTitleId(titleId).stream()
+                .sorted(java.util.Comparator.comparing(ScreenEntry::getId))
+                .map(entry -> new EntryVideoBinding(entry.getId(), entry.getVideoMediaAssetId()))
+                .toList();
+    }
 
     /**
      * SERIES episode navigation primitive.
@@ -87,4 +132,24 @@ public interface ScreenEntryRepositoryPort {
      * @return list of ScreenEntry UUIDs currently referencing the asset
      */
     List<UUID> findEntryIdsByVideoMediaAssetId(UUID videoMediaAssetId);
+
+    /**
+     * Retrieves the attached videoMediaAssetId for an entry using a lightweight scalar query.
+     *
+     * @param id ScreenEntry UUID
+     * @return Optional containing the attached video MediaAsset UUID, or empty
+     */
+    Optional<UUID> findVideoMediaAssetIdById(UUID id);
+
+    /**
+     * Checks whether any ScreenEntry (other than excludingEntryId if non-null)
+     * references the specified videoMediaAssetId where both the entry and its parent title are PUBLISHED.
+     *
+     * <p>Executes an InnoDB locking current-read across referencing entries.
+     *
+     * @param videoMediaAssetId UUID of the video media asset
+     * @param excludingEntryId optional ScreenEntry UUID to exclude from evaluation, or null
+     * @return true if at least one other published reference under a published title exists, false otherwise
+     */
+    boolean hasOtherPublishedReference(UUID videoMediaAssetId, UUID excludingEntryId);
 }

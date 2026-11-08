@@ -10,6 +10,7 @@ import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenPresentation;
@@ -57,6 +58,9 @@ class ScreenTitleUseCaseTest {
     @Mock
     private ScreenEntryRepositoryPort entryRepositoryPort;
 
+    @Mock
+    private ScreenMediaVisibilityPort mediaVisibilityPort;
+
     private CreateScreenTitleUseCase createUseCase;
     private UpdateScreenTitleUseCase updateUseCase;
     private PublishScreenTitleUseCase publishUseCase;
@@ -75,8 +79,8 @@ class ScreenTitleUseCaseTest {
     void setUp() {
         createUseCase = new CreateScreenTitleUseCase(titleRepository, mediaValidationPort, clockPort);
         updateUseCase = new UpdateScreenTitleUseCase(titleRepository, mediaValidationPort, clockPort, entryRepositoryPort);
-        publishUseCase = new PublishScreenTitleUseCase(titleRepository, clockPort);
-        archiveUseCase = new ArchiveScreenTitleUseCase(titleRepository, clockPort);
+        publishUseCase = new PublishScreenTitleUseCase(titleRepository, entryRepositoryPort, mediaVisibilityPort, clockPort);
+        archiveUseCase = new ArchiveScreenTitleUseCase(titleRepository, entryRepositoryPort, mediaVisibilityPort, clockPort);
         getListUseCase = new GetScreenTitleListUseCase(titleRepository);
         getDetailUseCase = new GetScreenTitleDetailUseCase(titleRepository);
     }
@@ -774,7 +778,7 @@ class ScreenTitleUseCaseTest {
                 titleId, "draft-title", "Draft Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(draft));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(draft));
         when(clockPort.now()).thenReturn(publishTime);
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -793,7 +797,7 @@ class ScreenTitleUseCaseTest {
         );
         published.publish(publishTime);
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(published));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(published));
         when(clockPort.now()).thenReturn(publishTime.plusSeconds(100));
 
         assertThatThrownBy(() -> publishUseCase.execute(titleId))
@@ -810,7 +814,7 @@ class ScreenTitleUseCaseTest {
         archived.publish(publishTime);
         archived.archive(archiveTime);
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(archived));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(archived));
         when(clockPort.now()).thenReturn(archiveTime.plusSeconds(100));
 
         assertThatThrownBy(() -> publishUseCase.execute(titleId))
@@ -826,7 +830,7 @@ class ScreenTitleUseCaseTest {
         );
         published.publish(publishTime);
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(published));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(published));
         when(clockPort.now()).thenReturn(archiveTime);
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -844,7 +848,7 @@ class ScreenTitleUseCaseTest {
                 titleId, "draft-title", "Draft Title", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
         );
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(draft));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(draft));
         when(clockPort.now()).thenReturn(archiveTime);
         when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -863,7 +867,7 @@ class ScreenTitleUseCaseTest {
         );
         archived.archive(archiveTime);
 
-        when(titleRepository.findById(titleId)).thenReturn(Optional.of(archived));
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(archived));
         when(clockPort.now()).thenReturn(archiveTime.plusSeconds(100));
 
         assertThatThrownBy(() -> archiveUseCase.execute(titleId))

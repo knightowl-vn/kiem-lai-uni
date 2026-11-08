@@ -6,14 +6,18 @@ import com.universe.screen.application.exceptions.ScreenEntryVideoAlreadyAttache
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenPublicationStatus;
+import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -23,17 +27,20 @@ public class AttachScreenEntryVideoUseCase {
     private final ScreenTitleRepositoryPort titleRepository;
     private final ScreenEntryRepositoryPort entryRepository;
     private final ScreenMediaValidationPort mediaValidationPort;
+    private final ScreenMediaVisibilityPort mediaVisibilityPort;
     private final ClockPort clockPort;
 
     public AttachScreenEntryVideoUseCase(
             ScreenTitleRepositoryPort titleRepository,
             ScreenEntryRepositoryPort entryRepository,
             ScreenMediaValidationPort mediaValidationPort,
+            ScreenMediaVisibilityPort mediaVisibilityPort,
             ClockPort clockPort
     ) {
         this.titleRepository = Objects.requireNonNull(titleRepository, "ScreenTitleRepositoryPort cannot be null.");
         this.entryRepository = Objects.requireNonNull(entryRepository, "ScreenEntryRepositoryPort cannot be null.");
         this.mediaValidationPort = Objects.requireNonNull(mediaValidationPort, "ScreenMediaValidationPort cannot be null.");
+        this.mediaVisibilityPort = Objects.requireNonNull(mediaVisibilityPort, "ScreenMediaVisibilityPort cannot be null.");
         this.clockPort = Objects.requireNonNull(clockPort, "ClockPort cannot be null.");
     }
 
@@ -46,14 +53,19 @@ public class AttachScreenEntryVideoUseCase {
             throw new ScreenTitleNotFoundException(titleId);
         }
 
-        // Step 1: Atomically lock and validate candidate video media asset
+        // STEP 1: Global Lock Protocol - MediaAsset lock FIRST
         mediaValidationPort.lockAndValidateVideoMediaAsset(videoMediaAssetId);
+        mediaVisibilityPort.lockAndValidateActiveVideoAsset(videoMediaAssetId);
+        mediaVisibilityPort.validateVideoProvenance(videoMediaAssetId, entryId);
 
-        // Step 2: Acquire pessimistic row-level lock on ScreenEntry
+        // STEP 2: Global Lock Protocol - ScreenTitle lock SECOND
+        ScreenTitle title = titleRepository.findByIdForUpdate(titleId)
+                .orElseThrow(() -> new ScreenTitleNotFoundException(titleId));
+
+        // STEP 3: Global Lock Protocol - ScreenEntry lock THIRD
         ScreenEntry entry = entryRepository.findByIdForUpdate(entryId)
                 .orElseThrow(() -> new ScreenEntryNotFoundException(entryId));
 
-        // Step 3: Validate entry state and intent
         if (!entry.getTitleId().equals(titleId)) {
             throw new ScreenEntryNotFoundException(entryId);
         }
@@ -68,11 +80,22 @@ public class AttachScreenEntryVideoUseCase {
             throw new ScreenEntryVideoAlreadyAttachedException(entryId, entry.getVideoMediaAssetId());
         }
 
-        // Step 4: Mutate and save ScreenEntry
+        // STEP 4: Mutate and save ScreenEntry
         Instant now = clockPort.now();
         entry.updateMedia(videoMediaAssetId, entry.getThumbnailMediaAssetId(), now);
 
         ScreenEntry saved = entryRepository.save(entry);
+
+        // STEP 5: P0-A Visibility reconciliation with shared-reference protection
+        if (saved.getStatus() == ScreenPublicationStatus.PUBLISHED
+                && title.getStatus() == ScreenPublicationStatus.PUBLISHED) {
+            mediaVisibilityPort.makeVideoPublic(videoMediaAssetId, entryId);
+        } else {
+            if (!entryRepository.hasOtherPublishedReference(videoMediaAssetId, entryId)) {
+                mediaVisibilityPort.makeVideoPrivate(videoMediaAssetId, entryId);
+            }
+        }
+
         return toDTO(saved);
     }
 

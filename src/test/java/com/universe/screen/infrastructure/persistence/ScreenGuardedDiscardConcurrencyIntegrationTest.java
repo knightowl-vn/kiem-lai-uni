@@ -158,6 +158,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         ScreenEntryPersistenceAdapter.class,
         ScreenMediaAssetReferenceCheckAdapter.class,
         ScreenMediaValidationAdapter.class,
+        com.universe.screen.infrastructure.media.ScreenMediaVisibilityAdapter.class,
         DiscardScreenEntryVideoUploadUseCase.class,
         AttachScreenEntryVideoUseCase.class,
         ReplaceScreenEntryVideoUseCase.class,

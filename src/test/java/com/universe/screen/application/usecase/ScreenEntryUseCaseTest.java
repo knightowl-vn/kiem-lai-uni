@@ -8,6 +8,7 @@ import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
@@ -45,6 +46,9 @@ class ScreenEntryUseCaseTest {
 
     @Mock
     private ScreenEntryRepositoryPort entryRepository;
+
+    @Mock
+    private ScreenMediaVisibilityPort mediaVisibilityPort;
 
     @Mock
     private ClockPort clockPort;
@@ -682,7 +686,7 @@ class ScreenEntryUseCaseTest {
         void shouldThrowWhenTitleNotFound() {
             when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.empty());
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(ScreenTitleNotFoundException.class);
@@ -697,7 +701,7 @@ class ScreenEntryUseCaseTest {
             ScreenEntry foreignEntry = ScreenEntry.createDraft(entryId, foreignTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
             when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(foreignEntry));
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(ScreenEntryNotFoundException.class);
@@ -720,7 +724,7 @@ class ScreenEntryUseCaseTest {
             when(clockPort.now()).thenReturn(publishTime);
             when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
             ScreenEntryDTO published = useCase.execute(seriesTitleId, entryId);
 
             assertThat(published.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
@@ -738,7 +742,7 @@ class ScreenEntryUseCaseTest {
             when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
             when(clockPort.now()).thenReturn(now.plusSeconds(200));
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(IllegalStateException.class)
@@ -755,7 +759,7 @@ class ScreenEntryUseCaseTest {
             when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
             when(clockPort.now()).thenReturn(now.plusSeconds(200));
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(IllegalStateException.class)
@@ -776,7 +780,7 @@ class ScreenEntryUseCaseTest {
             when(clockPort.now()).thenReturn(now.plusSeconds(100));
             when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
             ScreenEntryDTO published = useCase.execute(seriesTitleId, entryId);
 
             assertThat(published.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
@@ -795,7 +799,7 @@ class ScreenEntryUseCaseTest {
             ScreenEntry entry25 = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-25", ScreenEntryType.EPISODE, 25, "Ep 25", now);
             when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry25));
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(InvalidScreenTitleTotalEpisodeCountException.class)
@@ -818,7 +822,7 @@ class ScreenEntryUseCaseTest {
             when(clockPort.now()).thenReturn(now.plusSeconds(100));
             when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            PublishScreenEntryUseCase useCase = new PublishScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
             ScreenEntryDTO published = useCase.execute(seriesTitleId, entryId);
 
             assertThat(published.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
@@ -835,7 +839,7 @@ class ScreenEntryUseCaseTest {
         void shouldThrowWhenTitleNotFound() {
             when(titleRepository.existsById(seriesTitleId)).thenReturn(false);
 
-            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(ScreenTitleNotFoundException.class);
@@ -848,9 +852,9 @@ class ScreenEntryUseCaseTest {
             when(titleRepository.existsById(seriesTitleId)).thenReturn(true);
 
             ScreenEntry foreignEntry = ScreenEntry.createDraft(entryId, foreignTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(foreignEntry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(foreignEntry));
 
-            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(ScreenEntryNotFoundException.class);
@@ -870,12 +874,12 @@ class ScreenEntryUseCaseTest {
 
             ScreenEntry entry = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
             entry.publish(publishTime);
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
 
             when(clockPort.now()).thenReturn(archiveTime);
             when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
             ScreenEntryDTO archived = useCase.execute(seriesTitleId, entryId);
 
             assertThat(archived.status()).isEqualTo(ScreenPublicationStatus.ARCHIVED);
@@ -890,10 +894,10 @@ class ScreenEntryUseCaseTest {
 
             ScreenEntry entry = ScreenEntry.createDraft(entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", now);
             entry.archive(now.plusSeconds(100));
-            when(entryRepository.findById(entryId)).thenReturn(Optional.of(entry));
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
             when(clockPort.now()).thenReturn(now.plusSeconds(200));
 
-            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            ArchiveScreenEntryUseCase useCase = new ArchiveScreenEntryUseCase(titleRepository, entryRepository, mediaVisibilityPort, clockPort);
 
             assertThatThrownBy(() -> useCase.execute(seriesTitleId, entryId))
                     .isInstanceOf(IllegalStateException.class)

@@ -26,9 +26,14 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
     );
 
     private final SpringDataScreenEntryJpaRepository repository;
+    private final SpringDataScreenTitleJpaRepository titleRepository;
 
-    public ScreenEntryPersistenceAdapter(SpringDataScreenEntryJpaRepository repository) {
+    public ScreenEntryPersistenceAdapter(
+            SpringDataScreenEntryJpaRepository repository,
+            SpringDataScreenTitleJpaRepository titleRepository
+    ) {
         this.repository = Objects.requireNonNull(repository, "SpringDataScreenEntryJpaRepository cannot be null.");
+        this.titleRepository = Objects.requireNonNull(titleRepository, "SpringDataScreenTitleJpaRepository cannot be null.");
     }
 
     @Override
@@ -222,5 +227,61 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
                 .stream()
                 .map(UUID::fromString)
                 .toList();
+    }
+
+    @Override
+    public Optional<UUID> findVideoMediaAssetIdById(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return repository.findVideoMediaAssetIdById(id.toString()).map(UUID::fromString);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean hasOtherPublishedReference(UUID videoMediaAssetId, UUID excludingEntryId) {
+        if (videoMediaAssetId == null) {
+            return false;
+        }
+
+        long count;
+        if (excludingEntryId != null) {
+            count = repository.countOtherPublishedReferencesExcluding(videoMediaAssetId.toString(), excludingEntryId.toString());
+        } else {
+            count = repository.countOtherPublishedReferences(videoMediaAssetId.toString());
+        }
+        return count > 0;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<EntryVideoBinding> findPublishedEntryVideoBindingsByTitleIdCurrentRead(UUID titleId) {
+        if (titleId == null) {
+            return List.of();
+        }
+        return repository.findPublishedEntryVideoBindingsByTitleIdCurrentRead(titleId.toString())
+                .stream()
+                .map(ScreenEntryPersistenceAdapter::toEntryVideoBinding)
+                .toList();
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<EntryVideoBinding> findEntryVideoBindingsByTitleIdCurrentRead(UUID titleId) {
+        if (titleId == null) {
+            return List.of();
+        }
+        return repository.findEntryVideoBindingsByTitleIdCurrentRead(titleId.toString())
+                .stream()
+                .map(ScreenEntryPersistenceAdapter::toEntryVideoBinding)
+                .toList();
+    }
+
+    private static EntryVideoBinding toEntryVideoBinding(Object[] row) {
+        UUID entryId = UUID.fromString(row[0].toString());
+        UUID videoMediaAssetId = row.length > 1 && row[1] != null
+                ? UUID.fromString(row[1].toString())
+                : null;
+        return new EntryVideoBinding(entryId, videoMediaAssetId);
     }
 }

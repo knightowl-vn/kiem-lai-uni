@@ -65,4 +65,39 @@ public interface SpringDataScreenEntryJpaRepository extends JpaRepository<Screen
 
     @Query(value = "SELECT id FROM screen_entries WHERE video_media_asset_id = :videoMediaAssetId", nativeQuery = true)
     List<String> findEntryIdsByVideoMediaAssetId(@Param("videoMediaAssetId") String videoMediaAssetId);
+
+    @Query("SELECT e.videoMediaAssetId FROM ScreenEntryJpaEntity e WHERE e.id = :id")
+    Optional<String> findVideoMediaAssetIdById(@Param("id") String id);
+
+    @Query(value = """
+            SELECT COUNT(*) FROM screen_entries e
+            JOIN screen_titles t ON e.title_id = t.id
+            WHERE e.video_media_asset_id = :videoMediaAssetId
+              AND e.status = 'PUBLISHED'
+              AND t.status = 'PUBLISHED'
+              AND e.id <> :excludingEntryId
+            LOCK IN SHARE MODE
+            """, nativeQuery = true)
+    long countOtherPublishedReferencesExcluding(
+            @Param("videoMediaAssetId") String videoMediaAssetId,
+            @Param("excludingEntryId") String excludingEntryId
+    );
+
+    @Query(value = """
+            SELECT COUNT(*) FROM screen_entries e
+            JOIN screen_titles t ON e.title_id = t.id
+            WHERE e.video_media_asset_id = :videoMediaAssetId
+              AND e.status = 'PUBLISHED'
+              AND t.status = 'PUBLISHED'
+            LOCK IN SHARE MODE
+            """, nativeQuery = true)
+    long countOtherPublishedReferences(
+            @Param("videoMediaAssetId") String videoMediaAssetId
+    );
+
+    @Query(value = "SELECT id, video_media_asset_id FROM screen_entries WHERE title_id = :titleId AND status = 'PUBLISHED' ORDER BY id ASC LOCK IN SHARE MODE", nativeQuery = true)
+    List<Object[]> findPublishedEntryVideoBindingsByTitleIdCurrentRead(@Param("titleId") String titleId);
+
+    @Query(value = "SELECT id, video_media_asset_id FROM screen_entries WHERE title_id = :titleId ORDER BY id ASC LOCK IN SHARE MODE", nativeQuery = true)
+    List<Object[]> findEntryVideoBindingsByTitleIdCurrentRead(@Param("titleId") String titleId);
 }
