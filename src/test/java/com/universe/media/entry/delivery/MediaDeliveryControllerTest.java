@@ -22,18 +22,30 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.context.request.async.AsyncWebRequest;
+import org.springframework.web.context.request.async.WebAsyncManager;
+import org.springframework.web.context.request.async.WebAsyncUtils;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
@@ -63,11 +75,12 @@ class MediaDeliveryControllerTest {
     @Mock
     private GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase;
 
+    private MediaDeliveryController controller;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        MediaDeliveryController controller = new MediaDeliveryController(
+        controller = new MediaDeliveryController(
                 getMediaAssetContentUseCase,
                 getMediaImageVariantContentUseCase
         );
@@ -803,6 +816,417 @@ class MediaDeliveryControllerTest {
 
             verify(getMediaAssetContentUseCase, never()).open(any());
             verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+        }
+    }
+
+    @org.junit.jupiter.api.Nested
+    @DisplayName("Public Video Streaming Async Timeout and Lifecycle Tests (MS-08G3)")
+    class PublicStreamingAsyncAndLifecycleTests {
+
+        private static final UUID VIDEO_ID = UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+        private static final String VIDEO_MIME = "video/mp4";
+        private static final String VIDEO_HASH =
+                "e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3";
+        private static final byte[] VIDEO_DATA = new byte[100];
+
+        static {
+            for (int i = 0; i < VIDEO_DATA.length; i++) {
+                VIDEO_DATA[i] = (byte) (i + 1);
+            }
+        }
+
+        private GetMediaAssetContentMetadataResult videoMetadata() {
+            return new GetMediaAssetContentMetadataResult(
+                    VIDEO_ID,
+                    1,
+                    VIDEO_DATA.length,
+                    VIDEO_MIME,
+                    VIDEO_HASH,
+                    null
+            );
+        }
+
+        @Test
+        @DisplayName("1. Scoped Async Timeout: configures WebAsyncManager timeout to 30 minutes when AsyncWebRequest is present")
+        void shouldConfigureAsyncTimeoutTo30Minutes() {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            AsyncWebRequest asyncWebRequest = org.mockito.Mockito.mock(AsyncWebRequest.class);
+            WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+            asyncManager.setAsyncWebRequest(asyncWebRequest);
+
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    VIDEO_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            assertThat(response).isNotNull();
+            verify(asyncWebRequest).setTimeout(1_800_000L);
+        }
+
+        @Test
+        @DisplayName("2. Async timeout before commit: returns 503 SERVICE_UNAVAILABLE")
+        void shouldReturn503OnAsyncTimeoutBeforeCommit() {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            AsyncRequestTimeoutException timeoutEx = new AsyncRequestTimeoutException();
+
+            ResponseEntity<Void> result = controller.handleAsyncTimeout(timeoutEx, request, response);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        }
+
+        @Test
+        @DisplayName("3. Async timeout after commit: returns null without attempting to write error body")
+        void shouldReturnNullOnAsyncTimeoutAfterCommit() {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            response.setCommitted(true);
+            AsyncRequestTimeoutException timeoutEx = new AsyncRequestTimeoutException();
+
+            ResponseEntity<Void> result = controller.handleAsyncTimeout(timeoutEx, request, response);
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("4. StorageStreamException identification: correctly identifies StorageStreamException in cause chain")
+        void shouldIdentifyStorageStreamExceptionInCauseChain() {
+            assertThat(MediaDeliveryController.isUpstreamStorageFailure(
+                    new MediaDeliveryController.StorageStreamException("stream failure", new IOException("read timeout"))
+            )).isTrue();
+
+            assertThat(MediaDeliveryController.isUpstreamStorageFailure(
+                    new RuntimeException("wrapped", new MediaDeliveryController.StorageStreamException("nested", null))
+            )).isTrue();
+
+            assertThat(MediaDeliveryController.isUpstreamStorageFailure(null)).isFalse();
+            assertThat(MediaDeliveryController.isUpstreamStorageFailure(new IOException("broken pipe"))).isFalse();
+        }
+
+        @Test
+        @DisplayName("5. Client disconnect identification: matches connection reset, broken pipe, client abort, socket write error")
+        void shouldIdentifyClientDisconnects() {
+            assertThat(MediaDeliveryController.isClientDisconnect(new IOException("Connection reset by peer"))).isTrue();
+            assertThat(MediaDeliveryController.isClientDisconnect(new IOException("Broken pipe"))).isTrue();
+            assertThat(MediaDeliveryController.isClientDisconnect(new IOException("An established connection was aborted by the software in your host machine"))).isTrue();
+            assertThat(MediaDeliveryController.isClientDisconnect(new IOException("Socket write error"))).isTrue();
+            assertThat(MediaDeliveryController.isClientDisconnect(new IOException("software caused connection abort"))).isTrue();
+
+            assertThat(MediaDeliveryController.isClientDisconnect(null)).isFalse();
+            assertThat(MediaDeliveryController.isClientDisconnect(new IOException("Disk full"))).isFalse();
+            assertThat(MediaDeliveryController.isClientDisconnect(
+                    new MediaDeliveryController.StorageStreamException("Storage stream read failure", null)
+            )).isFalse();
+        }
+
+        @Test
+        @DisplayName("6. Premature upstream EOF: throws StorageStreamException with expected vs transferred bytes and closes stream")
+        void shouldDetectPrematureUpstreamEofAndCloseStream() throws Exception {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            // Upstream promises 100 bytes (metadata size), but only provides 15 bytes before returning EOF (-1)
+            byte[] truncatedBytes = new byte[15];
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream truncatedStream = trackingStream(truncatedBytes, streamClosed);
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(truncatedStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    VIDEO_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            StreamingResponseBody body = response.getBody();
+            assertThat(body).isNotNull();
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            assertThatThrownBy(() -> body.writeTo(clientOut))
+                    .isInstanceOf(MediaDeliveryController.StorageStreamException.class)
+                    .hasMessageContaining("Premature upstream EOF")
+                    .hasMessageContaining("15 of 100 bytes");
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("7. Premature upstream EOF on Range 206: throws StorageStreamException with range expected vs transferred bytes")
+        void shouldDetectPrematureUpstreamEofOnRangeRequest() throws Exception {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            // Range bytes=0-49 promises 50 bytes, but upstream stream only provides 20 bytes
+            byte[] truncatedSlice = new byte[20];
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream truncatedStream = trackingStream(truncatedSlice, streamClosed);
+            when(getMediaAssetContentUseCase.openRange(meta, 0, 50)).thenReturn(truncatedStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            request.addHeader(HttpHeaders.RANGE, "bytes=0-49");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    VIDEO_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PARTIAL_CONTENT);
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_LENGTH)).isEqualTo("50");
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE)).isEqualTo("bytes 0-49/100");
+
+            StreamingResponseBody body = response.getBody();
+            assertThat(body).isNotNull();
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            assertThatThrownBy(() -> body.writeTo(clientOut))
+                    .isInstanceOf(MediaDeliveryController.StorageStreamException.class)
+                    .hasMessageContaining("Premature upstream EOF")
+                    .hasMessageContaining("20 of 50 bytes");
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("8. Upstream stream read failure: wraps in StorageStreamException and closes stream")
+        void shouldWrapUpstreamStreamReadFailureAndCloseStream() throws Exception {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream failingStream = new InputStream() {
+                private int count = 0;
+                @Override
+                public int read() throws IOException {
+                    if (++count > 10) {
+                        throw new IOException("B2 connection dropped during read");
+                    }
+                    return 0x55;
+                }
+                @Override
+                public int read(byte[] b, int off, int len) throws IOException {
+                    if (++count > 2) {
+                        throw new IOException("B2 connection dropped during read");
+                    }
+                    b[off] = 0x55;
+                    return 1;
+                }
+                @Override
+                public void close() {
+                    streamClosed.set(true);
+                }
+            };
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(failingStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    VIDEO_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            StreamingResponseBody body = response.getBody();
+            assertThat(body).isNotNull();
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            assertThatThrownBy(() -> body.writeTo(clientOut))
+                    .isInstanceOf(MediaDeliveryController.StorageStreamException.class)
+                    .hasMessageContaining("Storage stream read failure")
+                    .hasCauseInstanceOf(IOException.class);
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("9. Downstream client disconnect: gracefully exits without rethrowing exception and closes upstream stream")
+        void shouldHandleDownstreamClientDisconnectGracefully() throws Exception {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream stream = trackingStream(VIDEO_DATA, streamClosed);
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(stream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    VIDEO_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            StreamingResponseBody body = response.getBody();
+            assertThat(body).isNotNull();
+
+            OutputStream abortingClientOut = new OutputStream() {
+                @Override
+                public void write(int b) throws IOException {
+                    throw new IOException("Connection reset by peer");
+                }
+                @Override
+                public void write(byte[] b, int off, int len) throws IOException {
+                    throw new IOException("Connection reset by peer");
+                }
+            };
+
+            // Must exit cleanly without throwing exception
+            body.writeTo(abortingClientOut);
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("10. Downstream non-disconnect write failure: rethrows IOException and closes upstream stream")
+        void shouldRethrowDownstreamNonDisconnectWriteFailure() throws Exception {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream stream = trackingStream(VIDEO_DATA, streamClosed);
+            when(getMediaAssetContentUseCase.open(meta)).thenReturn(stream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    VIDEO_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            StreamingResponseBody body = response.getBody();
+            assertThat(body).isNotNull();
+
+            OutputStream diskFullOut = new OutputStream() {
+                @Override
+                public void write(int b) throws IOException {
+                    throw new IOException("No space left on device");
+                }
+                @Override
+                public void write(byte[] b, int off, int len) throws IOException {
+                    throw new IOException("No space left on device");
+                }
+            };
+
+            assertThatThrownBy(() -> body.writeTo(diskFullOut))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("No space left on device");
+
+            assertThat(streamClosed.get()).isTrue();
+        }
+
+        @Test
+        @DisplayName("11. Bounded synthetic slow-stream: delivers byte-exact content with 206 Partial Content headers")
+        void shouldDeliverByteExactContentUnderChunkedSlowStream() throws Exception {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            // Simulate slow chunked stream: emits 10 bytes per read with tracking
+            byte[] expectedSlice = new byte[30];
+            System.arraycopy(VIDEO_DATA, 10, expectedSlice, 0, 30);
+            AtomicBoolean streamClosed = new AtomicBoolean(false);
+            InputStream slowChunkedStream = new InputStream() {
+                private int offset = 0;
+                @Override
+                public int read() {
+                    if (offset >= expectedSlice.length) return -1;
+                    return expectedSlice[offset++] & 0xFF;
+                }
+                @Override
+                public int read(byte[] b, int off, int len) {
+                    if (offset >= expectedSlice.length) return -1;
+                    int chunkSize = Math.min(len, Math.min(10, expectedSlice.length - offset));
+                    System.arraycopy(expectedSlice, offset, b, off, chunkSize);
+                    offset += chunkSize;
+                    return chunkSize;
+                }
+                @Override
+                public void close() {
+                    streamClosed.set(true);
+                }
+            };
+
+            when(getMediaAssetContentUseCase.openRange(meta, 10, 30)).thenReturn(slowChunkedStream);
+
+            MockHttpServletRequest request = new MockHttpServletRequest("GET",
+                    "/media/assets/" + VIDEO_ID + "/content");
+            request.addHeader(HttpHeaders.RANGE, "bytes=10-39");
+            AsyncWebRequest asyncWebRequest = org.mockito.Mockito.mock(AsyncWebRequest.class);
+            WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+            asyncManager.setAsyncWebRequest(asyncWebRequest);
+
+            ResponseEntity<StreamingResponseBody> response = controller.deliverAssetContent(
+                    VIDEO_ID,
+                    request,
+                    new org.springframework.web.context.request.ServletWebRequest(request)
+            );
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PARTIAL_CONTENT);
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE)).isEqualTo("bytes 10-39/100");
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_LENGTH)).isEqualTo("30");
+            assertThat(response.getHeaders().getFirst(HttpHeaders.ACCEPT_RANGES)).isEqualTo("bytes");
+
+            ByteArrayOutputStream clientOut = new ByteArrayOutputStream();
+            response.getBody().writeTo(clientOut);
+
+            assertThat(clientOut.toByteArray()).isEqualTo(expectedSlice);
+            assertThat(streamClosed.get()).isTrue();
+            // Verify async timeout was scoped to 30 minutes (1,800,000 ms), protecting against 30s cutoff
+            verify(asyncWebRequest).setTimeout(1_800_000L);
+        }
+
+        @Test
+        @DisplayName("12. Repeated sequential Range seeks: delivers independent byte slices without interference")
+        void shouldHandleMultipleSequentialRangeSeeks() throws Exception {
+            GetMediaAssetContentMetadataResult meta = videoMetadata();
+            when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(VIDEO_ID)))
+                    .thenReturn(meta);
+
+            // Seek 1: bytes 0-19
+            byte[] slice1 = new byte[20];
+            System.arraycopy(VIDEO_DATA, 0, slice1, 0, 20);
+            AtomicBoolean closed1 = new AtomicBoolean(false);
+            when(getMediaAssetContentUseCase.openRange(meta, 0, 20)).thenReturn(trackingStream(slice1, closed1));
+
+            MockHttpServletRequest req1 = new MockHttpServletRequest("GET", "/media/assets/" + VIDEO_ID + "/content");
+            req1.addHeader(HttpHeaders.RANGE, "bytes=0-19");
+            ResponseEntity<StreamingResponseBody> resp1 = controller.deliverAssetContent(
+                    VIDEO_ID, req1, new org.springframework.web.context.request.ServletWebRequest(req1));
+            ByteArrayOutputStream out1 = new ByteArrayOutputStream();
+            resp1.getBody().writeTo(out1);
+            assertThat(out1.toByteArray()).isEqualTo(slice1);
+            assertThat(closed1.get()).isTrue();
+
+            // Seek 2: bytes 50-69
+            byte[] slice2 = new byte[20];
+            System.arraycopy(VIDEO_DATA, 50, slice2, 0, 20);
+            AtomicBoolean closed2 = new AtomicBoolean(false);
+            when(getMediaAssetContentUseCase.openRange(meta, 50, 20)).thenReturn(trackingStream(slice2, closed2));
+
+            MockHttpServletRequest req2 = new MockHttpServletRequest("GET", "/media/assets/" + VIDEO_ID + "/content");
+            req2.addHeader(HttpHeaders.RANGE, "bytes=50-69");
+            ResponseEntity<StreamingResponseBody> resp2 = controller.deliverAssetContent(
+                    VIDEO_ID, req2, new org.springframework.web.context.request.ServletWebRequest(req2));
+            ByteArrayOutputStream out2 = new ByteArrayOutputStream();
+            resp2.getBody().writeTo(out2);
+            assertThat(out2.toByteArray()).isEqualTo(slice2);
+            assertThat(closed2.get()).isTrue();
         }
     }
 

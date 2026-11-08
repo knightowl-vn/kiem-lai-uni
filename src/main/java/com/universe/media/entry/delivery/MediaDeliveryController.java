@@ -13,6 +13,9 @@ import com.universe.media.application.variant.GetMediaImageVariantContentQuery;
 import com.universe.media.application.variant.GetMediaImageVariantContentUseCase;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -24,6 +27,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.context.request.async.WebAsyncManager;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.IOException;
@@ -36,6 +42,10 @@ import java.util.UUID;
 @RequestMapping("/media/assets")
 public class MediaDeliveryController {
 
+    private static final Logger log = LoggerFactory.getLogger(MediaDeliveryController.class);
+
+    public static final long MEDIA_STREAMING_ASYNC_TIMEOUT_MS = 1_800_000L; // 30 minutes scoped streaming timeout
+    private static final int STREAM_BUFFER_SIZE = 32768; // 32 KiB standard streaming buffer
     private static final String CACHE_CONTROL = "public, no-cache";
     private static final String BYTE_RANGE_UNIT = "bytes";
 
@@ -65,6 +75,13 @@ public class MediaDeliveryController {
             HttpServletRequest servletRequest,
             WebRequest webRequest
     ) {
+        if (servletRequest != null) {
+            WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(servletRequest);
+            if (asyncManager != null && asyncManager.getAsyncWebRequest() != null) {
+                asyncManager.getAsyncWebRequest().setTimeout(MEDIA_STREAMING_ASYNC_TIMEOUT_MS);
+            }
+        }
+
         GetMediaAssetContentMetadataResult metadata = getMediaAssetContentUseCase.resolveMetadata(
                 new GetMediaAssetContentQuery(assetId)
         );
@@ -161,10 +178,11 @@ public class MediaDeliveryController {
                     .build();
         }
 
-        return streamContentResponse(result, request);
+        return streamContentResponse(assetId, result, request);
     }
 
     private ResponseEntity<StreamingResponseBody> streamContentResponse(
+            UUID assetId,
             GetMediaAssetContentResult result,
             WebRequest request
     ) {
@@ -185,10 +203,13 @@ public class MediaDeliveryController {
         }
 
         StreamingResponseBody streamingBody = outputStream -> {
-            try (InputStream inputStream = result.content()) {
-                if (inputStream != null) {
-                    inputStream.transferTo(outputStream);
-                }
+            if (result.content() != null) {
+                copyStream(
+                        assetId,
+                        result.content(),
+                        outputStream,
+                        result.sizeBytes()
+                );
             }
         };
 
@@ -208,11 +229,12 @@ public class MediaDeliveryController {
             long contentLength,
             String contentRange
     ) {
-        StreamingResponseBody streamingBody = outputStream -> {
-            try (InputStream inputStream = content) {
-                inputStream.transferTo(outputStream);
-            }
-        };
+        StreamingResponseBody streamingBody = outputStream -> copyStream(
+                metadata.assetId(),
+                content,
+                outputStream,
+                contentLength
+        );
 
         ResponseEntity.BodyBuilder builder = contentResponseBuilder(status, metadata, eTag)
                 .contentLength(contentLength);
@@ -220,6 +242,64 @@ public class MediaDeliveryController {
             builder.header(HttpHeaders.CONTENT_RANGE, contentRange);
         }
         return builder.body(streamingBody);
+    }
+
+    private void copyStream(
+            UUID assetId,
+            InputStream inputStream,
+            java.io.OutputStream outputStream,
+            long expectedLength
+    ) throws IOException {
+        if (inputStream == null) {
+            log.error("Storage stream is null for asset {}", assetId);
+            throw new StorageStreamException("Storage stream is null", null);
+        }
+
+        byte[] buffer = new byte[STREAM_BUFFER_SIZE];
+        long transferred = 0;
+        try (inputStream) {
+            while (true) {
+                int bytesRead;
+                try {
+                    bytesRead = inputStream.read(buffer);
+                } catch (IOException readEx) {
+                    log.error("Storage stream read failure for asset {}: {}",
+                            assetId, readEx.getMessage(), readEx);
+                    throw new StorageStreamException("Storage stream read failure", readEx);
+                } catch (RuntimeException readRuntimeEx) {
+                    log.error("Storage stream runtime read failure for asset {}: {}",
+                            assetId, readRuntimeEx.getMessage(), readRuntimeEx);
+                    throw new StorageStreamException("Storage stream runtime read failure", readRuntimeEx);
+                }
+
+                if (bytesRead == -1) {
+                    break;
+                }
+
+                try {
+                    outputStream.write(buffer, 0, bytesRead);
+                    transferred += bytesRead;
+                } catch (IOException writeEx) {
+                    if (isClientDisconnect(writeEx)) {
+                        log.debug("Client disconnected while writing media stream for asset {}: {}",
+                                assetId, writeEx.getMessage());
+                        return;
+                    }
+                    log.warn("Downstream client write failure for asset {}: {}",
+                            assetId, writeEx.getMessage());
+                    throw writeEx;
+                }
+            }
+
+            if (transferred < expectedLength) {
+                log.error("Premature upstream EOF for asset {}: expected {} bytes, transferred {} bytes",
+                        assetId, expectedLength, transferred);
+                throw new StorageStreamException(
+                        "Premature upstream EOF: transferred " + transferred + " of " + expectedLength + " bytes",
+                        null
+                );
+            }
+        }
     }
 
     private ResponseEntity.BodyBuilder contentResponseBuilder(
@@ -348,6 +428,98 @@ public class MediaDeliveryController {
         private long length() {
             return endInclusive - startInclusive + 1;
         }
+    }
+
+    /**
+     * Exception indicating an I/O failure from the upstream storage provider (reading stream or premature EOF),
+     * which must not be misclassified as a downstream client disconnect.
+     */
+    public static class StorageStreamException extends IOException {
+        public StorageStreamException(String message, Throwable cause) {
+            super(message + (cause != null && cause.getMessage() != null ? ": " + cause.getMessage() : ""), cause);
+        }
+    }
+
+    public static boolean isUpstreamStorageFailure(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            if (current instanceof StorageStreamException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    public static boolean isClientDisconnect(Throwable t) {
+        Throwable current = t;
+        while (current != null) {
+            String className = current.getClass().getName();
+            String msg = (current.getMessage() != null) ? current.getMessage().toLowerCase() : "";
+            if (className.endsWith("ClientAbortException")
+                    || msg.contains("broken pipe")
+                    || msg.contains("connection reset")
+                    || msg.contains("connection was aborted")
+                    || msg.contains("an established connection was aborted")
+                    || msg.contains("software caused connection abort")
+                    || msg.contains("socket write error")
+                    || msg.contains("connection closed")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public ResponseEntity<Void> handleAsyncTimeout(
+            AsyncRequestTimeoutException ex,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        if (response != null && response.isCommitted()) {
+            log.debug("Async request timeout after response commit for {}: {}",
+                    request != null ? request.getRequestURI() : "unknown", ex.getMessage());
+            return null;
+        }
+        log.warn("Async request timeout before response commit for {}: {}",
+                request != null ? request.getRequestURI() : "unknown", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+    }
+
+    @ExceptionHandler(StorageStreamException.class)
+    public ResponseEntity<Void> handleStorageStreamException(
+            StorageStreamException ex,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws StorageStreamException {
+        if (response != null && response.isCommitted()) {
+            log.error("Storage stream failure after response commit for {}: {}",
+                    request != null ? request.getRequestURI() : "unknown", ex.getMessage(), ex);
+            return null;
+        }
+        log.error("Storage stream failure for {}: {}",
+                request != null ? request.getRequestURI() : "unknown", ex.getMessage(), ex);
+        throw ex;
+    }
+
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<Void> handleIOException(
+            IOException ex,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws IOException {
+        if (isClientDisconnect(ex)) {
+            log.debug("Client disconnected for {}: {}",
+                    request != null ? request.getRequestURI() : "unknown", ex.getMessage());
+            return null;
+        }
+        if (response != null && response.isCommitted()) {
+            log.error("I/O failure after response commit for {}: {}",
+                    request != null ? request.getRequestURI() : "unknown", ex.getMessage(), ex);
+            return null;
+        }
+        throw ex;
     }
 
     @ExceptionHandler({
