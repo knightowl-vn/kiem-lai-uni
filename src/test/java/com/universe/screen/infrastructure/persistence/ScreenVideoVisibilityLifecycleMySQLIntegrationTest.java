@@ -278,7 +278,7 @@ class ScreenVideoVisibilityLifecycleMySQLIntegrationTest {
     private UUID seedMediaAsset(String visibility) {
         UUID assetId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
-        Instant now = Instant.now();
+        Instant now = Instant.now().minusSeconds(5);
         Timestamp tsNow = Timestamp.from(now);
         String storageKey = "videos/" + assetId + "/v1.mp4";
 
@@ -987,7 +987,7 @@ class ScreenVideoVisibilityLifecycleMySQLIntegrationTest {
                 throw new RuntimeException("Simulated downstream media storage visibility change failure");
             }
             jdbcTemplate.update(
-                    "UPDATE media_assets SET visibility = ?, updated_at = NOW() WHERE id = ?",
+                    "UPDATE media_assets SET visibility = ?, updated_at = NOW(6) WHERE id = ?",
                     request.newVisibility().name(),
                     request.assetId().toString()
             );
@@ -1092,7 +1092,7 @@ class ScreenVideoVisibilityLifecycleMySQLIntegrationTest {
 
         @Override
         public void delete(UUID id) {
-            jdbcTemplate.update("UPDATE media_assets SET status = 'DELETED', updated_at = NOW() WHERE id = ?", id.toString());
+            jdbcTemplate.update("UPDATE media_assets SET status = 'DELETED', updated_at = NOW(6) WHERE id = ?", id.toString());
         }
 
         @Override

@@ -43,6 +43,7 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.infrastructure.media.ScreenMediaAssetReferenceCheckAdapter;
@@ -943,6 +944,11 @@ class ScreenMediaLifecycleReferenceGuardMySQLIntegrationTest {
         @Bean
         public MediaStorageCutoverBarrier cutoverBarrier() {
             return mock(MediaStorageCutoverBarrier.class);
+        }
+
+        @Bean
+        public ScreenMediaVisibilityPort screenMediaVisibilityPort() {
+            return mock(ScreenMediaVisibilityPort.class);
         }
 
         @Bean

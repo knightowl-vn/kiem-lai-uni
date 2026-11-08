@@ -1040,6 +1040,7 @@ class ScreenGuardedDiscardConcurrencyIntegrationTest {
         UUID titleId = createTrackedTitle();
         MediaAssetFixture oldAsset = createTrackedMediaAsset("ACTIVE");
         UUID entryId = createTrackedEntry(titleId, oldAsset.assetId(), 1);
+        UUID oldSessionId = createTrackedUploadSession(entryId, oldAsset.assetId(), oldAsset.versionId(), oldAsset.storageKey(), "COMPLETED", DEFAULT_ACTOR);
         MediaAssetFixture newAsset = createTrackedMediaAsset("ACTIVE");
         UUID sessionId = createTrackedUploadSession(entryId, newAsset.assetId(), newAsset.versionId(), newAsset.storageKey(), "COMPLETED", DEFAULT_ACTOR);
 
@@ -1121,6 +1122,7 @@ class ScreenGuardedDiscardConcurrencyIntegrationTest {
         UUID titleId = createTrackedTitle();
         MediaAssetFixture oldAsset = createTrackedMediaAsset("ACTIVE");
         UUID entryId = createTrackedEntry(titleId, oldAsset.assetId(), 1);
+        UUID oldSessionId = createTrackedUploadSession(entryId, oldAsset.assetId(), oldAsset.versionId(), oldAsset.storageKey(), "COMPLETED", DEFAULT_ACTOR);
         MediaAssetFixture newAsset = createTrackedMediaAsset("ACTIVE");
         UUID sessionId = createTrackedUploadSession(entryId, newAsset.assetId(), newAsset.versionId(), newAsset.storageKey(), "COMPLETED", DEFAULT_ACTOR);
 
@@ -1455,6 +1457,7 @@ class ScreenGuardedDiscardConcurrencyIntegrationTest {
         UUID titleId = createTrackedPublishedTitle(exactPublishedAt);
         MediaAssetFixture oldAsset = createTrackedMediaAsset("ACTIVE");
         UUID entryId = createTrackedPublishedEntry(titleId, null, 1, exactPublishedAt);
+        UUID oldSessionId = createTrackedUploadSession(entryId, oldAsset.assetId(), oldAsset.versionId(), oldAsset.storageKey(), "COMPLETED", DEFAULT_ACTOR);
 
         // Step 1: Record initial published state before mutation
         Map<String, Object> initialRow = jdbcTemplate.queryForMap(
@@ -1480,7 +1483,9 @@ class ScreenGuardedDiscardConcurrencyIntegrationTest {
 
         // Step 3: Failed video mutation (Replace with mismatched expectedCurrentVideoMediaAssetId)
         MediaAssetFixture newAsset = createTrackedMediaAsset("ACTIVE");
-        UUID wrongExpectedId = UUID.randomUUID();
+        UUID newSessionId = createTrackedUploadSession(entryId, newAsset.assetId(), newAsset.versionId(), newAsset.storageKey(), "COMPLETED", DEFAULT_ACTOR);
+        MediaAssetFixture staleExpectedAsset = createTrackedMediaAsset("ACTIVE");
+        UUID wrongExpectedId = staleExpectedAsset.assetId();
 
         assertThatThrownBy(() -> replaceUseCase.execute(titleId, entryId, newAsset.assetId(), wrongExpectedId))
                 .isInstanceOf(com.universe.screen.application.exceptions.ScreenEntryVideoConflictException.class);

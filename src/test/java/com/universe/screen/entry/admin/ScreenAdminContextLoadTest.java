@@ -24,6 +24,7 @@ import com.universe.screen.application.usecase.PublishScreenEntryUseCase;
 import com.universe.screen.application.usecase.PublishScreenTitleUseCase;
 import com.universe.screen.application.usecase.RemoveScreenFranchiseMemberUseCase;
 import com.universe.screen.application.ports.ScreenImageMediaPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.usecase.UpdateScreenEntryUseCase;
 import com.universe.screen.application.usecase.UpdateScreenFranchiseMemberOrderUseCase;
 import com.universe.screen.application.usecase.UpdateScreenFranchiseUseCase;
@@ -88,6 +89,9 @@ class ScreenAdminContextLoadTest {
 
     @MockBean
     private ScreenMediaValidationPort mediaValidationPort;
+
+    @MockBean
+    private ScreenMediaVisibilityPort mediaVisibilityPort;
 
     @MockBean
     private ClockPort clockPort;

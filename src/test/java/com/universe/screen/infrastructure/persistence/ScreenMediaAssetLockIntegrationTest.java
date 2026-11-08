@@ -24,6 +24,7 @@ import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenc
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
+import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
@@ -474,6 +475,11 @@ class ScreenMediaAssetLockIntegrationTest {
         @Bean
         public UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase() {
             return Mockito.mock(UploadMediaAssetVersionConditionalUseCase.class);
+        }
+
+        @Bean
+        public ScreenMediaVisibilityPort screenMediaVisibilityPort() {
+            return Mockito.mock(ScreenMediaVisibilityPort.class);
         }
 
         @Bean
