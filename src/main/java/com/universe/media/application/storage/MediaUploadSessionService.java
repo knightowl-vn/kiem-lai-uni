@@ -516,6 +516,14 @@ public class MediaUploadSessionService {
     }
 
     @Transactional(readOnly = true)
+    public Optional<MediaUploadSession> findCompletedSessionByAssetId(UUID assetId) {
+        if (assetId == null) {
+            return Optional.empty();
+        }
+        return sessionRepositoryPort.findCompletedSessionByAssetId(assetId);
+    }
+
+    @Transactional(readOnly = true)
     public MediaUploadSessionPage findCompletedSessions(
             String initiatorPrincipalId,
             String consumerContext,

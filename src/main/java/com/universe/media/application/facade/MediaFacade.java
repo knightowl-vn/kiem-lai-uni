@@ -820,6 +820,16 @@ public class MediaFacade implements MediaContract {
     }
 
     @Override
+    public Optional<MediaUploadSessionResponseDTO> findCompletedSessionByAssetId(UUID assetId) {
+        if (assetId == null) {
+            return Optional.empty();
+        }
+        ensureUploadSessionServiceAvailable();
+        return mediaUploadSessionService.findCompletedSessionByAssetId(assetId)
+                .map(this::toUploadSessionResponseDTO);
+    }
+
+    @Override
     public MediaUploadSessionPageDTO findCompletedUploadSessions(
             String initiatorPrincipalId,
             String consumerContext,

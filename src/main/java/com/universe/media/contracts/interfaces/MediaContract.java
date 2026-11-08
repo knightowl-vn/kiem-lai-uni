@@ -333,6 +333,18 @@ public interface MediaContract extends MediaStreamingContract {
     }
 
     /**
+     * Finds the completed upload session associated with a registered media asset ID to verify provenance.
+     *
+     * @param assetId registered media asset ID
+     * @return Optional containing the completed upload session DTO if present
+     */
+    default Optional<MediaUploadSessionResponseDTO> findCompletedSessionByAssetId(
+            UUID assetId
+    ) {
+        throw new UnsupportedOperationException("findCompletedSessionByAssetId is not supported by this MediaContract implementation.");
+    }
+
+    /**
      * Atomically locks and validates an active media asset for update within an existing transaction.
      *
      * <p>Requires an active transaction (MANDATORY). Acquires an exclusive row lock (FOR UPDATE)

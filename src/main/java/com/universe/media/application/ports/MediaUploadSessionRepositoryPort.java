@@ -25,6 +25,10 @@ public interface MediaUploadSessionRepositoryPort {
 
     Optional<MediaUploadSession> findByStorageLocation(StorageProviderId providerId, StorageKey storageKey);
 
+    default Optional<MediaUploadSession> findCompletedSessionByAssetId(UUID assetId) {
+        return Optional.empty();
+    }
+
     MediaUploadSession save(MediaUploadSession session);
 
     /**

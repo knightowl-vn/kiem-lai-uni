@@ -406,6 +406,15 @@ public class MediaUploadSessionPersistenceAdapter implements MediaUploadSessionR
         return findCompletedSessions(initiatorPrincipalId, consumerContext, targetEntityType, null, targetEntityId, page, size);
     }
 
+    @Override
+    public Optional<MediaUploadSession> findCompletedSessionByAssetId(UUID assetId) {
+        if (assetId == null) {
+            return Optional.empty();
+        }
+        return repository.findFirstByRegisteredAssetIdAndStatus(assetId.toString(), MediaUploadSessionStatus.COMPLETED)
+                .map(this::toDomain);
+    }
+
     private MediaUploadSession toDomain(MediaUploadSessionJpaEntity entity) {
         return MediaUploadSession.rehydrate(
                 UUID.fromString(entity.getId()),

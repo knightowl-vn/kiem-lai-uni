@@ -29,6 +29,11 @@ public interface SpringDataMediaUploadSessionJpaRepository extends JpaRepository
             String storageKey
     );
 
+    Optional<MediaUploadSessionJpaEntity> findFirstByRegisteredAssetIdAndStatus(
+            String registeredAssetId,
+            MediaUploadSessionStatus status
+    );
+
     @Query("""
             SELECT s FROM MediaUploadSessionJpaEntity s
             WHERE s.status IN :sessionStatuses
