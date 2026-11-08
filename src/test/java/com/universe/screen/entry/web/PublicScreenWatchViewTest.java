@@ -102,6 +102,7 @@ class PublicScreenWatchViewTest {
         assertThat(view.hasStageImage()).isFalse();
         assertThat(view.displayStageImageUrl()).isNull();
         assertThat(view.fallbackStageImageUrl()).isNull();
+        assertThat(view.secondaryFallbackStageImageUrl()).isNull();
         assertThat(view.formattedDuration()).isNull();
     }
 
@@ -128,6 +129,7 @@ class PublicScreenWatchViewTest {
         assertThat(view.isStageImagePortrait()).isFalse();
         assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + thumbnailId + "/variants/w600");
         assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + thumbnailId + "/content");
+        assertThat(view.secondaryFallbackStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
         assertThat(view.displayBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/variants/w1200");
         assertThat(view.fallbackBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
     }
@@ -157,6 +159,7 @@ class PublicScreenWatchViewTest {
         assertThat(view.isStageImagePortrait()).isFalse();
         assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/variants/w1200");
         assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
+        assertThat(view.secondaryFallbackStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
     }
 
     @Test
@@ -182,6 +185,7 @@ class PublicScreenWatchViewTest {
         assertThat(view.isStageImageLandscape()).isFalse();
         assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/variants/w600");
         assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+        assertThat(view.secondaryFallbackStageImageUrl()).isNull();
     }
 
     @Test

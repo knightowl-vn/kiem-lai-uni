@@ -2144,6 +2144,8 @@ a.screen-comment-origin-badge:focus-visible {
     overflow: hidden;
     box-shadow: 0 8px 24px var(--shadow-color);
     border: 1px solid var(--border-color);
+    container-type: inline-size;
+    container-name: screenPlayer;
 }
 
 .screen-watch-video {
@@ -2152,6 +2154,88 @@ a.screen-comment-origin-badge:focus-visible {
     object-fit: contain;
     display: block;
     background: #000;
+}
+
+/* Compact Native HTML5 Playback Runtime Error Overlay (MS-08G2) */
+.screen-watch-player-error {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: rgba(18, 20, 24, 0.92);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    border-radius: 8px;
+    max-width: calc(100% - 28px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+    text-align: left;
+}
+
+.screen-watch-player-error[hidden] {
+    display: none !important;
+}
+
+.screen-watch-player-error-icon {
+    color: #ef4444;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.screen-watch-player-error-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.screen-watch-player-error-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    margin: 0;
+    color: #ffffff;
+    line-height: 1.3;
+}
+
+.screen-watch-player-error-message {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.88);
+    margin: 2px 0 0;
+    line-height: 1.35;
+}
+
+.screen-watch-player-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #ffffff;
+    background: #dc2626;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.screen-watch-player-retry-btn:hover {
+    background: #b91c1c;
+}
+
+.screen-watch-player-retry-btn:active {
+    transform: scale(0.97);
+}
+
+.screen-watch-player-retry-btn:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 2px;
 }
 
 /* Unavailable Visual Stage: 16:9 frame with backdrop image & frosted-glass overlay */
@@ -2296,6 +2380,29 @@ a.screen-comment-origin-badge:focus-visible {
 }
 
 @media (max-width: 767.98px) {
+    .screen-watch-player-error {
+        top: 8px;
+        bottom: auto;
+        left: 8px;
+        padding: 6px 10px;
+        gap: 8px;
+        max-width: calc(100% - 16px);
+    }
+
+    .screen-watch-player-error-title {
+        font-size: 12.5px;
+    }
+
+    .screen-watch-player-error-message {
+        font-size: 11px;
+        line-height: 1.3;
+    }
+
+    .screen-watch-player-retry-btn {
+        padding: 5px 10px;
+        font-size: 11.5px;
+    }
+
     .screen-watch-unavailable-card {
         bottom: 8px;
         left: 8px;
@@ -2527,5 +2634,1011 @@ a.screen-comment-origin-badge:focus-visible {
     .screen-watch-nav-btn {
         padding: 7px 10px;
         font-size: 12px;
+    }
+}
+
+/* ==========================================================================
+   Modern Public Watch Player UX — MS-08G2-UX01
+   Cinematic Dark Control Layer, Timeline, Speed Menu, Resume & Next Episode
+   ========================================================================== */
+
+.screen-watch-player-wrap:focus {
+    outline: none;
+}
+
+.screen-watch-player-wrap:focus-visible {
+    outline: 2px solid var(--accent-color, #1a73e8);
+    outline-offset: 2px;
+}
+
+.screen-watch-player-wrap.is-fullscreen,
+.screen-watch-player-wrap:fullscreen,
+.screen-watch-player-wrap:-webkit-full-screen {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    border: none !important;
+    background: #000000;
+}
+
+.screen-watch-player-wrap.is-fullscreen .screen-player-controls,
+.screen-watch-player-wrap:fullscreen .screen-player-controls,
+.screen-watch-player-wrap:-webkit-full-screen .screen-player-controls {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.screen-watch-player-wrap.is-fullscreen .screen-player-settings-menu,
+.screen-watch-player-wrap:fullscreen .screen-player-settings-menu,
+.screen-watch-player-wrap:-webkit-full-screen .screen-player-settings-menu {
+    max-height: calc(100vh - 80px);
+}
+
+/* Progressive enhancement gate: hide custom overlays until JS initializes */
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-controls,
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-poster,
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-big-play,
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-buffering,
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-seek-feedback,
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-resume-modal,
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-next-up {
+    display: none !important;
+}
+
+.screen-player-poster[hidden],
+.screen-player-buffering[hidden],
+.screen-player-seek-feedback[hidden],
+.screen-player-big-play[hidden],
+.screen-player-resume-modal[hidden],
+.screen-player-next-up[hidden],
+.screen-player-speed-menu[hidden],
+.screen-player-pip-btn[hidden],
+.screen-player-icon[hidden] {
+    display: none !important;
+}
+
+/* Pre-playback poster stage image layer (MS-08G2-UX01-P1) */
+.screen-player-poster {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #000000;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.screen-player-poster-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    pointer-events: none;
+}
+
+/* Center Big Play Button */
+.screen-player-big-play {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.28);
+    background: rgba(15, 18, 26, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+    transition: transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.screen-player-big-play svg {
+    margin-left: 3px;
+}
+
+.screen-player-big-play:hover,
+.screen-player-big-play:focus-visible {
+    background: rgba(26, 115, 232, 0.92);
+    border-color: rgba(255, 255, 255, 0.65);
+    transform: translate(-50%, -50%) scale(1.06);
+    outline: none;
+}
+
+.screen-watch-player-wrap.is-playing .screen-player-big-play {
+    display: none !important;
+}
+
+/* Buffering Spinner Overlay */
+.screen-player-buffering {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: rgba(12, 15, 20, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.screen-player-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #60a5fa;
+    border-radius: 50%;
+    animation: screenPlayerSpin 0.8s linear infinite;
+}
+
+@keyframes screenPlayerSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Seek Feedback Badge (Double-tap / Keyboard jump) */
+.screen-player-seek-feedback {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(12, 15, 22, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.screen-player-seek-feedback.is-left {
+    left: 24%;
+}
+
+.screen-player-seek-feedback.is-right {
+    left: 76%;
+}
+
+/* Custom Control Bar Container */
+.screen-player-controls {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 3;
+    padding: 24px 14px 10px;
+    background: linear-gradient(
+        to top,
+        rgba(8, 10, 15, 0.94) 0%,
+        rgba(8, 10, 15, 0.62) 60%,
+        rgba(8, 10, 15, 0) 100%
+    );
+    color: #ffffff;
+    opacity: 1;
+    transition: opacity 0.22s ease;
+    user-select: none;
+}
+
+.screen-watch-player-wrap.is-playing:not(.is-controls-visible):not(:focus-within) .screen-player-controls {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Progress Timeline Row */
+.screen-player-timeline-row {
+    position: relative;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+    cursor: pointer;
+}
+
+.screen-player-timeline-track {
+    position: relative;
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+    overflow: hidden;
+    transition: height 0.15s ease;
+}
+
+.screen-player-timeline-row:hover .screen-player-timeline-track,
+.screen-player-timeline-row:focus-within .screen-player-timeline-track {
+    height: 7px;
+}
+
+.screen-player-buffered-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0%;
+    background: rgba(255, 255, 255, 0.38);
+    border-radius: 999px;
+    transition: width 0.15s linear;
+}
+
+.screen-player-played-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0%;
+    background: #3b82f6;
+    border-radius: 999px;
+}
+
+.screen-player-seek-slider {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.screen-player-seek-slider:focus-visible {
+    opacity: 1;
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+    background: transparent;
+}
+
+.screen-player-seek-slider:disabled {
+    cursor: not-allowed;
+}
+
+/* Controls Bottom Row */
+.screen-player-bar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 36px;
+}
+
+.screen-player-controls-left,
+.screen-player-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.screen-player-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+}
+
+.screen-player-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    text-decoration: none;
+}
+
+.screen-player-btn:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.screen-player-seek-icon {
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+    pointer-events: none;
+}
+
+.screen-player-seek-badge {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: rgba(255, 255, 255, 0.92);
+}
+
+/* Volume Control Group */
+.screen-player-volume-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.screen-player-volume-slider {
+    width: 68px;
+    height: 4px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+}
+
+/* Time Readout */
+.screen-player-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.92);
+    white-space: nowrap;
+}
+
+.screen-player-time-sep {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* Next Episode Button inside Player */
+.screen-player-next-ep-btn {
+    padding: 6px 10px;
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.38);
+    color: #ffffff;
+}
+
+.screen-player-next-ep-btn:hover {
+    background: rgba(59, 130, 246, 0.34);
+    border-color: rgba(147, 197, 253, 0.65);
+    color: #ffffff;
+}
+
+.screen-player-next-ep-label {
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Playback Speed Menu */
+.screen-player-speed-wrap {
+    position: relative;
+}
+
+.screen-player-speed-btn {
+    min-width: 44px;
+    padding: 6px 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.screen-player-speed-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    z-index: 6;
+    min-width: 96px;
+    padding: 6px;
+    background: rgba(15, 18, 24, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.screen-player-speed-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 12.5px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.screen-player-speed-option:hover,
+.screen-player-speed-option:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    outline: none;
+}
+
+.screen-player-speed-option.is-active {
+    background: rgba(59, 130, 246, 0.22);
+    color: #93c5fd;
+    font-weight: 700;
+}
+
+/* Extensible Settings Menu */
+.screen-player-settings-wrap {
+    position: relative;
+    display: none;
+}
+
+.screen-player-settings-btn {
+    min-width: 36px;
+    padding: 6px 8px;
+}
+
+.screen-player-settings-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 4px);
+    z-index: 6;
+    min-width: 200px;
+    max-width: 280px;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    padding: 10px 12px;
+    background: rgba(15, 18, 24, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+    color: #ffffff;
+}
+
+.screen-player-settings-header {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.screen-player-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.screen-player-settings-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.screen-player-settings-speed-badge {
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #93c5fd;
+    background: rgba(59, 130, 246, 0.22);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.screen-player-settings-speed-options {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+
+.screen-player-settings-speed-options .screen-player-speed-option {
+    justify-content: center;
+    text-align: center;
+    padding: 6px 4px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.screen-player-settings-speed-options .screen-player-speed-option.is-active {
+    border-color: rgba(96, 165, 250, 0.5);
+    background: rgba(59, 130, 246, 0.25);
+}
+
+/* Resume Watching Dialog Overlay */
+.screen-player-resume-modal {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    background: rgba(8, 10, 16, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.screen-player-resume-card {
+    width: 100%;
+    max-width: 360px;
+    padding: 18px 20px;
+    border-radius: 12px;
+    background: rgba(18, 21, 28, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+    color: #ffffff;
+    text-align: center;
+}
+
+.screen-player-resume-title {
+    margin: 0 0 6px;
+    font-size: 15.5px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.3;
+}
+
+.screen-player-resume-message {
+    margin: 0 0 14px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.45;
+}
+
+.screen-player-resume-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.screen-player-resume-btn {
+    flex: 1;
+    min-height: 38px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.screen-player-resume-btn--primary {
+    background: #1a73e8;
+    border: 1px solid #3b82f6;
+    color: #ffffff;
+}
+
+.screen-player-resume-btn--primary:hover {
+    background: #1557b0;
+}
+
+.screen-player-resume-btn--secondary {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+}
+
+.screen-player-resume-btn--secondary:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.screen-player-resume-btn:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+/* Near-End Next Episode Prompt */
+.screen-player-next-up {
+    position: absolute;
+    right: 14px;
+    bottom: 68px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(15, 18, 24, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(96, 165, 250, 0.42);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+}
+
+.screen-player-next-up-link {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: #ffffff;
+    line-height: 1.25;
+}
+
+.screen-player-next-up-link:hover {
+    color: #93c5fd;
+    text-decoration: none;
+}
+
+.screen-player-next-up-eyebrow {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #93c5fd;
+}
+
+.screen-player-next-up-title {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.screen-player-next-up-dismiss {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.screen-player-next-up-dismiss:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+}
+
+/* ==========================================================================
+   Presentation Modes & Responsive Control Bar
+   Mode A: Mobile Portrait / Narrow Inline (container <= 640px down to 280px)
+   Mode B: Landscape Fullscreen (constrained viewport height, safe-area insets)
+   Mode C: Desktop Inline (container > 640px)
+   ========================================================================== */
+
+/* Mode A: Container Queries for Compact / Mobile Players (<= 640px) */
+@container screenPlayer (max-width: 640px) {
+    .screen-player-speed-wrap {
+        display: none !important;
+    }
+
+    .screen-player-settings-wrap {
+        display: inline-flex !important;
+    }
+
+    .screen-player-volume-slider {
+        display: none !important;
+    }
+
+    /* Contextual Next Episode: hidden from permanent mobile toolbar */
+    .screen-player-next-ep-btn {
+        display: none !important;
+    }
+
+    .screen-player-controls {
+        padding: 18px 8px 6px;
+    }
+
+    .screen-player-bar-row {
+        gap: 3px;
+        min-height: 38px;
+    }
+
+    .screen-player-controls-left,
+    .screen-player-controls-right {
+        gap: 2px;
+    }
+
+    /* Comfortable touch targets: >= 38px width and height */
+    .screen-player-btn {
+        min-width: 38px;
+        min-height: 38px;
+        padding: 5px 6px;
+        font-size: 11.5px;
+    }
+
+    .screen-player-settings-btn {
+        min-width: 38px;
+        min-height: 38px;
+        padding: 5px 6px;
+    }
+
+    .screen-player-pip-btn {
+        min-width: 38px;
+        min-height: 38px;
+        padding: 5px 6px;
+    }
+
+    .screen-player-fullscreen-btn {
+        min-width: 38px;
+        min-height: 38px;
+        padding: 5px 6px;
+    }
+
+    .screen-player-seek-badge {
+        font-size: 10px;
+    }
+
+    .screen-player-time {
+        font-size: 11px;
+        padding: 0 4px;
+        gap: 2px;
+    }
+
+    .screen-player-big-play {
+        width: 52px;
+        height: 52px;
+    }
+
+    .screen-player-resume-card {
+        max-width: 300px;
+        padding: 12px 14px;
+    }
+
+    .screen-player-resume-title {
+        font-size: 13.5px;
+        margin-bottom: 4px;
+    }
+
+    .screen-player-resume-message {
+        font-size: 11.5px;
+        margin-bottom: 10px;
+    }
+
+    .screen-player-resume-btn {
+        min-height: 36px;
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    .screen-player-next-up {
+        right: 8px;
+        bottom: 56px;
+        padding: 6px 10px;
+    }
+
+    /* Compact Settings Menu to prevent clipping on 16:9 stage heights */
+    .screen-player-settings-menu {
+        bottom: calc(100% + 4px);
+        min-width: 170px;
+        max-width: 220px;
+        max-height: 140px;
+        overflow-y: auto;
+        padding: 6px 8px;
+        border-radius: 8px;
+    }
+
+    .screen-player-settings-header {
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.2;
+        padding-bottom: 4px;
+        margin-bottom: 4px;
+    }
+
+    .screen-player-settings-section {
+        gap: 4px;
+    }
+
+    .screen-player-settings-section-title {
+        font-size: 10.5px;
+        line-height: 1.2;
+        margin-bottom: 2px;
+    }
+
+    .screen-player-settings-speed-badge {
+        font-size: 10px;
+        padding: 1px 4px;
+    }
+
+    .screen-player-settings-speed-options {
+        gap: 3px;
+    }
+
+    .screen-player-settings-speed-options .screen-player-speed-option {
+        padding: 4px 2px;
+        font-size: 11px;
+        min-height: 22px;
+        line-height: 1.2;
+    }
+}
+
+/* Narrow mobile players (<= 440px, e.g. 320px–390px phones) */
+@container screenPlayer (max-width: 440px) {
+    .screen-player-controls {
+        padding: 24px 6px 4px;
+    }
+
+    /* Relocate time display above timeline to give 100% of toolbar row to touch targets */
+    .screen-player-time {
+        position: absolute;
+        top: 2px;
+        left: 8px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(12, 15, 22, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font-size: 10.5px;
+        pointer-events: none;
+        z-index: 2;
+    }
+
+    .screen-player-bar-row {
+        gap: 2px;
+        min-height: 38px;
+    }
+
+    .screen-player-controls-left,
+    .screen-player-controls-right {
+        gap: 2px;
+    }
+
+    .screen-player-btn,
+    .screen-player-settings-btn,
+    .screen-player-pip-btn,
+    .screen-player-fullscreen-btn {
+        min-width: 38px;
+        min-height: 38px;
+        padding: 4px 5px;
+    }
+}
+
+/* Ultra-narrow players (<= 300px, e.g. 280px embeds) */
+@container screenPlayer (max-width: 300px) {
+    .screen-player-seek-badge {
+        display: none !important;
+    }
+
+    .screen-player-controls {
+        padding: 24px 4px 4px;
+    }
+
+    .screen-player-bar-row {
+        gap: 1px;
+        min-height: 36px;
+    }
+
+    .screen-player-controls-left,
+    .screen-player-controls-right {
+        gap: 1px;
+    }
+
+    .screen-player-btn,
+    .screen-player-settings-btn,
+    .screen-player-pip-btn,
+    .screen-player-fullscreen-btn {
+        min-width: 34px;
+        min-height: 36px;
+        padding: 3px 4px;
+    }
+
+    .screen-player-settings-menu {
+        min-width: 155px;
+        max-width: 185px;
+    }
+}
+
+/* Fallback for environments without container queries */
+@supports not (container-type: inline-size) {
+    @media (max-width: 640px) {
+        .screen-player-speed-wrap {
+            display: none !important;
+        }
+
+        .screen-player-settings-wrap {
+            display: inline-flex !important;
+        }
+
+        .screen-player-volume-slider {
+            display: none !important;
+        }
+
+        .screen-player-next-ep-btn {
+            display: none !important;
+        }
+
+        .screen-player-controls {
+            padding: 24px 8px 6px;
+        }
+
+        .screen-player-time {
+            position: absolute;
+            top: 2px;
+            left: 8px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(12, 15, 22, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            font-size: 10.5px;
+            pointer-events: none;
+        }
+
+        .screen-player-bar-row {
+            gap: 2px;
+            min-height: 38px;
+        }
+
+        .screen-player-btn,
+        .screen-player-settings-btn,
+        .screen-player-pip-btn,
+        .screen-player-fullscreen-btn {
+            min-width: 38px;
+            min-height: 38px;
+            padding: 4px 5px;
+        }
+
+        .screen-player-settings-menu {
+            bottom: calc(100% + 4px);
+            min-width: 170px;
+            max-width: 220px;
+            max-height: 140px;
+            overflow-y: auto;
+            padding: 6px 8px;
+        }
+    }
+}
+
+/* Mode B: Fullscreen on Constrained-Height Viewports (<= 500px, e.g. 812x375 mobile landscape)
+   CRITICAL: ONLY activates when fullscreen is active (.is-fullscreen / :fullscreen).
+   Ordinary desktop inline windows (e.g. 1280x400) do NOT have .is-fullscreen and remain Mode C!
+*/
+@media (max-height: 500px) {
+    .screen-watch-player-wrap.is-fullscreen .screen-player-speed-wrap,
+    .screen-watch-player-wrap:fullscreen .screen-player-speed-wrap,
+    .screen-watch-player-wrap:-webkit-full-screen .screen-player-speed-wrap {
+        display: none !important;
+    }
+
+    .screen-watch-player-wrap.is-fullscreen .screen-player-settings-wrap,
+    .screen-watch-player-wrap:fullscreen .screen-player-settings-wrap,
+    .screen-watch-player-wrap:-webkit-full-screen .screen-player-settings-wrap {
+        display: inline-flex !important;
+    }
+
+    .screen-watch-player-wrap.is-fullscreen .screen-player-volume-slider,
+    .screen-watch-player-wrap:fullscreen .screen-player-volume-slider,
+    .screen-watch-player-wrap:-webkit-full-screen .screen-player-volume-slider {
+        display: none !important;
+    }
+
+    .screen-watch-player-wrap.is-fullscreen .screen-player-controls,
+    .screen-watch-player-wrap:fullscreen .screen-player-controls,
+    .screen-watch-player-wrap:-webkit-full-screen .screen-player-controls {
+        padding: 12px 16px 8px;
+    }
+
+    .screen-watch-player-wrap.is-fullscreen .screen-player-settings-menu,
+    .screen-watch-player-wrap:fullscreen .screen-player-settings-menu,
+    .screen-watch-player-wrap:-webkit-full-screen .screen-player-settings-menu {
+        max-height: calc(100vh - 60px);
     }
 }

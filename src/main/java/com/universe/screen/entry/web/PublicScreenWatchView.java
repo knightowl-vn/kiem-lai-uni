@@ -224,6 +224,26 @@ public record PublicScreenWatchView(
     }
 
     /**
+     * Resolves the secondary fallback canonical content URL for the stage image
+     * when both the primary stage image and its direct content fallback fail.
+     */
+    public String secondaryFallbackStageImageUrl() {
+        if (thumbnailMediaAssetId != null) {
+            if (backdropMediaAssetId != null) {
+                return MediaDeliveryUrlSupport.contentUrl(backdropMediaAssetId);
+            }
+            if (posterMediaAssetId != null) {
+                return MediaDeliveryUrlSupport.contentUrl(posterMediaAssetId);
+            }
+            return null;
+        }
+        if (backdropMediaAssetId != null && posterMediaAssetId != null) {
+            return MediaDeliveryUrlSupport.contentUrl(posterMediaAssetId);
+        }
+        return null;
+    }
+
+    /**
      * Returns true if any visual image (episode thumbnail, title backdrop, or title poster)
      * is available for the visual stage.
      */

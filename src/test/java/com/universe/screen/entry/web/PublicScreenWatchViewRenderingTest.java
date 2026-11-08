@@ -118,10 +118,11 @@ class PublicScreenWatchViewRenderingTest {
                 entryId, "tap-2", ScreenEntryType.EPISODE, 2, "Tập 2: Phong Vân", "Tóm tắt tập 2", 1440L, thumbnailId, true
         );
 
+        UUID posterId = UUID.randomUUID();
         PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
                 titleId, "kiem-lai-1", "Kiếm Lai Phần 1",
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
-                null, entryId, "tap-2", ScreenEntryType.EPISODE, 2,
+                posterId, entryId, "tap-2", ScreenEntryType.EPISODE, 2,
                 "Tập 2: Phong Vân", "Tóm tắt tập 2", 1440L, thumbnailId,
                 true, "/media/assets/" + videoAssetId + "/content", "video/mp4",
                 prev, next, List.of(prev, curr, next)
@@ -148,6 +149,59 @@ class PublicScreenWatchViewRenderingTest {
                 .andExpect(content().string(containsString("src=\"/media/assets/" + videoAssetId + "/content\"")))
                 .andExpect(content().string(containsString("type=\"video/mp4\"")))
                 .andExpect(content().string(not(containsString("Video chưa sẵn sàng"))))
+                // MS-08G2: Compact runtime player error overlay & ScreenPlayer progressive enhancement
+                .andExpect(content().string(containsString("class=\"screen-watch-player-error\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerError\"")))
+                .andExpect(content().string(containsString("role=\"alert\"")))
+                .andExpect(content().string(containsString("aria-live=\"assertive\"")))
+                .andExpect(content().string(containsString("hidden")))
+                .andExpect(content().string(containsString("Không thể phát video")))
+                .andExpect(content().string(containsString("id=\"screenPlayerErrorMessage\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerRetryBtn\"")))
+                .andExpect(content().string(containsString("Thử lại")))
+                .andExpect(content().string(containsString("src=\"/js/screen/screen-player.js\"")))
+                .andExpect(content().string(containsString("window.ScreenPlayer.init(document)")))
+                // MS-08G2-UX01: Modern player controls, resume dialog, and next episode action
+                .andExpect(content().string(containsString("id=\"screenPlayerWrap\"")))
+                .andExpect(content().string(containsString("data-entry-id=\"" + entryId + "\"")))
+                .andExpect(content().string(containsString("data-entry-label=\"Tập 2\"")))
+                .andExpect(content().string(containsString("data-video-src=\"/media/assets/" + videoAssetId + "/content\"")))
+                // MS-08G2-UX01-P1: Pre-playback poster stage image layer & integrated 10s seek icons
+                .andExpect(content().string(containsString("id=\"screenPlayerPoster\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerPosterImg\"")))
+                .andExpect(content().string(containsString("data-fallback-src=")))
+                .andExpect(content().string(containsString("data-secondary-fallback-src=")))
+                .andExpect(content().string(containsString("id=\"screenPlayerControls\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerPlayPauseBtn\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerRewindBtn\"")))
+                .andExpect(content().string(containsString("Tua lùi 10 giây")))
+                .andExpect(content().string(containsString("id=\"screenPlayerForwardBtn\"")))
+                .andExpect(content().string(containsString("Tua tới 10 giây")))
+                .andExpect(content().string(containsString("class=\"screen-player-seek-icon\"")))
+                .andExpect(content().string(containsString(">10</text>")))
+                .andExpect(content().string(not(containsString("<span class=\"screen-player-seek-badge\">-10s</span>"))))
+                .andExpect(content().string(not(containsString("<span class=\"screen-player-seek-badge\">+10s</span>"))))
+                .andExpect(content().string(containsString("id=\"screenPlayerSeekSlider\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerSpeedBtn\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerSpeedMenu\"")))
+                .andExpect(content().string(containsString("data-speed=\"0.5\"")))
+                .andExpect(content().string(containsString("data-speed=\"2\"")))
+                // MS-08G2-UX01-M1: Responsive controls, standalone PiP, and extensible Settings menu
+                .andExpect(content().string(containsString("id=\"screenPlayerSettingsWrap\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerSettingsBtn\"")))
+                .andExpect(content().string(containsString("aria-label=\"Cài đặt\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerSettingsMenu\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerSettingsSpeedBadge\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerPipBtn\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerFullscreenBtn\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerResumeModal\"")))
+                .andExpect(content().string(containsString("Tiếp tục xem Tập 2?")))
+                .andExpect(content().string(containsString("id=\"screenPlayerResumeConfirmBtn\"")))
+                .andExpect(content().string(containsString("Xem tiếp")))
+                .andExpect(content().string(containsString("id=\"screenPlayerResumeResetBtn\"")))
+                .andExpect(content().string(containsString("Xem từ đầu")))
+                .andExpect(content().string(containsString("id=\"screenPlayerNextEpBtn\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerNextUpPrompt\"")))
                 // SERIES synopsis label
                 .andExpect(content().string(containsString("Tóm tắt tập</h2>")))
                 // Navigation controls
@@ -199,8 +253,12 @@ class PublicScreenWatchViewRenderingTest {
                 // Compact unavailable notice rendered over the stage
                 .andExpect(content().string(containsString("Video chưa sẵn sàng")))
                 .andExpect(content().string(containsString("Tập phim này hiện chưa có video phát lại")))
-                // Native video element NOT rendered
-                .andExpect(content().string(not(containsString("<video controls"))));
+                // Native video element and player error overlay NOT rendered
+                .andExpect(content().string(not(containsString("<video controls"))))
+                .andExpect(content().string(not(containsString("screen-watch-player-error"))))
+                .andExpect(content().string(not(containsString("id=\"screenPlayerError\""))))
+                .andExpect(content().string(not(containsString("id=\"screenPlayerControls\""))))
+                .andExpect(content().string(not(containsString("id=\"screenPlayerResumeModal\""))));
     }
 
     @Test
@@ -336,7 +394,9 @@ class PublicScreenWatchViewRenderingTest {
                 .andExpect(content().string(containsString("Bản phát hành &amp; Video")))
                 .andExpect(content().string(containsString("screen-watch-grid--flexible")))
                 // No episode previous/next navigation
-                .andExpect(content().string(not(containsString("screen-watch-episode-nav"))));
+                .andExpect(content().string(not(containsString("screen-watch-episode-nav"))))
+                .andExpect(content().string(not(containsString("id=\"screenPlayerNextEpBtn\""))))
+                .andExpect(content().string(not(containsString("id=\"screenPlayerNextUpPrompt\""))));
     }
 
     @Test

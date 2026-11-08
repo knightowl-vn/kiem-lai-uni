@@ -41,16 +41,335 @@
 
         <!-- Video Player / Media Delivery Section (16:9 Stage) -->
         <section class="screen-watch-stage" aria-label="Khu vực xem video">
-            <!-- Playable State: Native HTML5 Video Element with poster -->
-            <div th:if="${watchView.isPlayable()}" class="screen-watch-player-wrap">
+            <!-- Playable State: Native HTML5 Video Element with poster + Modern UX01 Control Layer -->
+            <div th:if="${watchView.isPlayable()}"
+                 class="screen-watch-player-wrap"
+                 id="screenPlayerWrap"
+                 tabindex="0"
+                 role="region"
+                 aria-label="Trình phát video Kiếm Lai"
+                 th:attr="data-title-id=${watchView.titleId},
+                          data-entry-id=${watchView.entryId},
+                          data-entry-slug=${watchView.entrySlug},
+                          data-entry-type=${watchView.entryType.name()},
+                          data-entry-label=${watchView.displayHeading()},
+                          data-entry-title=${watchView.entryTitle},
+                          data-video-src=${watchView.videoDeliveryUrl},
+                          data-duration-seconds=${watchView.durationSeconds != null ? watchView.durationSeconds : ''},
+                          data-next-url=${watchView.hasNext() ? watchView.nextWatchUrl() : ''},
+                          data-next-label=${watchView.hasNext() ? watchView.nextEntry().displayHeading() : ''}">
+                <!-- Pre-Playback Poster Stage Image Layer (MS-08G2-UX01-P1) -->
+                <div th:if="${watchView.hasStageImage()}"
+                     class="screen-player-poster"
+                     id="screenPlayerPoster"
+                     aria-hidden="true">
+                    <img th:src="${watchView.displayStageImageUrl()}"
+                         th:data-fallback-src="${watchView.fallbackStageImageUrl()}"
+                         th:data-secondary-fallback-src="${watchView.secondaryFallbackStageImageUrl()}"
+                         alt=""
+                         class="screen-player-poster-img"
+                         id="screenPlayerPosterImg"
+                         loading="eager">
+                </div>
+
                 <video controls
                        preload="metadata"
+                       playsinline
                        th:poster="${watchView.displayStageImageUrl()}"
                        class="screen-watch-video"
+                       id="screenWatchVideo"
                        aria-label="Trình phát video">
                     <source th:src="${watchView.videoDeliveryUrl}" th:type="${watchView.videoMimeType}">
                     Trình duyệt của bạn không hỗ trợ phát lại video HTML5.
                 </video>
+
+                <!-- Buffering / Stalled Status Indicator -->
+                <div class="screen-player-buffering" id="screenPlayerBuffering" role="status" aria-live="polite" hidden>
+                    <span class="screen-player-spinner" aria-hidden="true"></span>
+                    <span class="visually-hidden">Đang tải video...</span>
+                </div>
+
+                <!-- Touch Double-Tap / Seek Feedback Badge -->
+                <div class="screen-player-seek-feedback" id="screenPlayerSeekFeedback" aria-hidden="true" hidden>
+                    <span id="screenPlayerSeekFeedbackText">10 giây</span>
+                </div>
+
+                <!-- Center Play Overlay Button -->
+                <button type="button"
+                        class="screen-player-big-play"
+                        id="screenPlayerBigPlayBtn"
+                        aria-label="Phát video">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <polygon points="6 3 20 12 6 21 6 3"></polygon>
+                    </svg>
+                </button>
+
+                <!-- Case B: Compact Native Playback Runtime Error Card -->
+                <div class="screen-watch-player-error" id="screenPlayerError" role="alert" aria-live="assertive" hidden>
+                    <div class="screen-watch-player-error-icon" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                    </div>
+                    <div class="screen-watch-player-error-content">
+                        <h2 class="screen-watch-player-error-title">Không thể phát video</h2>
+                        <p class="screen-watch-player-error-message" id="screenPlayerErrorMessage">Không thể tải video. Vui lòng kiểm tra kết nối mạng hoặc thử lại.</p>
+                    </div>
+                    <button type="button" class="screen-watch-player-retry-btn" id="screenPlayerRetryBtn" aria-label="Thử lại phát video">
+                        Thử lại
+                    </button>
+                </div>
+
+                <!-- Resume Watching Dialog Overlay (MS-08G2-UX01) -->
+                <div class="screen-player-resume-modal"
+                     id="screenPlayerResumeModal"
+                     role="dialog"
+                     aria-modal="false"
+                     aria-labelledby="screenPlayerResumeTitle"
+                     aria-describedby="screenPlayerResumeMessage"
+                     hidden>
+                    <div class="screen-player-resume-card">
+                        <h2 class="screen-player-resume-title"
+                            id="screenPlayerResumeTitle"
+                            th:text="${'Tiếp tục xem ' + watchView.displayHeading() + '?'}">Tiếp tục xem Tập 1?</h2>
+                        <p class="screen-player-resume-message" id="screenPlayerResumeMessage">Lần trước bạn đã xem đến 0:00.</p>
+                        <div class="screen-player-resume-actions">
+                            <button type="button"
+                                    class="screen-player-resume-btn screen-player-resume-btn--primary"
+                                    id="screenPlayerResumeConfirmBtn">
+                                Xem tiếp
+                            </button>
+                            <button type="button"
+                                    class="screen-player-resume-btn screen-player-resume-btn--secondary"
+                                    id="screenPlayerResumeResetBtn">
+                                Xem từ đầu
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Near-End Next Episode Suggestion Prompt (SERIES EPISODEs only) -->
+                <div th:if="${watchView.hasNext()}"
+                     class="screen-player-next-up"
+                     id="screenPlayerNextUpPrompt"
+                     role="region"
+                     aria-label="Gợi ý tập tiếp theo"
+                     hidden>
+                    <a th:href="${watchView.nextWatchUrl()}"
+                       class="screen-player-next-up-link"
+                       id="screenPlayerNextUpLink">
+                        <span class="screen-player-next-up-eyebrow">Tập tiếp theo</span>
+                        <strong class="screen-player-next-up-title" th:text="${watchView.nextEntry().displayHeading()}">Tập 2</strong>
+                    </a>
+                    <button type="button"
+                            class="screen-player-next-up-dismiss"
+                            id="screenPlayerNextUpDismissBtn"
+                            aria-label="Đóng gợi ý tập tiếp theo">
+                        &times;
+                    </button>
+                </div>
+
+                <!-- Custom Modern Player Control Bar (MS-08G2-UX01) -->
+                <div class="screen-player-controls" id="screenPlayerControls" aria-label="Điều khiển phát video">
+                    <!-- Seekable Progress Timeline -->
+                    <div class="screen-player-timeline-row">
+                        <div class="screen-player-timeline-track" aria-hidden="true">
+                            <div class="screen-player-buffered-bar" id="screenPlayerBufferedBar"></div>
+                            <div class="screen-player-played-bar" id="screenPlayerPlayedBar"></div>
+                        </div>
+                        <input type="range"
+                               class="screen-player-seek-slider"
+                               id="screenPlayerSeekSlider"
+                               min="0"
+                               max="100"
+                               step="0.1"
+                               value="0"
+                               aria-label="Thanh tiến trình video">
+                    </div>
+
+                    <!-- Primary & Secondary Controls -->
+                    <div class="screen-player-bar-row">
+                        <div class="screen-player-controls-left">
+                            <button type="button"
+                                    class="screen-player-btn screen-player-play-btn"
+                                    id="screenPlayerPlayPauseBtn"
+                                    aria-label="Phát"
+                                    title="Phát / Tạm dừng (Phím Space)">
+                                <svg class="screen-player-icon screen-player-icon--play" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                </svg>
+                                <svg class="screen-player-icon screen-player-icon--pause" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
+                                    <rect x="6" y="4" width="4" height="16"></rect>
+                                    <rect x="14" y="4" width="4" height="16"></rect>
+                                </svg>
+                            </button>
+
+                            <button type="button"
+                                    class="screen-player-btn screen-player-seek-btn"
+                                    id="screenPlayerRewindBtn"
+                                    aria-label="Tua lùi 10 giây"
+                                    title="Tua lùi 10 giây (Phím mũi tên trái)">
+                                <svg class="screen-player-seek-icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <polyline points="1 4 1 10 7 10"></polyline>
+                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                    <text x="12" y="12.5" font-size="8" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none">10</text>
+                                </svg>
+                            </button>
+
+                            <button type="button"
+                                    class="screen-player-btn screen-player-seek-btn"
+                                    id="screenPlayerForwardBtn"
+                                    aria-label="Tua tới 10 giây"
+                                    title="Tua tới 10 giây (Phím mũi tên phải)">
+                                <svg class="screen-player-seek-icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                    <text x="12" y="12.5" font-size="8" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="central" fill="currentColor" stroke="none">10</text>
+                                </svg>
+                            </button>
+
+                            <div class="screen-player-volume-group">
+                                <button type="button"
+                                        class="screen-player-btn screen-player-mute-btn"
+                                        id="screenPlayerMuteBtn"
+                                        aria-label="Tắt tiếng"
+                                        title="Tắt / Bật tiếng (Phím M)">
+                                    <svg class="screen-player-icon screen-player-icon--volume" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                    </svg>
+                                    <svg class="screen-player-icon screen-player-icon--muted" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                        <line x1="23" y1="9" x2="17" y2="15"></line>
+                                        <line x1="17" y1="9" x2="23" y2="15"></line>
+                                    </svg>
+                                </button>
+                                <input type="range"
+                                       class="screen-player-volume-slider"
+                                       id="screenPlayerVolumeSlider"
+                                       min="0"
+                                       max="1"
+                                       step="0.05"
+                                       value="1"
+                                       aria-label="Âm lượng">
+                            </div>
+
+                            <div class="screen-player-time" aria-label="Thời gian phát">
+                                <span id="screenPlayerCurrentTime">0:00</span>
+                                <span class="screen-player-time-sep" aria-hidden="true">/</span>
+                                <span id="screenPlayerDuration" th:text="${watchView.formattedDuration() != null ? watchView.formattedDuration() : '--:--'}">--:--</span>
+                            </div>
+                        </div>
+
+                        <div class="screen-player-controls-right">
+                            <a th:if="${watchView.hasNext()}"
+                               th:href="${watchView.nextWatchUrl()}"
+                               class="screen-player-btn screen-player-next-ep-btn"
+                               id="screenPlayerNextEpBtn"
+                               th:attr="aria-label=${'Tập tiếp theo: ' + watchView.nextEntry().displayHeading()}, title=${'Tập tiếp theo: ' + watchView.nextEntry().displayHeading()}">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                    <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                                    <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                                </svg>
+                                <span class="screen-player-next-ep-label">Tập tiếp theo</span>
+                            </a>
+
+                            <div class="screen-player-speed-wrap" id="screenPlayerSpeedWrap">
+                                <button type="button"
+                                        class="screen-player-btn screen-player-speed-btn"
+                                        id="screenPlayerSpeedBtn"
+                                        aria-label="Tốc độ phát"
+                                        aria-haspopup="true"
+                                        aria-expanded="false"
+                                        title="Tốc độ phát">
+                                    <span id="screenPlayerSpeedLabel">1x</span>
+                                </button>
+                                <div class="screen-player-speed-menu"
+                                     id="screenPlayerSpeedMenu"
+                                     role="menu"
+                                     aria-label="Chọn tốc độ phát"
+                                     hidden>
+                                    <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="0.5">0.5×</button>
+                                    <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="0.75">0.75×</button>
+                                    <button type="button" class="screen-player-speed-option is-active" role="menuitemradio" aria-checked="true" data-speed="1">1×</button>
+                                    <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="1.25">1.25×</button>
+                                    <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="1.5">1.5×</button>
+                                    <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="2">2×</button>
+                                </div>
+                            </div>
+
+                            <div class="screen-player-settings-wrap" id="screenPlayerSettingsWrap">
+                                <button type="button"
+                                        class="screen-player-btn screen-player-settings-btn"
+                                        id="screenPlayerSettingsBtn"
+                                        aria-label="Cài đặt"
+                                        aria-haspopup="true"
+                                        aria-expanded="false"
+                                        title="Cài đặt">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                                    </svg>
+                                </button>
+                                <div class="screen-player-settings-menu"
+                                     id="screenPlayerSettingsMenu"
+                                     role="menu"
+                                     aria-label="Cài đặt phát video"
+                                     hidden>
+                                    <div class="screen-player-settings-header">Cài đặt</div>
+                                    <div class="screen-player-settings-section">
+                                        <div class="screen-player-settings-section-title">
+                                            <span>Tốc độ phát</span>
+                                            <span class="screen-player-settings-speed-badge" id="screenPlayerSettingsSpeedBadge">1x</span>
+                                        </div>
+                                        <div class="screen-player-settings-speed-options" role="group" aria-label="Tốc độ phát">
+                                            <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="0.5">0.5×</button>
+                                            <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="0.75">0.75×</button>
+                                            <button type="button" class="screen-player-speed-option is-active" role="menuitemradio" aria-checked="true" data-speed="1">1×</button>
+                                            <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="1.25">1.25×</button>
+                                            <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="1.5">1.5×</button>
+                                            <button type="button" class="screen-player-speed-option" role="menuitemradio" aria-checked="false" data-speed="2">2×</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button type="button"
+                                    class="screen-player-btn screen-player-pip-btn"
+                                    id="screenPlayerPipBtn"
+                                    aria-label="Hình trong hình"
+                                    title="Hình trong hình"
+                                    hidden>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                    <rect x="12" y="10" width="8" height="5" rx="1" ry="1" fill="currentColor"></rect>
+                                </svg>
+                            </button>
+
+                            <button type="button"
+                                    class="screen-player-btn screen-player-fullscreen-btn"
+                                    id="screenPlayerFullscreenBtn"
+                                    aria-label="Toàn màn hình"
+                                    title="Toàn màn hình (Phím F)">
+                                <svg class="screen-player-icon screen-player-icon--expand" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <polyline points="15 3 21 3 21 9"></polyline>
+                                    <polyline points="9 21 3 21 3 15"></polyline>
+                                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                                </svg>
+                                <svg class="screen-player-icon screen-player-icon--compress" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                                    <polyline points="4 14 10 14 10 20"></polyline>
+                                    <polyline points="20 10 14 10 14 4"></polyline>
+                                    <line x1="14" y1="10" x2="21" y2="3"></line>
+                                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Unavailable State: 16:9 Visual Stage with Thumbnail / Backdrop / Poster or Placeholder + Compact Overlaid Notice -->
@@ -296,8 +615,12 @@
     <script th:src="@{/js/shared/interaction-reactions.js}" defer></script>
     <script th:src="@{/js/shared/comment-report-modal.js}"></script>
     <script th:src="@{/js/screen/screen-comments.js}"></script>
+    <script th:src="@{/js/screen/screen-player.js}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            if (window.ScreenPlayer && typeof window.ScreenPlayer.init === 'function') {
+                window.ScreenPlayer.init(document);
+            }
             if (window.ScreenTitleComments && typeof window.ScreenTitleComments.init === 'function') {
                 window.ScreenTitleComments.init(document);
             }
