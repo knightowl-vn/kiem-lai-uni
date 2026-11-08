@@ -18,18 +18,21 @@ import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.exceptions.ScreenUploadSessionNotFoundException;
 import com.universe.screen.application.exceptions.ScreenVideoAlreadyReferencedException;
 import com.universe.screen.application.exceptions.ScreenVideoDiscardAccessDeniedException;
+import com.universe.screen.application.dto.ReconcileScreenVideoVisibilityResult;
 import com.universe.screen.application.exceptions.ScreenVideoDiscardValidationException;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.ReconcileScreenEntryVideoVisibilityUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
 import com.universe.screen.entry.admin.dto.CompleteVideoUploadResponse;
 import com.universe.screen.entry.admin.dto.CompleteVideoUploadSessionRequest;
 import com.universe.screen.entry.admin.dto.DiscardVideoUploadResponse;
 import com.universe.screen.entry.admin.dto.DiscardVideoUploadSessionRequest;
 import com.universe.screen.entry.admin.dto.InitiateVideoUploadSessionRequest;
+import com.universe.screen.entry.admin.dto.ReconcileScreenVideoVisibilityResponse;
 import com.universe.screen.entry.admin.dto.ScreenVideoErrorResponse;
 import com.universe.screen.entry.admin.dto.VideoPartUploadUrlView;
 import com.universe.screen.entry.admin.dto.VideoUploadSessionView;
@@ -151,6 +154,7 @@ public class AdminScreenEntryVideoController {
     private final ReplaceScreenEntryVideoUseCase replaceScreenEntryVideoUseCase;
     private final MediaContract mediaContract;
     private final DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase;
+    private final ReconcileScreenEntryVideoVisibilityUseCase reconcileScreenEntryVideoVisibilityUseCase;
 
     public AdminScreenEntryVideoController(
             GetScreenTitleDetailUseCase getScreenTitleDetailUseCase,
@@ -159,7 +163,8 @@ public class AdminScreenEntryVideoController {
             DetachScreenEntryVideoUseCase detachScreenEntryVideoUseCase,
             ReplaceScreenEntryVideoUseCase replaceScreenEntryVideoUseCase,
             MediaContract mediaContract,
-            DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase
+            DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase,
+            ReconcileScreenEntryVideoVisibilityUseCase reconcileScreenEntryVideoVisibilityUseCase
     ) {
         this.getScreenTitleDetailUseCase = Objects.requireNonNull(getScreenTitleDetailUseCase, "GetScreenTitleDetailUseCase cannot be null.");
         this.getScreenEntryDetailUseCase = Objects.requireNonNull(getScreenEntryDetailUseCase, "GetScreenEntryDetailUseCase cannot be null.");
@@ -168,6 +173,7 @@ public class AdminScreenEntryVideoController {
         this.replaceScreenEntryVideoUseCase = Objects.requireNonNull(replaceScreenEntryVideoUseCase, "ReplaceScreenEntryVideoUseCase cannot be null.");
         this.mediaContract = Objects.requireNonNull(mediaContract, "MediaContract cannot be null.");
         this.discardScreenEntryVideoUploadUseCase = Objects.requireNonNull(discardScreenEntryVideoUploadUseCase, "DiscardScreenEntryVideoUploadUseCase cannot be null.");
+        this.reconcileScreenEntryVideoVisibilityUseCase = Objects.requireNonNull(reconcileScreenEntryVideoVisibilityUseCase, "ReconcileScreenEntryVideoVisibilityUseCase cannot be null.");
     }
 
     /**
@@ -748,6 +754,31 @@ public class AdminScreenEntryVideoController {
     }
 
     /**
+     * Admin-authorized explicit reconciliation endpoint for an already-PUBLISHED ScreenEntry.
+     * Re-reads authoritative Screen and Media metadata and reconciles attached video visibility
+     * to PUBLIC without altering entry publishedAt timestamps or republishing the entry.
+     */
+    @PostMapping(value = "/reconcile", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ReconcileScreenVideoVisibilityResponse> reconcileVideoVisibility(
+            @PathVariable UUID titleId,
+            @PathVariable UUID entryId,
+            Authentication authentication
+    ) {
+        resolvePrincipalId(authentication);
+        ReconcileScreenVideoVisibilityResult result =
+                reconcileScreenEntryVideoVisibilityUseCase.execute(titleId, entryId);
+
+        return ResponseEntity.ok(new ReconcileScreenVideoVisibilityResponse(
+                result.titleId(),
+                result.entryId(),
+                result.videoMediaAssetId(),
+                result.reconciledVisibility(),
+                result.outcome().name(),
+                result.message()
+        ));
+    }
+
+    /**
      * Authorized admin streaming endpoint for attached ScreenEntry video binaries.
      * Supports both HTTP GET (full / 206 Partial Content) and HTTP HEAD metadata requests.
      */
@@ -1095,6 +1126,24 @@ public class AdminScreenEntryVideoController {
         ));
     }
 
+    @ExceptionHandler(com.universe.screen.application.exceptions.ScreenTitleVideoConflictException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleTitleVideoConflict(com.universe.screen.application.exceptions.ScreenTitleVideoConflictException ex) {
+        log.warn("Title video dynamic conflict in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                ex.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(com.universe.screen.application.exceptions.ScreenVideoProvenanceException.class)
+    public ResponseEntity<ScreenVideoErrorResponse> handleProvenanceViolation(com.universe.screen.application.exceptions.ScreenVideoProvenanceException ex) {
+        log.warn("Provenance violation in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
+                ex.getErrorCode(),
+                ex.getMessage()
+        ));
+    }
+
     @ExceptionHandler(ScreenVideoAlreadyReferencedException.class)
     public ResponseEntity<ScreenVideoErrorResponse> handleAlreadyReferenced(ScreenVideoAlreadyReferencedException ex) {
         log.warn("Reference conflict in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
@@ -1126,7 +1175,9 @@ public class AdminScreenEntryVideoController {
             ));
         }
 
-        if (ex instanceof ScreenVideoAlreadyReferencedException || ex instanceof ScreenEntryVideoConflictException) {
+        if (ex instanceof ScreenVideoAlreadyReferencedException
+                || ex instanceof ScreenEntryVideoConflictException
+                || ex instanceof com.universe.screen.application.exceptions.ScreenTitleVideoConflictException) {
             log.warn("Conflict in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new ScreenVideoErrorResponse(
                     ex.getErrorCode(),
@@ -1145,7 +1196,8 @@ public class AdminScreenEntryVideoController {
         if (ex instanceof ScreenVideoDiscardValidationException
                 || ex instanceof InvalidScreenMediaAssetTypeException
                 || ex instanceof ScreenEntryVideoAlreadyAttachedException
-                || ex instanceof ScreenEntryVideoNotAttachedException) {
+                || ex instanceof ScreenEntryVideoNotAttachedException
+                || ex instanceof com.universe.screen.application.exceptions.ScreenVideoProvenanceException) {
             log.warn("Business validation error in Screen Video Controller: {} - {}", ex.getErrorCode(), ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ScreenVideoErrorResponse(
                     ex.getErrorCode(),

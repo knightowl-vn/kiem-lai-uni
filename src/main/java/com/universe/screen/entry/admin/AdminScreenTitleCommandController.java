@@ -383,6 +383,9 @@ public class AdminScreenTitleCommandController {
             LOGGER.warn("Screen Title [{}] not found for publish: {}", titleId, ex.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             return "redirect:/admin/screen/titles";
+        } catch (com.universe.screen.application.exceptions.ScreenTitleVideoConflictException ex) {
+            LOGGER.warn("Screen Title [{}] publish dynamic asset conflict: {}", titleId, ex.getMessage());
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
         } catch (IllegalStateException ex) {
             if (isTrustedPublishLifecycleMessage(ex.getMessage())) {
                 LOGGER.warn("Screen Title [{}] publish rejected: {}", titleId, ex.getMessage());
@@ -413,6 +416,9 @@ public class AdminScreenTitleCommandController {
             LOGGER.warn("Screen Title [{}] not found for archive: {}", titleId, ex.getMessage());
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             return "redirect:/admin/screen/titles";
+        } catch (com.universe.screen.application.exceptions.ScreenTitleVideoConflictException ex) {
+            LOGGER.warn("Screen Title [{}] archive dynamic asset conflict: {}", titleId, ex.getMessage());
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
         } catch (IllegalStateException ex) {
             if (isTrustedArchiveLifecycleMessage(ex.getMessage())) {
                 LOGGER.warn("Screen Title [{}] archive rejected: {}", titleId, ex.getMessage());

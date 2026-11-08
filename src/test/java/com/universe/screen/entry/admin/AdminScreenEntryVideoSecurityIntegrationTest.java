@@ -30,6 +30,7 @@ import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadCommand;
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult;
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult.DiscardOutcome;
+import com.universe.screen.application.dto.ReconcileScreenVideoVisibilityResult;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
@@ -44,6 +45,7 @@ import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.ReconcileScreenEntryVideoVisibilityUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
@@ -170,6 +172,9 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
 
     @MockBean
     private DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase;
+
+    @MockBean
+    private ReconcileScreenEntryVideoVisibilityUseCase reconcileScreenEntryVideoVisibilityUseCase;
 
     private ScreenTitleDTO sampleTitle;
     private ScreenEntryDTO sampleEntry;
@@ -1095,5 +1100,58 @@ class AdminScreenEntryVideoSecurityIntegrationTest {
         verify(discardScreenEntryVideoUploadUseCase, times(1)).execute(any(DiscardScreenEntryVideoUploadCommand.class));
         verify(mediaContract, never()).delete(any());
         verify(mediaContract, never()).abortUploadSession(any(), any());
+    }
+
+    @Test
+    @DisplayName("Security: ADMIN role can execute video reconciliation")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void adminUser_canReconcileVideoVisibility() throws Exception {
+        when(reconcileScreenEntryVideoVisibilityUseCase.execute(TITLE_ID, ENTRY_ID))
+                .thenReturn(new ReconcileScreenVideoVisibilityResult(
+                        TITLE_ID, ENTRY_ID, ASSET_ID, "PRIVATE", "PUBLIC",
+                        ReconcileScreenVideoVisibilityResult.Outcome.RECONCILED, "Reconciled"
+                ));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", TITLE_ID, ENTRY_ID)
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reconciledVisibility").value("PUBLIC"))
+                .andExpect(jsonPath("$.outcome").value("RECONCILED"));
+
+        verify(reconcileScreenEntryVideoVisibilityUseCase, times(1)).execute(TITLE_ID, ENTRY_ID);
+    }
+
+    @Test
+    @DisplayName("Security: Regular USER role cannot execute video reconciliation (redirects to /access-denied)")
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    void regularUser_cannotReconcileVideoVisibility() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", TITLE_ID, ENTRY_ID)
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(reconcileScreenEntryVideoVisibilityUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @DisplayName("Security: Anonymous user cannot execute video reconciliation (redirects to /login)")
+    void anonymousUser_cannotReconcileVideoVisibility() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", TITLE_ID, ENTRY_ID)
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+
+        verify(reconcileScreenEntryVideoVisibilityUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @DisplayName("Security: Missing CSRF token is rejected with redirect to /access-denied on video reconciliation")
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    void missingCsrf_rejectedOnVideoReconcile() throws Exception {
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", TITLE_ID, ENTRY_ID))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(reconcileScreenEntryVideoVisibilityUseCase, never()).execute(any(), any());
     }
 }

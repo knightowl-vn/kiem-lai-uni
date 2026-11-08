@@ -14,11 +14,13 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadCommand;
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult;
 import com.universe.screen.application.dto.DiscardScreenEntryVideoUploadResult.DiscardOutcome;
+import com.universe.screen.application.dto.ReconcileScreenVideoVisibilityResult;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntryVideoAlreadyAttachedException;
 import com.universe.screen.application.exceptions.ScreenEntryVideoConflictException;
+import com.universe.screen.application.exceptions.ScreenEntryVideoNotAttachedException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.shared.exceptions.BaseApplicationException;
 import com.universe.screen.application.usecase.AttachScreenEntryVideoUseCase;
@@ -26,6 +28,7 @@ import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
+import com.universe.screen.application.usecase.ReconcileScreenEntryVideoVisibilityUseCase;
 import com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
@@ -118,6 +121,9 @@ class AdminScreenEntryVideoControllerTest {
     @Mock
     private DiscardScreenEntryVideoUploadUseCase discardScreenEntryVideoUploadUseCase;
 
+    @Mock
+    private ReconcileScreenEntryVideoVisibilityUseCase reconcileScreenEntryVideoVisibilityUseCase;
+
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
     private AdminScreenEntryVideoController controller;
@@ -137,7 +143,8 @@ class AdminScreenEntryVideoControllerTest {
                 detachScreenEntryVideoUseCase,
                 replaceScreenEntryVideoUseCase,
                 mediaContract,
-                discardScreenEntryVideoUploadUseCase
+                discardScreenEntryVideoUploadUseCase,
+                reconcileScreenEntryVideoVisibilityUseCase
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
         objectMapper = new ObjectMapper();
@@ -2483,6 +2490,68 @@ class AdminScreenEntryVideoControllerTest {
                 .hasMessageContaining("Storage stream content is unavailable");
 
         verify(mockDto).close();
+    }
+
+    @Test
+    @DisplayName("POST /reconcile: successfully reconciles video visibility to PUBLIC")
+    void shouldReconcileVideoVisibilitySuccessfully() throws Exception {
+        ReconcileScreenVideoVisibilityResult result = new ReconcileScreenVideoVisibilityResult(
+                titleId, entryId, assetId, "PRIVATE", "PUBLIC",
+                ReconcileScreenVideoVisibilityResult.Outcome.RECONCILED, "Video visibility reconciled to PUBLIC"
+        );
+        when(reconcileScreenEntryVideoVisibilityUseCase.execute(titleId, entryId)).thenReturn(result);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", titleId, entryId)
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.titleId").value(titleId.toString()))
+                .andExpect(jsonPath("$.entryId").value(entryId.toString()))
+                .andExpect(jsonPath("$.videoMediaAssetId").value(assetId.toString()))
+                .andExpect(jsonPath("$.reconciledVisibility").value("PUBLIC"))
+                .andExpect(jsonPath("$.outcome").value("RECONCILED"));
+    }
+
+    @Test
+    @DisplayName("POST /reconcile: returns 404 when entry or title not found")
+    void shouldReturn404WhenEntryNotFoundOnReconcile() throws Exception {
+        when(reconcileScreenEntryVideoVisibilityUseCase.execute(titleId, entryId))
+                .thenThrow(new ScreenEntryNotFoundException(entryId));
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", titleId, entryId)
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("POST /reconcile: returns 200 with NO_VIDEO_ATTACHED outcome when no video attached")
+    void shouldReturnNoVideoAttachedOutcomeOnReconcile() throws Exception {
+        ReconcileScreenVideoVisibilityResult result = new ReconcileScreenVideoVisibilityResult(
+                titleId, entryId, null, null, null,
+                ReconcileScreenVideoVisibilityResult.Outcome.NO_VIDEO_ATTACHED, "No video attached"
+        );
+        when(reconcileScreenEntryVideoVisibilityUseCase.execute(titleId, entryId)).thenReturn(result);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", titleId, entryId)
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("NO_VIDEO_ATTACHED"));
+    }
+
+    @Test
+    @DisplayName("POST /reconcile: returns 200 with KEPT_PUBLIC_BY_SHARED_REFERENCE outcome for shared public asset")
+    void shouldReturnKeptPublicBySharedReferenceOutcomeOnReconcile() throws Exception {
+        ReconcileScreenVideoVisibilityResult result = new ReconcileScreenVideoVisibilityResult(
+                titleId, entryId, assetId, "PUBLIC", "PUBLIC",
+                ReconcileScreenVideoVisibilityResult.Outcome.KEPT_PUBLIC_BY_SHARED_REFERENCE,
+                "Shared published reference preserved"
+        );
+        when(reconcileScreenEntryVideoVisibilityUseCase.execute(titleId, entryId)).thenReturn(result);
+
+        mockMvc.perform(post("/admin/screen/titles/{titleId}/entries/{entryId}/video/reconcile", titleId, entryId)
+                        .principal(new TestingAuthenticationToken("admin", "pass")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reconciledVisibility").value("PUBLIC"))
+                .andExpect(jsonPath("$.outcome").value("KEPT_PUBLIC_BY_SHARED_REFERENCE"));
     }
 
     private UUID stubActiveVideoMediaAsset(long sizeBytes) {

@@ -11,6 +11,11 @@ import com.universe.identity.infrastructure.security.AccountStatusFilter;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.identity.infrastructure.security.SafeReturnToValidator;
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
+import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
@@ -113,6 +118,9 @@ class AdminScreenEntryViewRenderingTest {
 
     @MockBean
     private GetScreenEntryDetailUseCase getScreenEntryDetailUseCase;
+
+    @MockBean
+    private MediaContract mediaContract;
 
     private ScreenTitleDTO sampleTitle;
     private ScreenEntryDTO sampleEntry;
@@ -384,5 +392,158 @@ class AdminScreenEntryViewRenderingTest {
                 .andExpect(content().string(containsString("value=\"5\"")))
                 .andExpect(content().string(containsString("syncNumberField(false)")))
                 .andExpect(content().string(containsString("syncNumberField(true)")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-detail renders reconciliation button when Title & Entry are PUBLISHED and video is PRIVATE")
+    void shouldRenderReconcileButtonWhenTitleAndEntryPublishedAndVideoPrivate() throws Exception {
+        UUID videoId = UUID.randomUUID();
+        ScreenTitleDTO publishedTitle = new ScreenTitleDTO(
+                TITLE_ID, "kiem-lai", "Kiếm Lai", null, "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, Instant.now(), Instant.now(), Instant.now()
+        );
+        ScreenEntryDTO publishedEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế",
+                "Tóm tắt...", videoId, null, 1200L, ScreenPublicationStatus.PUBLISHED,
+                Instant.now(), Instant.now(), Instant.now()
+        );
+
+        MediaAssetDetailDTO mediaDetail = new MediaAssetDetailDTO(
+                videoId, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE,
+                1, Instant.now(), Instant.now(), null
+        );
+
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(publishedTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(publishedEntry);
+        when(mediaContract.getAssetDetail(videoId)).thenReturn(Optional.of(mediaDetail));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"videoVisibilityPanel\"")))
+                .andExpect(content().string(containsString("PRIVATE")))
+                .andExpect(content().string(containsString("id=\"reconcileVisibilityBtn\"")))
+                .andExpect(content().string(containsString("Đồng bộ công khai video")))
+                .andExpect(content().string(containsString("Tựa phim và Tập phim đã PUBLISHED nhưng video hiện đang ở chế độ PRIVATE")))
+                .andExpect(content().string(containsString("id=\"publicWatchLink\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai/watch/tap-1\"")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-detail renders PUBLIC status and Watch link without reconcile button when already PUBLIC")
+    void shouldRenderPublicStatusAndWatchLinkWhenVideoAlreadyPublic() throws Exception {
+        UUID videoId = UUID.randomUUID();
+        ScreenTitleDTO publishedTitle = new ScreenTitleDTO(
+                TITLE_ID, "kiem-lai", "Kiếm Lai", null, "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, Instant.now(), Instant.now(), Instant.now()
+        );
+        ScreenEntryDTO publishedEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế",
+                "Tóm tắt...", videoId, null, 1200L, ScreenPublicationStatus.PUBLISHED,
+                Instant.now(), Instant.now(), Instant.now()
+        );
+
+        MediaAssetDetailDTO mediaDetail = new MediaAssetDetailDTO(
+                videoId, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PUBLIC, MediaAssetStatusDTO.ACTIVE,
+                1, Instant.now(), Instant.now(), null
+        );
+
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(publishedTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(publishedEntry);
+        when(mediaContract.getAssetDetail(videoId)).thenReturn(Optional.of(mediaDetail));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"videoVisibilityPanel\"")))
+                .andExpect(content().string(containsString("PUBLIC")))
+                .andExpect(content().string(containsString("Video đã được công khai trên hệ thống Media")))
+                .andExpect(content().string(not(containsString("id=\"reconcileVisibilityBtn\""))))
+                .andExpect(content().string(containsString("id=\"publicWatchLink\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai/watch/tap-1\"")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-detail does not render reconcile button when entry is DRAFT even if video is PRIVATE")
+    void shouldNotRenderReconcileButtonWhenEntryIsDraft() throws Exception {
+        UUID videoId = UUID.randomUUID();
+        ScreenTitleDTO publishedTitle = new ScreenTitleDTO(
+                TITLE_ID, "kiem-lai", "Kiếm Lai", null, "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, Instant.now(), Instant.now(), Instant.now()
+        );
+        ScreenEntryDTO draftEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế",
+                "Tóm tắt...", videoId, null, 1200L, ScreenPublicationStatus.DRAFT,
+                null, Instant.now(), Instant.now()
+        );
+
+        MediaAssetDetailDTO mediaDetail = new MediaAssetDetailDTO(
+                videoId, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE,
+                1, Instant.now(), Instant.now(), null
+        );
+
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(publishedTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(draftEntry);
+        when(mediaContract.getAssetDetail(videoId)).thenReturn(Optional.of(mediaDetail));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("PRIVATE")))
+                .andExpect(content().string(not(containsString("id=\"reconcileVisibilityBtn\""))))
+                .andExpect(content().string(containsString("Video đang ở chế độ PRIVATE. Quyền phát sóng công khai sẽ tự động kích hoạt")));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-detail does not render reconcile button when Title is DRAFT even if entry is PUBLISHED")
+    void shouldNotRenderReconcileButtonWhenTitleIsDraft() throws Exception {
+        UUID videoId = UUID.randomUUID();
+        ScreenTitleDTO draftTitle = new ScreenTitleDTO(
+                TITLE_ID, "kiem-lai", "Kiếm Lai", null, "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        ScreenEntryDTO publishedEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế",
+                "Tóm tắt...", videoId, null, 1200L, ScreenPublicationStatus.PUBLISHED,
+                Instant.now(), Instant.now(), Instant.now()
+        );
+
+        MediaAssetDetailDTO mediaDetail = new MediaAssetDetailDTO(
+                videoId, MediaTypeDTO.VIDEO, MediaVisibilityDTO.PRIVATE, MediaAssetStatusDTO.ACTIVE,
+                1, Instant.now(), Instant.now(), null
+        );
+
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(draftTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(publishedEntry);
+        when(mediaContract.getAssetDetail(videoId)).thenReturn(Optional.of(mediaDetail));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("PRIVATE")))
+                .andExpect(content().string(not(containsString("id=\"reconcileVisibilityBtn\""))));
+    }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("Rendering: GET entry-detail does not render visibility panel when no video attached")
+    void shouldNotRenderVisibilityPanelWhenNoVideoAttached() throws Exception {
+        ScreenEntryDTO noVideoEntry = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế",
+                "Tóm tắt...", null, null, 1200L, ScreenPublicationStatus.PUBLISHED,
+                Instant.now(), Instant.now(), Instant.now()
+        );
+
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(noVideoEntry);
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("id=\"videoVisibilityPanel\""))))
+                .andExpect(content().string(not(containsString("id=\"reconcileVisibilityBtn\""))));
     }
 }

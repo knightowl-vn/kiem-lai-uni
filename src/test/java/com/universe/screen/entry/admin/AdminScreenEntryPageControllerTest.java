@@ -1,5 +1,10 @@
 package com.universe.screen.entry.admin;
 
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
+import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
@@ -25,6 +30,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,6 +49,9 @@ class AdminScreenEntryPageControllerTest {
     @Mock
     private GetScreenEntryDetailUseCase getScreenEntryDetailUseCase;
 
+    @Mock
+    private MediaContract mediaContract;
+
     private AdminScreenEntryPageController controller;
 
     private final UUID titleId = UUID.randomUUID();
@@ -57,7 +66,8 @@ class AdminScreenEntryPageControllerTest {
         controller = new AdminScreenEntryPageController(
                 getScreenTitleDetailUseCase,
                 getScreenEntryListUseCase,
-                getScreenEntryDetailUseCase
+                getScreenEntryDetailUseCase,
+                mediaContract
         );
 
         sampleTitle = new ScreenTitleDTO(
@@ -165,6 +175,96 @@ class AdminScreenEntryPageControllerTest {
         assertThat(view).isEqualTo("admin/screen/entry-detail");
         assertThat(model.getAttribute("title")).isEqualTo(sampleTitle);
         assertThat(model.getAttribute("entry")).isEqualTo(sampleEntry);
+        assertThat(model.getAttribute("videoVisibility")).isNull();
+        assertThat(model.getAttribute("videoAssetStatus")).isNull();
+    }
+
+    @Test
+    @DisplayName("Page: detailPage populates videoVisibility and videoAssetStatus when video is attached and found in mediaContract")
+    void shouldInspectVideoVisibilityWhenVideoAttached() {
+        UUID videoAssetId = UUID.randomUUID();
+        ScreenEntryDTO entryWithVideo = new ScreenEntryDTO(
+                entryId, titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Synopsis", videoAssetId, null, 1200L, ScreenPublicationStatus.PUBLISHED,
+                now, now, now
+        );
+
+        MediaAssetDetailDTO detail = new MediaAssetDetailDTO(
+                videoAssetId,
+                MediaTypeDTO.VIDEO,
+                MediaVisibilityDTO.PRIVATE,
+                MediaAssetStatusDTO.ACTIVE,
+                1,
+                now,
+                now,
+                null
+        );
+
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(titleId, entryId)).thenReturn(entryWithVideo);
+        when(mediaContract.getAssetDetail(videoAssetId)).thenReturn(Optional.of(detail));
+
+        Model model = new ConcurrentModel();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.detailPage(titleId, entryId, model, null, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/screen/entry-detail");
+        assertThat(model.getAttribute("videoVisibility")).isEqualTo("PRIVATE");
+        assertThat(model.getAttribute("videoAssetStatus")).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    @DisplayName("Page: detailPage sets videoVisibility UNAVAILABLE when attached video is not found in mediaContract")
+    void shouldSetVideoVisibilityUnavailableWhenMediaAssetNotFound() {
+        UUID videoAssetId = UUID.randomUUID();
+        ScreenEntryDTO entryWithVideo = new ScreenEntryDTO(
+                entryId, titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Synopsis", videoAssetId, null, 1200L, ScreenPublicationStatus.PUBLISHED,
+                now, now, now
+        );
+
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(titleId, entryId)).thenReturn(entryWithVideo);
+        when(mediaContract.getAssetDetail(videoAssetId)).thenReturn(Optional.empty());
+
+        Model model = new ConcurrentModel();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.detailPage(titleId, entryId, model, null, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/screen/entry-detail");
+        assertThat(model.getAttribute("videoVisibility")).isEqualTo("UNAVAILABLE");
+        assertThat(model.getAttribute("videoAssetStatus")).isNull();
+    }
+
+    @Test
+    @DisplayName("Page: detailPage sets videoVisibility UNKNOWN when mediaContract is null")
+    void shouldDefaultToUnknownWhenMediaContractIsNull() {
+        AdminScreenEntryPageController fallbackController = new AdminScreenEntryPageController(
+                getScreenTitleDetailUseCase,
+                getScreenEntryListUseCase,
+                getScreenEntryDetailUseCase
+        );
+
+        UUID videoAssetId = UUID.randomUUID();
+        ScreenEntryDTO entryWithVideo = new ScreenEntryDTO(
+                entryId, titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Synopsis", videoAssetId, null, 1200L, ScreenPublicationStatus.PUBLISHED,
+                now, now, now
+        );
+
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(titleId, entryId)).thenReturn(entryWithVideo);
+
+        Model model = new ConcurrentModel();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = fallbackController.detailPage(titleId, entryId, model, null, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/screen/entry-detail");
+        assertThat(model.getAttribute("videoVisibility")).isEqualTo("UNKNOWN");
+        assertThat(model.getAttribute("videoAssetStatus")).isNull();
     }
 
     @Test

@@ -722,7 +722,8 @@ class MediaUploadSessionInitiationRecoveryTest {
                 org.mockito.Mockito.mock(com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase.class),
                 org.mockito.Mockito.mock(com.universe.screen.application.usecase.ReplaceScreenEntryVideoUseCase.class),
                 org.mockito.Mockito.mock(com.universe.media.contracts.interfaces.MediaContract.class),
-                org.mockito.Mockito.mock(com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase.class)
+                org.mockito.Mockito.mock(com.universe.screen.application.usecase.DiscardScreenEntryVideoUploadUseCase.class),
+                org.mockito.Mockito.mock(com.universe.screen.application.usecase.ReconcileScreenEntryVideoVisibilityUseCase.class)
         );
         UUID sessionId = UUID.randomUUID();
 

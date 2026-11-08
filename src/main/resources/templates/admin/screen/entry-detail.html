@@ -222,6 +222,73 @@
                         </span>
                     </div>
 
+                    <!-- Video Visibility Lifecycle & Reconciliation Panel -->
+                    <div id="videoVisibilityPanel"
+                         style="background: #f8f9fa; border: 1px solid #dadce0; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <strong style="font-size: 14px; color: #202124;">Trạng thái hiển thị công khai:</strong>
+                                <span id="videoVisibilityBadge"
+                                      th:if="${videoVisibility == 'PUBLIC'}"
+                                      style="background: #e6f4ea; color: #137333; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; border: 1px solid #ceead6;">
+                                    PUBLIC
+                                </span>
+                                <span id="videoVisibilityBadge"
+                                      th:if="${videoVisibility == 'PRIVATE'}"
+                                      style="background: #fef7e0; color: #b06000; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; border: 1px solid #feefc3;">
+                                    PRIVATE
+                                </span>
+                                <span id="videoVisibilityBadge"
+                                      th:if="${videoVisibility != 'PUBLIC' and videoVisibility != 'PRIVATE'}"
+                                      style="background: #f1f3f4; color: #5f6368; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; border: 1px solid #dadce0;"
+                                      th:text="${videoVisibility != null ? videoVisibility : 'UNAVAILABLE'}">
+                                    UNAVAILABLE
+                                </span>
+                            </div>
+
+                            <!-- Action button: Only visible when both Title & Entry are PUBLISHED, video is ACTIVE, and video is PRIVATE -->
+                            <div id="reconcileActionContainer" style="display: flex; align-items: center; gap: 10px;">
+                                <button type="button"
+                                        id="reconcileVisibilityBtn"
+                                        th:if="${title.status.name() == 'PUBLISHED' and entry.status.name() == 'PUBLISHED' and videoVisibility == 'PRIVATE' and (videoAssetStatus == null or videoAssetStatus == 'ACTIVE')}"
+                                        class="admin-primary-button"
+                                        style="padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;"
+                                        th:data-title-id="${title.id}"
+                                        th:data-entry-id="${entry.id}">
+                                    Đồng bộ công khai video
+                                </button>
+                                <a id="publicWatchLink"
+                                   th:href="@{/screen/{titleSlug}/watch/{entrySlug}(titleSlug=${title.slug}, entrySlug=${entry.slug})}"
+                                   target="_blank"
+                                   class="admin-secondary-button"
+                                   th:style="${videoVisibility == 'PUBLIC' and title.status.name() == 'PUBLISHED' and entry.status.name() == 'PUBLISHED'} ? 'text-decoration: none; padding: 8px 16px; font-size: 13px; color: #137333; border-color: #ceead6; background: #e6f4ea; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;' : 'display: none; text-decoration: none; padding: 8px 16px; font-size: 13px; color: #137333; border-color: #ceead6; background: #e6f4ea; font-weight: 600; align-items: center; gap: 6px;'">
+                                    Xem trang phát sóng công khai (Watch) ↗
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Explanatory notice -->
+                        <div id="videoVisibilityNotice" style="font-size: 13px; color: #5f6368; line-height: 1.5;">
+                            <span th:if="${videoVisibility == 'PUBLIC'}">
+                                Video đã được công khai trên hệ thống Media và sẵn sàng phát sóng cho người xem.
+                            </span>
+                            <span th:if="${videoVisibility == 'PRIVATE' and title.status.name() == 'PUBLISHED' and entry.status.name() == 'PUBLISHED'}">
+                                Tựa phim và Tập phim đã PUBLISHED nhưng video hiện đang ở chế độ PRIVATE. Người xem công khai sẽ thấy thông báo "Video chưa sẵn sàng". Nhấn <strong>"Đồng bộ công khai video"</strong> để mở quyền truy cập phát sóng công khai.
+                            </span>
+                            <span th:if="${videoVisibility == 'PRIVATE' and (title.status.name() != 'PUBLISHED' or entry.status.name() != 'PUBLISHED')}">
+                                Video đang ở chế độ PRIVATE. Quyền phát sóng công khai sẽ tự động kích hoạt khi cả Tựa phim và Tập phim đều được chuyển sang trạng thái PUBLISHED (Đã xuất bản).
+                            </span>
+                            <span th:if="${videoVisibility != 'PUBLIC' and videoVisibility != 'PRIVATE'}">
+                                Chưa thể xác định quyền hiển thị của video media asset từ hệ thống Media.
+                            </span>
+                        </div>
+
+                        <!-- Feedback Alert Box for Reconcile action -->
+                        <div id="reconcileAlertBox"
+                             style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px;"
+                             role="status"></div>
+                    </div>
+
                     <div style="margin-bottom: 16px;">
                         <video controls preload="metadata" style="max-width: 100%; width: 720px; border-radius: 8px; background: #000; box-shadow: 0 2px 8px rgba(0,0,0,0.15);"
                                th:src="@{/admin/screen/titles/{titleId}/entries/{entryId}/video/content(titleId=${title.id}, entryId=${entry.id})}">
@@ -420,6 +487,112 @@ document.addEventListener('DOMContentLoaded', function () {
         cancelReplaceBtn.addEventListener('click', function () {
             uploadView.style.display = 'none';
             if (toggleReplaceBtn) toggleReplaceBtn.style.display = 'inline-block';
+        });
+    }
+
+    // Video Visibility Reconciliation Handler
+    const reconcileBtn = document.getElementById('reconcileVisibilityBtn');
+    const reconcileAlertBox = document.getElementById('reconcileAlertBox');
+    const videoVisibilityBadge = document.getElementById('videoVisibilityBadge');
+    const videoVisibilityNotice = document.getElementById('videoVisibilityNotice');
+    const publicWatchLink = document.getElementById('publicWatchLink');
+
+    if (reconcileBtn) {
+        let isReconciling = false;
+        reconcileBtn.addEventListener('click', async function () {
+            if (isReconciling) return;
+            isReconciling = true;
+
+            const targetTitleId = reconcileBtn.getAttribute('data-title-id') || titleId;
+            const targetEntryId = reconcileBtn.getAttribute('data-entry-id') || entryId;
+            const originalText = reconcileBtn.textContent;
+
+            reconcileBtn.disabled = true;
+            reconcileBtn.textContent = 'Đang đồng bộ...';
+            if (reconcileAlertBox) {
+                reconcileAlertBox.style.display = 'block';
+                reconcileAlertBox.style.background = '#e8f0fe';
+                reconcileAlertBox.style.border = '1px solid #d2e3fc';
+                reconcileAlertBox.style.color = '#1967d2';
+                reconcileAlertBox.textContent = 'Đang gửi yêu cầu đồng bộ quyền truy cập công khai cho video...';
+            }
+
+            try {
+                const response = await fetch('/admin/screen/titles/' + encodeURIComponent(targetTitleId) + '/entries/' + encodeURIComponent(targetEntryId) + '/video/reconcile', {
+                    method: 'POST',
+                    headers: getCsrfHeaders({
+                        'Accept': 'application/json'
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.reconciledVisibility === 'PUBLIC') {
+                        if (videoVisibilityBadge) {
+                            videoVisibilityBadge.textContent = 'PUBLIC';
+                            videoVisibilityBadge.style.background = '#e6f4ea';
+                            videoVisibilityBadge.style.color = '#137333';
+                            videoVisibilityBadge.style.borderColor = '#ceead6';
+                        }
+                        if (videoVisibilityNotice) {
+                            videoVisibilityNotice.textContent = 'Video đã được công khai trên hệ thống Media và sẵn sàng phát sóng cho người xem.';
+                        }
+                        if (reconcileAlertBox) {
+                            reconcileAlertBox.style.display = 'block';
+                            reconcileAlertBox.style.background = '#e6f4ea';
+                            reconcileAlertBox.style.border = '1px solid #ceead6';
+                            reconcileAlertBox.style.color = '#137333';
+                            reconcileAlertBox.textContent = data.message || 'Đồng bộ công khai video thành công!';
+                        }
+                        reconcileBtn.style.display = 'none';
+                        if (publicWatchLink) {
+                            publicWatchLink.style.display = 'inline-flex';
+                        }
+                    } else {
+                        if (reconcileAlertBox) {
+                            reconcileAlertBox.style.display = 'block';
+                            reconcileAlertBox.style.background = '#fef7e0';
+                            reconcileAlertBox.style.border = '1px solid #feefc3';
+                            reconcileAlertBox.style.color = '#b06000';
+                            reconcileAlertBox.textContent = (data && data.message) ? data.message : 'Video vẫn ở trạng thái PRIVATE.';
+                        }
+                        reconcileBtn.disabled = false;
+                        reconcileBtn.textContent = originalText;
+                    }
+                } else {
+                    let errorMsg = 'Đồng bộ thất bại. Vui lòng kiểm tra lại quyền hoặc trạng thái tập phim.';
+                    try {
+                        const errData = await response.json();
+                        if (errData && errData.message) {
+                            errorMsg = errData.message;
+                        }
+                    } catch (_) {
+                        errorMsg = 'Lỗi hệ thống (' + response.status + ' ' + response.statusText + ').';
+                    }
+                    if (reconcileAlertBox) {
+                        reconcileAlertBox.style.display = 'block';
+                        reconcileAlertBox.style.background = '#fce8e6';
+                        reconcileAlertBox.style.border = '1px solid #fad2cf';
+                        reconcileAlertBox.style.color = '#c5221f';
+                        reconcileAlertBox.textContent = errorMsg;
+                    }
+                    reconcileBtn.disabled = false;
+                    reconcileBtn.textContent = originalText;
+                }
+            } catch (err) {
+                console.error('Error reconciling video visibility:', err);
+                if (reconcileAlertBox) {
+                    reconcileAlertBox.style.display = 'block';
+                    reconcileAlertBox.style.background = '#fce8e6';
+                    reconcileAlertBox.style.border = '1px solid #fad2cf';
+                    reconcileAlertBox.style.color = '#c5221f';
+                    reconcileAlertBox.textContent = 'Lỗi kết nối mạng khi đồng bộ video. Vui lòng thử lại.';
+                }
+                reconcileBtn.disabled = false;
+                reconcileBtn.textContent = originalText;
+            } finally {
+                isReconciling = false;
+            }
         });
     }
 

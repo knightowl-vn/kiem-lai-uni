@@ -1,5 +1,7 @@
 package com.universe.screen.entry.admin;
 
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.screen.application.dto.ScreenEntryDTO;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
@@ -11,6 +13,9 @@ import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.entry.admin.form.CreateScreenEntryForm;
 import com.universe.screen.entry.admin.form.EditScreenEntryForm;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,11 +27,14 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Controller
 @RequestMapping("/admin/screen/titles/{titleId}/entries")
 public class AdminScreenEntryPageController {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminScreenEntryPageController.class);
 
     private static final String ACTIVE_MENU = "screen";
     private static final String ACTIVE_SUB_MENU = "titles";
@@ -34,15 +42,27 @@ public class AdminScreenEntryPageController {
     private final GetScreenTitleDetailUseCase getScreenTitleDetailUseCase;
     private final GetScreenEntryListUseCase getScreenEntryListUseCase;
     private final GetScreenEntryDetailUseCase getScreenEntryDetailUseCase;
+    private final MediaContract mediaContract;
 
     public AdminScreenEntryPageController(
             GetScreenTitleDetailUseCase getScreenTitleDetailUseCase,
             GetScreenEntryListUseCase getScreenEntryListUseCase,
             GetScreenEntryDetailUseCase getScreenEntryDetailUseCase
     ) {
+        this(getScreenTitleDetailUseCase, getScreenEntryListUseCase, getScreenEntryDetailUseCase, null);
+    }
+
+    @Autowired
+    public AdminScreenEntryPageController(
+            GetScreenTitleDetailUseCase getScreenTitleDetailUseCase,
+            GetScreenEntryListUseCase getScreenEntryListUseCase,
+            GetScreenEntryDetailUseCase getScreenEntryDetailUseCase,
+            @Autowired(required = false) MediaContract mediaContract
+    ) {
         this.getScreenTitleDetailUseCase = Objects.requireNonNull(getScreenTitleDetailUseCase, "GetScreenTitleDetailUseCase cannot be null.");
         this.getScreenEntryListUseCase = Objects.requireNonNull(getScreenEntryListUseCase, "GetScreenEntryListUseCase cannot be null.");
         this.getScreenEntryDetailUseCase = Objects.requireNonNull(getScreenEntryDetailUseCase, "GetScreenEntryDetailUseCase cannot be null.");
+        this.mediaContract = mediaContract;
     }
 
     @GetMapping({"", "/"})
@@ -124,8 +144,33 @@ public class AdminScreenEntryPageController {
             ScreenTitleDTO title = getScreenTitleDetailUseCase.execute(titleId);
             ScreenEntryDTO entry = getScreenEntryDetailUseCase.execute(titleId, entryId);
 
+            String videoVisibility = null;
+            String videoAssetStatus = null;
+            if (entry.videoMediaAssetId() != null) {
+                if (mediaContract != null) {
+                    try {
+                        Optional<MediaAssetDetailDTO> detailOpt = mediaContract.getAssetDetail(entry.videoMediaAssetId());
+                        if (detailOpt.isPresent()) {
+                            MediaAssetDetailDTO detail = detailOpt.get();
+                            videoVisibility = detail.visibility() != null ? detail.visibility().name() : "UNKNOWN";
+                            videoAssetStatus = detail.status() != null ? detail.status().name() : null;
+                        } else {
+                            videoVisibility = "UNAVAILABLE";
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to inspect MediaAsset {} for ScreenEntry {}: {}",
+                                entry.videoMediaAssetId(), entry.id(), e.getMessage());
+                        videoVisibility = "UNAVAILABLE";
+                    }
+                } else {
+                    videoVisibility = "UNKNOWN";
+                }
+            }
+
             model.addAttribute("title", title);
             model.addAttribute("entry", entry);
+            model.addAttribute("videoVisibility", videoVisibility);
+            model.addAttribute("videoAssetStatus", videoAssetStatus);
             model.addAttribute("pageTitle", "Chi tiết Screen Entry - " + entry.title());
             model.addAttribute("activeMenu", ACTIVE_MENU);
             model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);
