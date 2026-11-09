@@ -3,6 +3,7 @@ package com.universe.screen.application.usecase;
 import com.universe.screen.application.commands.CreateScreenEntryCommand;
 import com.universe.screen.application.commands.UpdateScreenEntryCommand;
 import com.universe.screen.application.dto.ScreenEntryDTO;
+import com.universe.screen.application.exceptions.InvalidScreenTimelineConfigurationException;
 import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
@@ -15,6 +16,7 @@ import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTimelineMode;
 import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
@@ -674,6 +676,270 @@ class ScreenEntryUseCaseTest {
             ScreenEntryDTO updated = useCase.execute(cmd);
             assertThat(updated.number()).isEqualTo(22);
             assertThat(updated.status()).isEqualTo(ScreenPublicationStatus.PUBLISHED);
+        }
+
+        @Test
+        @DisplayName("UX02-C2 UpdateEntry: updates entry timeline modes (OVERRIDE / DISABLED) and exposes formatted timestamps")
+        void shouldUpdateEntryTimelineModesAndExposeFormattedTimestamps() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(100));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", "Synopsis", 1500L,
+                    true, ScreenTimelineMode.OVERRIDE, 15L, 110L, ScreenTimelineMode.DISABLED, null
+            );
+
+            ScreenEntryDTO updated = useCase.execute(cmd);
+
+            assertThat(updated.introMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(updated.introStartSeconds()).isEqualTo(15L);
+            assertThat(updated.introEndSeconds()).isEqualTo(110L);
+            assertThat(updated.formattedIntroStart()).isEqualTo("00:15");
+            assertThat(updated.formattedIntroEnd()).isEqualTo("01:50");
+            assertThat(updated.outroMode()).isEqualTo(ScreenTimelineMode.DISABLED);
+            assertThat(updated.outroStartSeconds()).isNull();
+            assertThat(updated.formattedOutroStart()).isNull();
+        }
+
+        @Test
+        @DisplayName("UX02-C2 UpdateEntry: transitioning OVERRIDE -> INHERIT clears entry override timestamps while keeping title defaults untouched")
+        void shouldClearOverrideTimestampsWhenTransitioningOverrideToInherit() {
+            seriesTitle.updateDefaultTimeline(0L, 90L, 1200L, now);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.OVERRIDE, 10L, 100L, ScreenTimelineMode.OVERRIDE, 1300L, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(100));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, 1500L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.INHERIT, null
+            );
+
+            ScreenEntryDTO updated = useCase.execute(cmd);
+
+            assertThat(updated.introMode()).isEqualTo(ScreenTimelineMode.INHERIT);
+            assertThat(updated.introStartSeconds()).isNull();
+            assertThat(updated.introEndSeconds()).isNull();
+            assertThat(updated.outroMode()).isEqualTo(ScreenTimelineMode.INHERIT);
+            assertThat(updated.outroStartSeconds()).isNull();
+            // Title defaults remain untouched
+            assertThat(seriesTitle.getDefaultIntroStartSeconds()).isEqualTo(0L);
+            assertThat(seriesTitle.getDefaultIntroEndSeconds()).isEqualTo(90L);
+            assertThat(seriesTitle.getDefaultOutroStartSeconds()).isEqualTo(1200L);
+        }
+
+        @Test
+        @DisplayName("UX02-C2 UpdateEntry: transitioning DISABLED -> OVERRIDE applies custom timestamps")
+        void shouldApplyCustomTimestampsWhenTransitioningDisabledToOverride() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.DISABLED, null, null, ScreenTimelineMode.DISABLED, null, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(100));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, 1500L,
+                    true, ScreenTimelineMode.OVERRIDE, 0L, 85L, ScreenTimelineMode.OVERRIDE, 1280L
+            );
+
+            ScreenEntryDTO updated = useCase.execute(cmd);
+
+            assertThat(updated.introMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(updated.introStartSeconds()).isEqualTo(0L);
+            assertThat(updated.introEndSeconds()).isEqualTo(85L);
+            assertThat(updated.outroMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(updated.outroStartSeconds()).isEqualTo(1280L);
+        }
+
+        @Test
+        @DisplayName("UX02-C2 UpdateEntry: legacy command constructor (updateTimeline = false) preserves existing timeline metadata")
+        void shouldPreserveExistingTimelineWhenUpdateTimelineIsFalse() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.OVERRIDE, 5L, 95L, ScreenTimelineMode.DISABLED, null, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(100));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand legacyCmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", "New synopsis", 1500L
+            );
+
+            ScreenEntryDTO updated = useCase.execute(legacyCmd);
+
+            assertThat(updated.title()).isEqualTo("Ep 1 Updated");
+            assertThat(updated.introMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(updated.introStartSeconds()).isEqualTo(5L);
+            assertThat(updated.introEndSeconds()).isEqualTo(95L);
+            assertThat(updated.outroMode()).isEqualTo(ScreenTimelineMode.DISABLED);
+            assertThat(updated.outroStartSeconds()).isNull();
+        }
+
+        @Test
+        @DisplayName("UX02-C2 UpdateEntry: rejects combined timeline when inherited Intro overlaps with entry override Outro")
+        void shouldRejectCombinedTimelineOverlapBetweenInheritedIntroAndOverrideOutro() {
+            seriesTitle.updateDefaultTimeline(0L, 105L, 1200L, now);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, 1500L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 90L
+            );
+
+            assertThatThrownBy(() -> useCase.execute(cmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage("Outro không được bắt đầu trước khi Intro kết thúc.");
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2 UpdateEntry: rejects combined timeline when effective Outro exceeds known durationSeconds")
+        void shouldRejectCombinedTimelineWhenEffectiveOutroExceedsDurationSeconds() {
+            seriesTitle.updateDefaultTimeline(0L, 90L, 1400L, now);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1200L, now
+            );
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, 1200L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.INHERIT, null
+            );
+
+            assertThatThrownBy(() -> useCase.execute(cmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage("Thời gian bắt đầu Outro phải nhỏ hơn thời lượng tập phim.");
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Defect 2 Regression: rejects legacy command when duration shortened below existing overridden Intro end")
+        void shouldRejectLegacyCommandWhenDurationShortenedBelowOverriddenIntroEnd() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1200L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.OVERRIDE, 20L, 120L, ScreenTimelineMode.INHERIT, null, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // Legacy command (updateTimeline = false) shortens duration to 90 seconds (below introEnd 120s)
+            UpdateScreenEntryCommand legacyCmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 90L
+            );
+
+            assertThatThrownBy(() -> useCase.execute(legacyCmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage("Thời gian kết thúc Intro không được vượt quá thời lượng tập phim.");
+
+            // Aggregate unmutated and never saved
+            assertThat(entry.getDurationSeconds()).isEqualTo(1200L);
+            assertThat(entry.getIntroMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(entry.getIntroStartSeconds()).isEqualTo(20L);
+            assertThat(entry.getIntroEndSeconds()).isEqualTo(120L);
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Defect 2 Regression: rejects legacy command when duration shortened to or before inherited Outro start")
+        void shouldRejectLegacyCommandWhenDurationShortenedToOrBeforeInheritedOutroStart() {
+            seriesTitle.updateDefaultTimeline(0L, 90L, 1100L, now);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1200L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.INHERIT, null, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // Legacy command (updateTimeline = false) shortens duration to 1100 seconds (<= inherited outroStart 1100s)
+            UpdateScreenEntryCommand legacyCmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 1100L
+            );
+
+            assertThatThrownBy(() -> useCase.execute(legacyCmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage("Thời gian bắt đầu Outro phải nhỏ hơn thời lượng tập phim.");
+
+            // Aggregate unmutated and never saved
+            assertThat(entry.getDurationSeconds()).isEqualTo(1200L);
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Defect 2 Regression: legacy command changes duration to another valid value successfully")
+        void shouldAllowLegacyCommandWhenDurationChangedToAnotherValidValue() {
+            seriesTitle.updateDefaultTimeline(0L, 90L, 1100L, now);
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1200L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.OVERRIDE, 15L, 105L, ScreenTimelineMode.INHERIT, null, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(50));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // Valid duration extension from 1200s to 1300s
+            UpdateScreenEntryCommand legacyCmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 1300L
+            );
+
+            ScreenEntryDTO result = useCase.execute(legacyCmd);
+
+            assertThat(result.durationSeconds()).isEqualTo(1300L);
+            assertThat(result.introMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(result.introStartSeconds()).isEqualTo(15L);
+            assertThat(result.introEndSeconds()).isEqualTo(105L);
+            assertThat(result.outroMode()).isEqualTo(ScreenTimelineMode.INHERIT);
+            verify(entryRepository).save(entry);
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Defect 1 Regression: rejects explicit timeline update when mode selector is null")
+        void shouldRejectExplicitTimelineUpdateWhenModeSelectorIsNull() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1200L, now
+            );
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, 1200L,
+                    true, null, null, null, ScreenTimelineMode.INHERIT, null
+            );
+
+            assertThatThrownBy(() -> useCase.execute(cmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage("Vui lòng chọn chế độ mốc thời gian cho cả Intro và Outro.");
+
+            verify(entryRepository, never()).save(any());
         }
     }
 

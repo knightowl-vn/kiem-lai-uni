@@ -4,6 +4,7 @@ import com.universe.screen.application.commands.CreateScreenTitleCommand;
 import com.universe.screen.application.commands.UpdateScreenTitleCommand;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
+import com.universe.screen.application.exceptions.InvalidScreenTimelineConfigurationException;
 import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
@@ -18,6 +19,7 @@ import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenMetadataValidator;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTimelineTimestampFormat;
 import com.universe.screen.entry.admin.form.CreateScreenTitleForm;
 import com.universe.screen.entry.admin.form.EditScreenTitleForm;
 import org.slf4j.Logger;
@@ -250,6 +252,16 @@ public class AdminScreenTitleCommandController {
                     form.getProductionStudio()
             );
 
+            boolean updateDefaultTimeline = form.hasDefaultTimelineUpdateIntent();
+            ParsedDefaultTimeline parsedTimeline = null;
+            if (updateDefaultTimeline) {
+                parsedTimeline = parseAndValidateDefaultTimeline(
+                        form.getDefaultIntroStart(),
+                        form.getDefaultIntroEnd(),
+                        form.getDefaultOutroStart()
+                );
+            }
+
             ScreenTitleDTO existing = null;
             if (getScreenTitleDetailUseCase != null) {
                 try {
@@ -325,12 +337,17 @@ public class AdminScreenTitleCommandController {
                             backdropId,
                             form.getTotalEpisodeCount(),
                             true,
+                            true,
                             form.getAiringStatus(),
                             form.getReleaseYear(),
                             form.getCountry(),
                             form.getOriginalAuthor(),
                             form.getDirector(),
-                            form.getProductionStudio()
+                            form.getProductionStudio(),
+                            updateDefaultTimeline,
+                            parsedTimeline != null ? parsedTimeline.introStartSeconds() : null,
+                            parsedTimeline != null ? parsedTimeline.introEndSeconds() : null,
+                            parsedTimeline != null ? parsedTimeline.outroStartSeconds() : null
                     )
             );
 
@@ -346,14 +363,17 @@ public class AdminScreenTitleCommandController {
                  | ScreenTitleSlugAlreadyExistsException
                  | ScreenMediaAssetNotFoundException
                  | InvalidScreenMediaAssetTypeException
-                 | InvalidScreenTitleTotalEpisodeCountException ex) {
+                 | InvalidScreenTitleTotalEpisodeCountException
+                 | InvalidScreenTimelineConfigurationException ex) {
             compensateNewlyUploadedMedia(newlyUploadedPosterId, newlyUploadedBackdropId, ex);
             LOGGER.warn("Screen Title [{}] update rejected due to validation failure: {}", titleId, ex.getMessage());
+            preserveTitleFormForRetry(form, redirectAttributes);
             redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             return "redirect:/admin/screen/titles/" + titleId + "/edit";
         } catch (Exception ex) {
             compensateNewlyUploadedMedia(newlyUploadedPosterId, newlyUploadedBackdropId, ex);
             LOGGER.error("Screen Title [{}] update failed unexpectedly: {}", titleId, ex.getMessage(), ex);
+            preserveTitleFormForRetry(form, redirectAttributes);
             redirectAttributes.addFlashAttribute("errorMessage", "Đã xảy ra lỗi hệ thống khi cập nhật Screen Title. Vui lòng thử lại sau.");
             return "redirect:/admin/screen/titles/" + titleId + "/edit";
         }
@@ -504,6 +524,38 @@ public class AdminScreenTitleCommandController {
         } catch (IllegalArgumentException ex) {
             throw new AdminScreenValidationException(ex.getMessage(), ex);
         }
+    }
+
+    private static ParsedDefaultTimeline parseAndValidateDefaultTimeline(
+            String defaultIntroStartRaw,
+            String defaultIntroEndRaw,
+            String defaultOutroStartRaw
+    ) {
+        try {
+            Long introStartSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(defaultIntroStartRaw);
+            Long introEndSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(defaultIntroEndRaw);
+            Long outroStartSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(defaultOutroStartRaw);
+            ScreenTimelineTimestampFormat.validateIntroPairAndOrder(introStartSeconds, introEndSeconds);
+            ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(introEndSeconds, outroStartSeconds);
+            return new ParsedDefaultTimeline(introStartSeconds, introEndSeconds, outroStartSeconds);
+        } catch (IllegalArgumentException ex) {
+            throw new AdminScreenValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    private static void preserveTitleFormForRetry(EditScreenTitleForm form, RedirectAttributes redirectAttributes) {
+        if (form != null && redirectAttributes != null) {
+            form.setPosterFile(null);
+            form.setBackdropFile(null);
+            redirectAttributes.addFlashAttribute("form", form);
+        }
+    }
+
+    private record ParsedDefaultTimeline(
+            Long introStartSeconds,
+            Long introEndSeconds,
+            Long outroStartSeconds
+    ) {
     }
 
     private static final Set<String> TRUSTED_PUBLISH_LIFECYCLE_MESSAGES = Set.of(

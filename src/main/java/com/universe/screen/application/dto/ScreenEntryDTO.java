@@ -4,6 +4,7 @@ import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenTimelineMode;
+import com.universe.screen.domain.ScreenTimelineTimestampFormat;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -93,5 +94,17 @@ public record ScreenEntryDTO(
                 entry.getOutroMode(),
                 entry.getOutroStartSeconds()
         );
+    }
+
+    public String formattedIntroStart() {
+        return ScreenTimelineTimestampFormat.formatSeconds(introStartSeconds);
+    }
+
+    public String formattedIntroEnd() {
+        return ScreenTimelineTimestampFormat.formatSeconds(introEndSeconds);
+    }
+
+    public String formattedOutroStart() {
+        return ScreenTimelineTimestampFormat.formatSeconds(outroStartSeconds);
     }
 }

@@ -109,26 +109,41 @@ public class AdminScreenTitlePageController {
         try {
             ScreenTitleDTO title = getScreenTitleDetailUseCase.execute(titleId);
 
-            EditScreenTitleForm form = new EditScreenTitleForm(
-                    title.title(),
-                    title.slug(),
-                    title.originalTitle(),
-                    title.synopsis(),
-                    title.structure(),
-                    title.presentation(),
-                    title.posterMediaAssetId() != null ? title.posterMediaAssetId().toString() : null,
-                    title.backdropMediaAssetId() != null ? title.backdropMediaAssetId().toString() : null,
-                    title.totalEpisodeCount(),
-                    title.airingStatus(),
-                    title.releaseYear(),
-                    title.country(),
-                    title.originalAuthor(),
-                    title.director(),
-                    title.productionStudio()
-            );
-
             model.addAttribute("title", title);
-            model.addAttribute("form", form);
+            if (!model.containsAttribute("form") || model.getAttribute("form") == null) {
+                EditScreenTitleForm form = new EditScreenTitleForm(
+                        title.title(),
+                        title.slug(),
+                        title.originalTitle(),
+                        title.synopsis(),
+                        title.structure(),
+                        title.presentation(),
+                        title.posterMediaAssetId() != null ? title.posterMediaAssetId().toString() : null,
+                        title.backdropMediaAssetId() != null ? title.backdropMediaAssetId().toString() : null,
+                        title.totalEpisodeCount(),
+                        title.airingStatus(),
+                        title.releaseYear(),
+                        title.country(),
+                        title.originalAuthor(),
+                        title.director(),
+                        title.productionStudio(),
+                        title.formattedDefaultIntroStart(),
+                        title.formattedDefaultIntroEnd(),
+                        title.formattedDefaultOutroStart()
+                );
+                model.addAttribute("form", form);
+            } else if (model.getAttribute("form") instanceof EditScreenTitleForm existingForm) {
+                if (existingForm.getSlug() == null || existingForm.getSlug().isBlank()) {
+                    existingForm.setSlug(title.slug());
+                }
+                if (existingForm.getPosterMediaAssetId() == null && title.posterMediaAssetId() != null) {
+                    existingForm.setPosterMediaAssetId(title.posterMediaAssetId().toString());
+                }
+                if (existingForm.getBackdropMediaAssetId() == null && title.backdropMediaAssetId() != null) {
+                    existingForm.setBackdropMediaAssetId(title.backdropMediaAssetId().toString());
+                }
+            }
+
             model.addAttribute("structures", ScreenStructure.values());
             model.addAttribute("presentations", ScreenPresentation.values());
             model.addAttribute("airingStatuses", ScreenAiringStatus.values());

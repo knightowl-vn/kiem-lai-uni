@@ -2132,4 +2132,181 @@ class AdminScreenTitleCommandControllerTest {
         verify(screenImageMediaPort, org.mockito.Mockito.never())
                 .uploadBackdrop(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
     }
+
+    // --- UX02-C2: DEFAULT TIMELINE COMMAND TESTS ---
+
+    @Test
+    @DisplayName("UX02-C2 Command: updateTitle parses MM:SS / HH:MM:SS / raw seconds and passes default timeline to command")
+    void shouldParseAndPassDefaultTimelineOnUpdate() {
+        ScreenTitleDTO existingDto = new ScreenTitleDTO(
+                titleId, "kiem-lai", "Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(existingDto);
+        when(updateScreenTitleUseCase.execute(any(UpdateScreenTitleCommand.class))).thenReturn(existingDto);
+
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setDefaultIntroStart("00:00");
+        form.setDefaultIntroEnd("01:45");
+        form.setDefaultOutroStart("20:10");
+
+        org.mockito.ArgumentCaptor<UpdateScreenTitleCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenTitleCommand.class);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+        verify(updateScreenTitleUseCase).execute(captor.capture());
+        UpdateScreenTitleCommand captured = captor.getValue();
+        assertThat(captured.updateDefaultTimeline()).isTrue();
+        assertThat(captured.defaultIntroStartSeconds()).isEqualTo(0L);
+        assertThat(captured.defaultIntroEndSeconds()).isEqualTo(105L);
+        assertThat(captured.defaultOutroStartSeconds()).isEqualTo(1210L);
+    }
+
+    @Test
+    @DisplayName("UX02-C2 Command: updateTitle rejects incomplete default Intro pair BEFORE media upload and flashes form")
+    void shouldRejectIncompleteDefaultIntroPairBeforeMediaUploadOnUpdate() {
+        org.springframework.mock.web.MockMultipartFile newPoster = new org.springframework.mock.web.MockMultipartFile(
+                "posterFile", "new-poster.jpg", "image/jpeg", new byte[]{9, 9}
+        );
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setPosterFile(newPoster);
+        form.setDefaultIntroStart("00:00");
+        form.setDefaultIntroEnd("");
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Vui lòng nhập đủ thời gian bắt đầu và kết thúc Intro.");
+        assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+        verify(screenImageMediaPort, never())
+                .uploadPoster(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
+        verify(updateScreenTitleUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("UX02-C2 Command: updateTitle rejects invalid timestamp format BEFORE media upload and flashes form")
+    void shouldRejectInvalidDefaultTimelineTimestampBeforeMediaUploadOnUpdate() {
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setDefaultOutroStart("20:99");
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Thời gian không hợp lệ. Hãy nhập MM:SS hoặc HH:MM:SS.");
+        assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+        verify(updateScreenTitleUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("UX02-C2-SR01 Command: updateTitle preserves existing defaults when legacy form omits timeline fields")
+    void shouldPreserveTitleDefaultTimelineWhenLegacyFormOmitsTimelineFieldsOnUpdate() {
+        ScreenTitleDTO existingDto = new ScreenTitleDTO(
+                titleId, "kiem-lai", "Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(existingDto);
+        when(updateScreenTitleUseCase.execute(any(UpdateScreenTitleCommand.class))).thenReturn(existingDto);
+
+        // Legacy form with 9-parameter constructor and no timeline fields or intent
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title Updated", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+
+        org.mockito.ArgumentCaptor<UpdateScreenTitleCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenTitleCommand.class);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+        verify(updateScreenTitleUseCase).execute(captor.capture());
+        UpdateScreenTitleCommand captured = captor.getValue();
+        assertThat(captured.updateDefaultTimeline()).isFalse();
+        assertThat(captured.defaultIntroStartSeconds()).isNull();
+        assertThat(captured.defaultIntroEndSeconds()).isNull();
+        assertThat(captured.defaultOutroStartSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("UX02-C2-SR01 Command: updateTitle intentionally clears defaults when C2 form submits explicit blank timestamps")
+    void shouldClearTitleDefaultTimelineWhenFormExplicitlySubmitsBlankTimestampsOnUpdate() {
+        ScreenTitleDTO existingDto = new ScreenTitleDTO(
+                titleId, "kiem-lai", "Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(existingDto);
+        when(updateScreenTitleUseCase.execute(any(UpdateScreenTitleCommand.class))).thenReturn(existingDto);
+
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setUpdateDefaultTimeline(true);
+        form.setDefaultIntroStart("");
+        form.setDefaultIntroEnd("");
+        form.setDefaultOutroStart("");
+
+        org.mockito.ArgumentCaptor<UpdateScreenTitleCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenTitleCommand.class);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+        verify(updateScreenTitleUseCase).execute(captor.capture());
+        UpdateScreenTitleCommand captured = captor.getValue();
+        assertThat(captured.updateDefaultTimeline()).isTrue();
+        assertThat(captured.defaultIntroStartSeconds()).isNull();
+        assertThat(captured.defaultIntroEndSeconds()).isNull();
+        assertThat(captured.defaultOutroStartSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("UX02-C2 Command: updateTitle preserves actionable message when UseCase throws InvalidScreenTimelineConfigurationException")
+    void shouldPreserveActionableMessageWhenUseCaseRejectsConflictingInheritingEntryTimeline() {
+        ScreenTitleDTO existingDto = new ScreenTitleDTO(
+                titleId, "kiem-lai", "Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(existingDto);
+
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setDefaultIntroStart("00:00");
+        form.setDefaultIntroEnd("01:30");
+        form.setDefaultOutroStart("20:00");
+
+        when(updateScreenTitleUseCase.execute(any(UpdateScreenTitleCommand.class)))
+                .thenThrow(new com.universe.screen.application.exceptions.InvalidScreenTimelineConfigurationException(
+                        "Bắt đầu Outro vượt quá thời lượng tập phim (1000 giây)."
+                ));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Bắt đầu Outro vượt quá thời lượng tập phim (1000 giây).");
+        assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+    }
 }

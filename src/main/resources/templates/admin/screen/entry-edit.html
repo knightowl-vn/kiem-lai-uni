@@ -99,6 +99,115 @@
                                style="color: #c5221f; font-size: 12px; display: block; margin-top: 4px; font-weight: 500;">Lỗi thời lượng</small>
                     </div>
 
+                    <!-- Intro / Outro Timeline Section -->
+                    <div id="entryTimelineSection" style="background: #f8fbff; border: 1px solid #d2e3fc; border-radius: 6px; padding: 18px; margin-bottom: 20px;">
+                        <input type="hidden" name="updateTimeline" value="true">
+                        <h4 style="margin: 0 0 6px; font-size: 15px; color: #1967d2;">Mốc thời gian Intro / Outro</h4>
+                        <p style="margin: 0 0 14px; font-size: 13px; color: #5f6368; line-height: 1.5;">
+                            Thiết lập độc lập chế độ kế thừa, tùy chỉnh hoặc tắt riêng cho từng phần Intro và Outro của tập phim này.
+                        </p>
+
+                        <!-- Intro Subsection -->
+                        <div style="background: #fff; border: 1px solid #e8eaed; border-radius: 6px; padding: 14px; margin-bottom: 14px;">
+                            <div style="margin-bottom: 10px;">
+                                <label for="introMode" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                                    Chế độ Intro
+                                </label>
+                                <select id="introMode" th:field="*{introMode}"
+                                        style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box; background: #fff;">
+                                    <option value="INHERIT">Kế thừa từ phần phim</option>
+                                    <option value="OVERRIDE">Tùy chỉnh cho tập này</option>
+                                    <option value="DISABLED">Không có Intro</option>
+                                </select>
+                            </div>
+
+                            <!-- Intro INHERIT status display -->
+                            <div id="introInheritHint"
+                                 th:style="${form.introMode == null or form.introMode.name() == 'INHERIT'} ? 'display: block; font-size: 13px; color: #1967d2; background: #e8f0fe; padding: 8px 12px; border-radius: 4px;' : 'display: none; font-size: 13px; color: #1967d2; background: #e8f0fe; padding: 8px 12px; border-radius: 4px;'">
+                                <span th:if="${title.hasDefaultIntro()}">
+                                    Đang kế thừa mốc Intro từ phần phim:
+                                    <strong th:text="${title.formattedDefaultIntroStart() + ' – ' + title.formattedDefaultIntroEnd()}">00:15 – 01:45</strong>
+                                    (Nguồn: Kế thừa từ phần phim)
+                                </span>
+                                <span th:unless="${title.hasDefaultIntro()}" style="color: #5f6368;">
+                                    Đang kế thừa từ phần phim (Hiện tại phần phim chưa thiết lập Intro mặc định).
+                                </span>
+                            </div>
+
+                            <!-- Intro OVERRIDE inputs -->
+                            <div id="introOverrideGroup"
+                                 th:style="${form.introMode != null and form.introMode.name() == 'OVERRIDE'} ? 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;' : 'display: none; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;'">
+                                <div>
+                                    <label for="introStart" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px;">
+                                        Bắt đầu Intro <span style="color: #c5221f;">*</span>
+                                    </label>
+                                    <input type="text" id="introStart" th:field="*{introStart}"
+                                           placeholder="VD: 00:15 hoặc 00:00:15"
+                                           style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+                                </div>
+                                <div>
+                                    <label for="introEnd" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px;">
+                                        Kết thúc Intro <span style="color: #c5221f;">*</span>
+                                    </label>
+                                    <input type="text" id="introEnd" th:field="*{introEnd}"
+                                           placeholder="VD: 01:45 hoặc 00:01:45"
+                                           style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+                                </div>
+                            </div>
+
+                            <!-- Intro DISABLED status display -->
+                            <div id="introDisabledHint"
+                                 th:style="${form.introMode != null and form.introMode.name() == 'DISABLED'} ? 'display: block; font-size: 13px; color: #b06000; background: #fef7e0; padding: 8px 12px; border-radius: 4px;' : 'display: none; font-size: 13px; color: #b06000; background: #fef7e0; padding: 8px 12px; border-radius: 4px;'">
+                                Đã tắt chủ động cho tập này: Không hiển thị hoặc tự động bỏ qua Intro kể cả khi phần phim có mốc mặc định.
+                            </div>
+                        </div>
+
+                        <!-- Outro Subsection -->
+                        <div style="background: #fff; border: 1px solid #e8eaed; border-radius: 6px; padding: 14px;">
+                            <div style="margin-bottom: 10px;">
+                                <label for="outroMode" style="display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px;">
+                                    Chế độ Outro
+                                </label>
+                                <select id="outroMode" th:field="*{outroMode}"
+                                        style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box; background: #fff;">
+                                    <option value="INHERIT">Kế thừa từ phần phim</option>
+                                    <option value="OVERRIDE">Tùy chỉnh cho tập này</option>
+                                    <option value="DISABLED">Không có Outro</option>
+                                </select>
+                            </div>
+
+                            <!-- Outro INHERIT status display -->
+                            <div id="outroInheritHint"
+                                 th:style="${form.outroMode == null or form.outroMode.name() == 'INHERIT'} ? 'display: block; font-size: 13px; color: #1967d2; background: #e8f0fe; padding: 8px 12px; border-radius: 4px;' : 'display: none; font-size: 13px; color: #1967d2; background: #e8f0fe; padding: 8px 12px; border-radius: 4px;'">
+                                <span th:if="${title.hasDefaultOutro()}">
+                                    Đang kế thừa mốc Outro từ phần phim:
+                                    <strong th:text="${title.formattedDefaultOutroStart()}">22:10</strong>
+                                    (Nguồn: Kế thừa từ phần phim)
+                                </span>
+                                <span th:unless="${title.hasDefaultOutro()}" style="color: #5f6368;">
+                                    Đang kế thừa từ phần phim (Hiện tại phần phim chưa thiết lập Outro mặc định).
+                                </span>
+                            </div>
+
+                            <!-- Outro OVERRIDE input -->
+                            <div id="outroOverrideGroup"
+                                 th:style="${form.outroMode != null and form.outroMode.name() == 'OVERRIDE'} ? 'display: block; margin-top: 10px;' : 'display: none; margin-top: 10px;'">
+                                <label for="outroStart" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px;">
+                                    Bắt đầu Outro <span style="color: #c5221f;">*</span>
+                                </label>
+                                <input type="text" id="outroStart" th:field="*{outroStart}"
+                                       placeholder="VD: 22:10 hoặc 00:22:10"
+                                       style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+                            </div>
+
+                            <!-- Outro DISABLED status display -->
+                            <div id="outroDisabledHint"
+                                 th:style="${form.outroMode != null and form.outroMode.name() == 'DISABLED'} ? 'display: block; font-size: 13px; color: #b06000; background: #fef7e0; padding: 8px 12px; border-radius: 4px;' : 'display: none; font-size: 13px; color: #b06000; background: #fef7e0; padding: 8px 12px; border-radius: 4px;'">
+                                Đã tắt chủ động cho tập này: Không kích hoạt gợi ý Tập tiếp theo theo mốc Outro kể cả khi phần phim có mốc mặc định.
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Read-only Media References Info -->
                     <div style="background: #f8f9fa; border: 1px solid #e8eaed; border-radius: 6px; padding: 16px; margin-bottom: 20px;">
                         <h4 style="margin: 0 0 10px; font-size: 14px; color: #3c4043;">Tài nguyên Media (Read-only)</h4>
@@ -185,6 +294,65 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     syncNumberField(false);
+
+    const introModeSelect = document.getElementById('introMode');
+    const introInheritHint = document.getElementById('introInheritHint');
+    const introOverrideGroup = document.getElementById('introOverrideGroup');
+    const introDisabledHint = document.getElementById('introDisabledHint');
+    const introStartInput = document.getElementById('introStart');
+    const introEndInput = document.getElementById('introEnd');
+
+    const outroModeSelect = document.getElementById('outroMode');
+    const outroInheritHint = document.getElementById('outroInheritHint');
+    const outroOverrideGroup = document.getElementById('outroOverrideGroup');
+    const outroDisabledHint = document.getElementById('outroDisabledHint');
+    const outroStartInput = document.getElementById('outroStart');
+
+    function syncIntroModeFields(isUserChange) {
+        if (!introModeSelect) return;
+        const mode = introModeSelect.value;
+        if (introInheritHint) introInheritHint.style.display = mode === 'INHERIT' ? 'block' : 'none';
+        if (introOverrideGroup) introOverrideGroup.style.display = mode === 'OVERRIDE' ? 'grid' : 'none';
+        if (introDisabledHint) introDisabledHint.style.display = mode === 'DISABLED' ? 'block' : 'none';
+
+        const isOverride = mode === 'OVERRIDE';
+        if (introStartInput) {
+            introStartInput.disabled = !isOverride;
+            if (!isOverride && isUserChange) introStartInput.value = '';
+        }
+        if (introEndInput) {
+            introEndInput.disabled = !isOverride;
+            if (!isOverride && isUserChange) introEndInput.value = '';
+        }
+    }
+
+    function syncOutroModeFields(isUserChange) {
+        if (!outroModeSelect) return;
+        const mode = outroModeSelect.value;
+        if (outroInheritHint) outroInheritHint.style.display = mode === 'INHERIT' ? 'block' : 'none';
+        if (outroOverrideGroup) outroOverrideGroup.style.display = mode === 'OVERRIDE' ? 'block' : 'none';
+        if (outroDisabledHint) outroDisabledHint.style.display = mode === 'DISABLED' ? 'block' : 'none';
+
+        const isOverride = mode === 'OVERRIDE';
+        if (outroStartInput) {
+            outroStartInput.disabled = !isOverride;
+            if (!isOverride && isUserChange) outroStartInput.value = '';
+        }
+    }
+
+    if (introModeSelect) {
+        introModeSelect.addEventListener('change', function () {
+            syncIntroModeFields(true);
+        });
+        syncIntroModeFields(false);
+    }
+
+    if (outroModeSelect) {
+        outroModeSelect.addEventListener('change', function () {
+            syncOutroModeFields(true);
+        });
+        syncOutroModeFields(false);
+    }
 });
 </script>
 </body>

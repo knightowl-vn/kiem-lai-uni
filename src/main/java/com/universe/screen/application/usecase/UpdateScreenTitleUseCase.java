@@ -2,14 +2,20 @@ package com.universe.screen.application.usecase;
 
 import com.universe.screen.application.commands.UpdateScreenTitleCommand;
 import com.universe.screen.application.dto.ScreenTitleDTO;
+import com.universe.screen.application.exceptions.InvalidScreenTimelineConfigurationException;
 import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleSlugAlreadyExistsException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
+import com.universe.screen.domain.EffectiveScreenTimeline;
 import com.universe.screen.domain.ScreenAiringStatus;
+import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenIntroInterval;
+import com.universe.screen.domain.ScreenOutroMarker;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTimelineTimestampFormat;
 import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -98,6 +105,26 @@ public class UpdateScreenTitleUseCase {
             targetProductionStudio = command.productionStudio();
         }
 
+        Long targetDefaultIntroStart;
+        Long targetDefaultIntroEnd;
+        Long targetDefaultOutroStart;
+
+        if (!command.updateDefaultTimeline()) {
+            targetDefaultIntroStart = existing.getDefaultIntroStartSeconds();
+            targetDefaultIntroEnd = existing.getDefaultIntroEndSeconds();
+            targetDefaultOutroStart = existing.getDefaultOutroStartSeconds();
+        } else {
+            targetDefaultIntroStart = command.defaultIntroStartSeconds();
+            targetDefaultIntroEnd = command.defaultIntroEndSeconds();
+            targetDefaultOutroStart = command.defaultOutroStartSeconds();
+            validateTitleDefaultTimelineAndExistingEntries(
+                    existing.getId(),
+                    targetDefaultIntroStart,
+                    targetDefaultIntroEnd,
+                    targetDefaultOutroStart
+            );
+        }
+
         mediaValidationPort.validateImageMediaAsset(command.posterMediaAssetId());
         mediaValidationPort.validateImageMediaAsset(command.backdropMediaAssetId());
 
@@ -119,12 +146,88 @@ public class UpdateScreenTitleUseCase {
                 targetCountry,
                 targetOriginalAuthor,
                 targetDirector,
-                targetProductionStudio
+                targetProductionStudio,
+                targetDefaultIntroStart,
+                targetDefaultIntroEnd,
+                targetDefaultOutroStart
         );
 
         ScreenTitle saved = titleRepository.save(existing);
 
         return toDTO(saved);
+    }
+
+    private void validateTitleDefaultTimelineAndExistingEntries(
+            java.util.UUID titleId,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds
+    ) {
+        try {
+            ScreenTimelineTimestampFormat.validateIntroPairAndOrder(defaultIntroStartSeconds, defaultIntroEndSeconds);
+            ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(defaultIntroEndSeconds, defaultOutroStartSeconds);
+        } catch (IllegalArgumentException ex) {
+            throw new InvalidScreenTimelineConfigurationException(ex.getMessage(), ex);
+        }
+
+        ScreenIntroInterval candidateDefaultIntro = ScreenIntroInterval.ofNullable(
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds
+        );
+        ScreenOutroMarker candidateDefaultOutro = ScreenOutroMarker.ofNullable(defaultOutroStartSeconds);
+
+        if (candidateDefaultIntro == null && candidateDefaultOutro == null) {
+            return;
+        }
+
+        List<ScreenEntry> entries = entryRepository.findByTitleId(titleId);
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+
+        for (ScreenEntry entry : entries) {
+            boolean inheritsIntro = entry.getIntroMode().isInherit() && candidateDefaultIntro != null;
+            boolean inheritsOutro = entry.getOutroMode().isInherit() && candidateDefaultOutro != null;
+            if (!inheritsIntro && !inheritsOutro) {
+                continue;
+            }
+
+            ScreenIntroInterval effectiveIntro = switch (entry.getIntroMode()) {
+                case DISABLED -> null;
+                case OVERRIDE -> entry.getIntroOverride();
+                case INHERIT -> candidateDefaultIntro;
+            };
+            ScreenOutroMarker effectiveOutro = switch (entry.getOutroMode()) {
+                case DISABLED -> null;
+                case OVERRIDE -> entry.getOutroOverride();
+                case INHERIT -> candidateDefaultOutro;
+            };
+
+            if (effectiveIntro != null
+                    && effectiveOutro != null
+                    && effectiveOutro.startSeconds() < effectiveIntro.endSeconds()) {
+                throw new InvalidScreenTimelineConfigurationException(
+                        ScreenTimelineTimestampFormat.INVALID_OUTRO_BEFORE_INTRO_END_MESSAGE
+                                + " (Xung đột với tập \"" + entry.getTitle() + "\")."
+                );
+            }
+
+            Long durationSeconds = entry.getDurationSeconds();
+            if (durationSeconds != null && durationSeconds > 0) {
+                if (inheritsIntro && effectiveIntro.endSeconds() > durationSeconds) {
+                    throw new InvalidScreenTimelineConfigurationException(
+                            ScreenTimelineTimestampFormat.INTRO_EXCEEDS_DURATION_MESSAGE
+                                    + " (Tập \"" + entry.getTitle() + "\": " + durationSeconds + " giây)."
+                    );
+                }
+                if (inheritsOutro && effectiveOutro.startSeconds() >= durationSeconds) {
+                    throw new InvalidScreenTimelineConfigurationException(
+                            ScreenTimelineTimestampFormat.OUTRO_EXCEEDS_DURATION_MESSAGE
+                                    + " (Tập \"" + entry.getTitle() + "\": " + durationSeconds + " giây)."
+                    );
+                }
+            }
+        }
     }
 
     private static ScreenTitleDTO toDTO(ScreenTitle title) {

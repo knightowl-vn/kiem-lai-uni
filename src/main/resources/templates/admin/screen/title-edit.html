@@ -146,6 +146,38 @@
                         </div>
                     </div>
 
+                    <!-- Default Intro / Outro Timeline Section -->
+                    <div id="defaultTimelinePanel" style="margin-bottom: 24px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;">
+                        <input type="hidden" name="updateDefaultTimeline" value="true">
+                        <label style="display: block; font-weight: 600; margin-bottom: 6px;">Mốc thời gian mặc định — Intro / Outro</label>
+                        <p style="margin: 0 0 12px 0; font-size: 13px; color: #5f6368; line-height: 1.5;">
+                            Các giá trị mặc định sẽ tự động áp dụng cho các tập phim trong phần này sử dụng chế độ <strong>Kế thừa từ phần phim (INHERIT)</strong>.
+                            Các tập đã cấu hình <strong>Tùy chỉnh (OVERRIDE)</strong> hoặc <strong>Không có Intro/Outro (DISABLED)</strong> sẽ giữ nguyên cấu hình riêng.
+                            Để trống cả hai ô Intro để xóa Intro mặc định; để trống ô Outro để xóa Outro mặc định.
+                        </p>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px;">
+                            <div>
+                                <label for="defaultIntroStart" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">Bắt đầu Intro</label>
+                                <input id="defaultIntroStart" type="text" th:field="*{defaultIntroStart}" maxlength="16"
+                                       style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; font-family: monospace;"
+                                       placeholder="MM:SS hoặc HH:MM:SS (vd: 00:00)">
+                            </div>
+                            <div>
+                                <label for="defaultIntroEnd" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">Kết thúc Intro</label>
+                                <input id="defaultIntroEnd" type="text" th:field="*{defaultIntroEnd}" maxlength="16"
+                                       style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; font-family: monospace;"
+                                       placeholder="MM:SS hoặc HH:MM:SS (vd: 01:45)">
+                            </div>
+                            <div>
+                                <label for="defaultOutroStart" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">Bắt đầu Outro</label>
+                                <input id="defaultOutroStart" type="text" th:field="*{defaultOutroStart}" maxlength="16"
+                                       style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; font-family: monospace;"
+                                       placeholder="MM:SS hoặc HH:MM:SS (vd: 20:10)">
+                            </div>
+                        </div>
+                        <small style="color: #5f6368; display: block; margin-top: 8px;">Chấp nhận định dạng <code>MM:SS</code>, <code>HH:MM:SS</code> hoặc số giây nguyên không âm.</small>
+                    </div>
+
                     <!-- Poster Section -->
                     <div style="margin-bottom: 24px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;">
                         <label style="display: block; font-weight: 600; margin-bottom: 8px;">Ảnh Poster</label>

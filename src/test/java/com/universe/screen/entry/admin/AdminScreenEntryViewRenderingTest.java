@@ -546,4 +546,51 @@ class AdminScreenEntryViewRenderingTest {
                 .andExpect(content().string(not(containsString("id=\"videoVisibilityPanel\""))))
                 .andExpect(content().string(not(containsString("id=\"reconcileVisibilityBtn\""))));
     }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("UX02-C2 Rendering: GET entry-edit and entry-detail render Intro/Outro timeline modes, inherited preview, override inputs, and disabled labels")
+    void shouldRenderTimelineSectionInEntryEditAndDetailPages() throws Exception {
+        ScreenTitleDTO titleWithDefaults = new ScreenTitleDTO(
+                TITLE_ID, "kiem-lai", "Kiếm Lai", null, "Synopsis phim...",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now(),
+                24, null, 2024, "Trung Quốc", null, null, null,
+                0L, 105L, 1210L
+        );
+        ScreenEntryDTO entryWithTimeline = new ScreenEntryDTO(
+                ENTRY_ID, TITLE_ID, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1: Xuất Thế",
+                "Tóm tắt tập 1...", UUID.randomUUID(), UUID.randomUUID(), 1500L, ScreenPublicationStatus.DRAFT,
+                null, Instant.now(), Instant.now(),
+                com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, 15L, 110L,
+                com.universe.screen.domain.ScreenTimelineMode.DISABLED, null
+        );
+
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(titleWithDefaults);
+        when(getScreenEntryDetailUseCase.execute(TITLE_ID, ENTRY_ID)).thenReturn(entryWithTimeline);
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}/edit", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"entryTimelineSection\"")))
+                .andExpect(content().string(containsString("name=\"updateTimeline\" value=\"true\"")))
+                .andExpect(content().string(containsString("Mốc thời gian Intro / Outro")))
+                .andExpect(content().string(containsString("Kế thừa từ phần phim")))
+                .andExpect(content().string(containsString("Tùy chỉnh cho tập này")))
+                .andExpect(content().string(containsString("Không có Intro")))
+                .andExpect(content().string(containsString("Không có Outro")))
+                .andExpect(content().string(containsString("00:00 – 01:45")))
+                .andExpect(content().string(containsString("20:10")))
+                .andExpect(content().string(containsString("value=\"00:15\"")))
+                .andExpect(content().string(containsString("value=\"01:50\"")))
+                .andExpect(content().string(containsString("syncIntroModeFields")))
+                .andExpect(content().string(containsString("syncOutroModeFields")));
+
+        mockMvc.perform(get("/admin/screen/titles/{titleId}/entries/{entryId}", TITLE_ID, ENTRY_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Mốc Intro")))
+                .andExpect(content().string(containsString("Tùy chỉnh cho tập này")))
+                .andExpect(content().string(containsString("00:15 – 01:50")))
+                .andExpect(content().string(containsString("Mốc Outro")))
+                .andExpect(content().string(containsString("Không có Outro")));
+    }
 }

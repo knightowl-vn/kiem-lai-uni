@@ -309,6 +309,193 @@ class AdminScreenEntryCommandControllerTest {
                     .contains("Không thể cập nhật tập đã xuất bản thành số 25");
             assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
         }
+
+        @Test
+        @DisplayName("UX02-C2 Command: updateEntry parses OVERRIDE timestamps and passes timeline fields to UpdateScreenEntryCommand")
+        void shouldParseOverrideTimestampsAndPassToCommandOnUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1500L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "00:10", "01:40",
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "21:05"
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.updateTimeline()).isTrue();
+            assertThat(captured.introMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.OVERRIDE);
+            assertThat(captured.introStartSeconds()).isEqualTo(10L);
+            assertThat(captured.introEndSeconds()).isEqualTo(100L);
+            assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.OVERRIDE);
+            assertThat(captured.outroStartSeconds()).isEqualTo(1265L);
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Command: updateEntry preserves entry timeline when legacy form omits timeline fields")
+        void shouldPreserveEntryTimelineWhenLegacyFormOmitsTimelineFieldsOnUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả mới", 1500L, null, null
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.updateTimeline()).isFalse();
+            assertThat(captured.introMode()).isNull();
+            assertThat(captured.introStartSeconds()).isNull();
+            assertThat(captured.introEndSeconds()).isNull();
+            assertThat(captured.outroMode()).isNull();
+            assertThat(captured.outroStartSeconds()).isNull();
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Command: updateEntry fails safely when explicit timeline intent omits mode selector")
+        void shouldFailSafelyWhenExplicitTimelineIntentOmitsModeSelectorOnUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm();
+            form.setTitle("Tập 1");
+            form.setSlug("ep-1");
+            form.setType(ScreenEntryType.EPISODE);
+            form.setUpdateTimeline(true);
+            form.setIntroMode(null); // missing mode selector
+            form.setOutroMode(com.universe.screen.domain.ScreenTimelineMode.INHERIT);
+
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo("Vui lòng chọn chế độ mốc thời gian cho cả Intro và Outro.");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+            verify(updateScreenEntryUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Command: updateEntry explicitly sets INHERIT mode when selected")
+        void shouldPassInheritModeExplicitlyToCommandOnUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1500L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.updateTimeline()).isTrue();
+            assertThat(captured.introMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.INHERIT);
+            assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.INHERIT);
+        }
+
+        @Test
+        @DisplayName("UX02-C2-SR01 Command: updateEntry explicitly sets DISABLED mode when selected")
+        void shouldPassDisabledModeExplicitlyToCommandOnUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1500L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.DISABLED, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.DISABLED, null
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.updateTimeline()).isTrue();
+            assertThat(captured.introMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.DISABLED);
+            assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.DISABLED);
+        }
+
+        @Test
+        @DisplayName("UX02-C2 Command: updateEntry strips stale override inputs when mode is INHERIT or DISABLED")
+        void shouldStripStaleOverrideTimestampsWhenModeIsInheritOrDisabled() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1500L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, "00:10", "01:40",
+                    com.universe.screen.domain.ScreenTimelineMode.DISABLED, "21:05"
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.introMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.INHERIT);
+            assertThat(captured.introStartSeconds()).isNull();
+            assertThat(captured.introEndSeconds()).isNull();
+            assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.DISABLED);
+            assertThat(captured.outroStartSeconds()).isNull();
+            assertThat(form.getIntroStart()).isNull();
+            assertThat(form.getIntroEnd()).isNull();
+            assertThat(form.getOutroStart()).isNull();
+        }
+
+        @Test
+        @DisplayName("UX02-C2 Command: updateEntry rejects OVERRIDE Intro with missing timestamp and flashes form")
+        void shouldRejectOverrideIntroWithMissingTimestampsAndFlashForm() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1500L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "00:10", "",
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo("Vui lòng nhập đủ thời gian bắt đầu và kết thúc Intro.");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+            verify(updateScreenEntryUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2 Command: updateEntry rejects OVERRIDE Outro with missing timestamp and flashes form")
+        void shouldRejectOverrideOutroWithMissingTimestampAndFlashForm() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1500L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "   "
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo("Vui lòng nhập thời gian bắt đầu Outro.");
+            assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+            verify(updateScreenEntryUseCase, never()).execute(any());
+        }
     }
 
     @Nested

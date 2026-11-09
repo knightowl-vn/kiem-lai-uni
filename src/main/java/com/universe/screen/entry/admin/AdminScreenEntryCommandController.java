@@ -12,6 +12,8 @@ import com.universe.screen.application.usecase.CreateScreenEntryUseCase;
 import com.universe.screen.application.usecase.DetachScreenEntryVideoUseCase;
 import com.universe.screen.application.usecase.PublishScreenEntryUseCase;
 import com.universe.screen.application.usecase.UpdateScreenEntryUseCase;
+import com.universe.screen.domain.ScreenTimelineMode;
+import com.universe.screen.domain.ScreenTimelineTimestampFormat;
 import com.universe.screen.entry.admin.form.CreateScreenEntryForm;
 import com.universe.screen.entry.admin.form.EditScreenEntryForm;
 import com.universe.shared.exceptions.BaseApplicationException;
@@ -118,18 +120,39 @@ public class AdminScreenEntryCommandController {
             }
             validateEntryForm(form.getTitle(), form.getSlug(), form.getType());
 
-            ScreenEntryDTO updated = updateScreenEntryUseCase.execute(
-                    new UpdateScreenEntryCommand(
-                            titleId,
-                            entryId,
-                            form.getSlug(),
-                            form.getType(),
-                            form.getNumber(),
-                            form.getTitle(),
-                            form.getSynopsis(),
-                            form.getDurationSeconds()
-                    )
-            );
+            boolean updateTimeline = form.hasTimelineUpdateIntent();
+            UpdateScreenEntryCommand command;
+            if (updateTimeline) {
+                ParsedEntryTimeline parsedTimeline = parseAndValidateEntryTimeline(form);
+                command = new UpdateScreenEntryCommand(
+                        titleId,
+                        entryId,
+                        form.getSlug(),
+                        form.getType(),
+                        form.getNumber(),
+                        form.getTitle(),
+                        form.getSynopsis(),
+                        form.getDurationSeconds(),
+                        parsedTimeline.introMode(),
+                        parsedTimeline.introStartSeconds(),
+                        parsedTimeline.introEndSeconds(),
+                        parsedTimeline.outroMode(),
+                        parsedTimeline.outroStartSeconds()
+                );
+            } else {
+                command = new UpdateScreenEntryCommand(
+                        titleId,
+                        entryId,
+                        form.getSlug(),
+                        form.getType(),
+                        form.getNumber(),
+                        form.getTitle(),
+                        form.getSynopsis(),
+                        form.getDurationSeconds()
+                );
+            }
+
+            ScreenEntryDTO updated = updateScreenEntryUseCase.execute(command);
 
             redirectAttributes.addFlashAttribute("successMessage", "Đã cập nhật Screen Entry \"" + updated.title() + "\".");
             return "redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId;
@@ -237,6 +260,50 @@ public class AdminScreenEntryCommandController {
         }
     }
 
+    private static ParsedEntryTimeline parseAndValidateEntryTimeline(EditScreenEntryForm form) {
+        if (form.getIntroMode() == null || form.getOutroMode() == null) {
+            throw new IllegalArgumentException("Vui lòng chọn chế độ mốc thời gian cho cả Intro và Outro.");
+        }
+        ScreenTimelineMode introMode = form.getIntroMode();
+        ScreenTimelineMode outroMode = form.getOutroMode();
+
+        Long introStartSeconds = null;
+        Long introEndSeconds = null;
+        if (introMode == ScreenTimelineMode.OVERRIDE) {
+            introStartSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(form.getIntroStart());
+            introEndSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(form.getIntroEnd());
+            if (introStartSeconds == null || introEndSeconds == null) {
+                throw new IllegalArgumentException(ScreenTimelineTimestampFormat.INCOMPLETE_INTRO_PAIR_MESSAGE);
+            }
+            ScreenTimelineTimestampFormat.validateIntroPairAndOrder(introStartSeconds, introEndSeconds);
+        } else {
+            form.setIntroStart(null);
+            form.setIntroEnd(null);
+        }
+
+        Long outroStartSeconds = null;
+        if (outroMode == ScreenTimelineMode.OVERRIDE) {
+            outroStartSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(form.getOutroStart());
+            if (outroStartSeconds == null) {
+                throw new IllegalArgumentException(ScreenTimelineTimestampFormat.MISSING_OUTRO_OVERRIDE_MESSAGE);
+            }
+        } else {
+            form.setOutroStart(null);
+        }
+
+        ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(introEndSeconds, outroStartSeconds);
+        return new ParsedEntryTimeline(introMode, introStartSeconds, introEndSeconds, outroMode, outroStartSeconds);
+    }
+
+    private record ParsedEntryTimeline(
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
+    ) {
+    }
+
     private String resolveBindingErrorMessage(BindingResult bindingResult) {
         if (bindingResult.hasFieldErrors("type")) {
             return "Loại tập phim/video không hợp lệ.";
@@ -246,6 +313,9 @@ public class AdminScreenEntryCommandController {
         }
         if (bindingResult.hasFieldErrors("durationSeconds")) {
             return "Thời lượng không hợp lệ.";
+        }
+        if (bindingResult.hasFieldErrors("introMode") || bindingResult.hasFieldErrors("outroMode")) {
+            return "Chế độ mốc thời gian Intro/Outro không hợp lệ.";
         }
         var error = bindingResult.getAllErrors().stream().findFirst();
         if (error.isPresent() && error.get().getDefaultMessage() != null && !error.get().getDefaultMessage().isBlank()) {

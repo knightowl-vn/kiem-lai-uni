@@ -4,6 +4,7 @@ import com.universe.screen.application.commands.CreateScreenTitleCommand;
 import com.universe.screen.application.commands.UpdateScreenTitleCommand;
 import com.universe.screen.application.dto.ScreenTitleDTO;
 import com.universe.screen.application.exceptions.InvalidScreenMediaAssetTypeException;
+import com.universe.screen.application.exceptions.InvalidScreenTimelineConfigurationException;
 import com.universe.screen.application.exceptions.InvalidScreenTitleTotalEpisodeCountException;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.exceptions.ScreenTitleNotFoundException;
@@ -13,9 +14,12 @@ import com.universe.screen.application.ports.ScreenMediaValidationPort;
 import com.universe.screen.application.ports.ScreenMediaVisibilityPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenAiringStatus;
+import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTimelineMode;
 import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
@@ -937,5 +941,176 @@ class ScreenTitleUseCaseTest {
         assertThatThrownBy(() -> getDetailUseCase.execute(titleId))
                 .isInstanceOf(ScreenTitleNotFoundException.class)
                 .hasMessageContaining(titleId.toString());
+    }
+
+    // ==========================================
+    // UX02-C2: TITLE DEFAULT TIMELINE MANAGEMENT
+    // ==========================================
+
+    @Test
+    @DisplayName("UX02-C2 UpdateTitle: updates default Intro and Outro timeline and maps formatted timestamps on DTO")
+    void shouldUpdateDefaultTimelineSuccessfully() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(60));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", "剑来", "Synopsis",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                24, true,
+                true, ScreenAiringStatus.ONGOING, 2024, "Trung Quốc", "Phong Hỏa Hí Chư Hầu", "Đạo diễn", "Studio",
+                true, 0L, 105L, 1210L
+        );
+
+        ScreenTitleDTO dto = updateUseCase.execute(command);
+
+        assertThat(dto.defaultIntroStartSeconds()).isEqualTo(0L);
+        assertThat(dto.defaultIntroEndSeconds()).isEqualTo(105L);
+        assertThat(dto.defaultOutroStartSeconds()).isEqualTo(1210L);
+        assertThat(dto.hasDefaultIntro()).isTrue();
+        assertThat(dto.hasDefaultOutro()).isTrue();
+        assertThat(dto.formattedDefaultIntroStart()).isEqualTo("00:00");
+        assertThat(dto.formattedDefaultIntroEnd()).isEqualTo("01:45");
+        assertThat(dto.formattedDefaultOutroStart()).isEqualTo("20:10");
+    }
+
+    @Test
+    @DisplayName("UX02-C2 UpdateTitle: clearing default Intro while keeping default Outro updates cleanly")
+    void shouldClearDefaultIntroWhileKeepingDefaultOutro() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        existing.updateDefaultTimeline(0L, 90L, 1200L, now);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(60));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                24, true,
+                false, null, null, null, null, null, null,
+                true, null, null, 1300L
+        );
+
+        ScreenTitleDTO dto = updateUseCase.execute(command);
+
+        assertThat(dto.defaultIntroStartSeconds()).isNull();
+        assertThat(dto.defaultIntroEndSeconds()).isNull();
+        assertThat(dto.defaultOutroStartSeconds()).isEqualTo(1300L);
+        assertThat(dto.hasDefaultIntro()).isFalse();
+        assertThat(dto.hasDefaultOutro()).isTrue();
+    }
+
+    @Test
+    @DisplayName("UX02-C2 UpdateTitle: preserves existing default timeline when updateDefaultTimeline is false")
+    void shouldPreserveExistingDefaultTimelineWhenFlagIsFalse() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        existing.updateDefaultTimeline(15L, 105L, 1250L, now);
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(60));
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateScreenTitleCommand legacyCommand = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai Mới", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+
+        ScreenTitleDTO dto = updateUseCase.execute(legacyCommand);
+
+        assertThat(dto.title()).isEqualTo("Kiếm Lai Mới");
+        assertThat(dto.defaultIntroStartSeconds()).isEqualTo(15L);
+        assertThat(dto.defaultIntroEndSeconds()).isEqualTo(105L);
+        assertThat(dto.defaultOutroStartSeconds()).isEqualTo(1250L);
+    }
+
+    @Test
+    @DisplayName("UX02-C2 UpdateTitle: rejects title default update when an inheriting entry has an override Outro before the new default Intro end")
+    void shouldRejectTitleDefaultUpdateWhenInheritingEntryHasConflictingOverride() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        ScreenEntry ep1 = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1", now
+        );
+        ep1.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 80L, now);
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of(ep1));
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 105L, 1200L
+        );
+
+        assertThatThrownBy(() -> updateUseCase.execute(command))
+                .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                .hasMessage("Outro không được bắt đầu trước khi Intro kết thúc. (Xung đột với tập \"Tập 1\").");
+        verify(titleRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("UX02-C2 UpdateTitle: rejects title default update when an inheriting entry duration is exceeded")
+    void shouldRejectTitleDefaultUpdateWhenInheritingEntryDurationIsExceeded() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        ScreenEntry ep1 = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1000L, now
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of(ep1));
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 90L, 1200L
+        );
+
+        assertThatThrownBy(() -> updateUseCase.execute(command))
+                .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                .hasMessage("Thời gian bắt đầu Outro phải nhỏ hơn thời lượng tập phim. (Tập \"Tập 1\": 1000 giây).");
+        verify(titleRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("UX02-C2 UpdateTitle: allows title default update when shorter entry has DISABLED the segment")
+    void shouldAllowTitleDefaultUpdateWhenShorterEntryDisabledSegment() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        ScreenEntry ep1 = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1000L, now
+        );
+        ep1.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.DISABLED, null, now);
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(60));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of(ep1));
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 90L, 1200L
+        );
+
+        ScreenTitleDTO dto = updateUseCase.execute(command);
+        assertThat(dto.defaultOutroStartSeconds()).isEqualTo(1200L);
     }
 }

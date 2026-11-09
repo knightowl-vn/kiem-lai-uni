@@ -26,6 +26,10 @@ public class EditScreenTitleForm {
     private String originalAuthor;
     private String director;
     private String productionStudio;
+    private boolean updateDefaultTimeline = false;
+    private String defaultIntroStart;
+    private String defaultIntroEnd;
+    private String defaultOutroStart;
 
     public EditScreenTitleForm() {
     }
@@ -45,7 +49,54 @@ public class EditScreenTitleForm {
             String country,
             String originalAuthor,
             String director,
-            String productionStudio
+            String productionStudio,
+            String defaultIntroStart,
+            String defaultIntroEnd,
+            String defaultOutroStart
+    ) {
+        this(
+                title,
+                slug,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                defaultIntroStart != null || defaultIntroEnd != null || defaultOutroStart != null,
+                defaultIntroStart,
+                defaultIntroEnd,
+                defaultOutroStart
+        );
+    }
+
+    public EditScreenTitleForm(
+            String title,
+            String slug,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            boolean updateDefaultTimeline,
+            String defaultIntroStart,
+            String defaultIntroEnd,
+            String defaultOutroStart
     ) {
         this.title = title;
         this.slug = slug;
@@ -62,6 +113,49 @@ public class EditScreenTitleForm {
         this.originalAuthor = originalAuthor;
         this.director = director;
         this.productionStudio = productionStudio;
+        this.updateDefaultTimeline = updateDefaultTimeline;
+        this.defaultIntroStart = defaultIntroStart;
+        this.defaultIntroEnd = defaultIntroEnd;
+        this.defaultOutroStart = defaultOutroStart;
+    }
+
+    public EditScreenTitleForm(
+            String title,
+            String slug,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
+    ) {
+        this(
+                title,
+                slug,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                null,
+                null,
+                null
+        );
     }
 
     public EditScreenTitleForm(
@@ -257,5 +351,53 @@ public class EditScreenTitleForm {
 
     public void setProductionStudio(String productionStudio) {
         this.productionStudio = productionStudio;
+    }
+
+    public boolean isUpdateDefaultTimeline() {
+        return updateDefaultTimeline;
+    }
+
+    public void setUpdateDefaultTimeline(boolean updateDefaultTimeline) {
+        this.updateDefaultTimeline = updateDefaultTimeline;
+    }
+
+    public boolean hasDefaultTimelineUpdateIntent() {
+        return updateDefaultTimeline
+                || (defaultIntroStart != null && !defaultIntroStart.isBlank())
+                || (defaultIntroEnd != null && !defaultIntroEnd.isBlank())
+                || (defaultOutroStart != null && !defaultOutroStart.isBlank());
+    }
+
+    public String getDefaultIntroStart() {
+        return defaultIntroStart;
+    }
+
+    public void setDefaultIntroStart(String defaultIntroStart) {
+        this.defaultIntroStart = defaultIntroStart;
+        if (defaultIntroStart != null && !defaultIntroStart.isBlank()) {
+            this.updateDefaultTimeline = true;
+        }
+    }
+
+    public String getDefaultIntroEnd() {
+        return defaultIntroEnd;
+    }
+
+    public void setDefaultIntroEnd(String defaultIntroEnd) {
+        this.defaultIntroEnd = defaultIntroEnd;
+        if (defaultIntroEnd != null && !defaultIntroEnd.isBlank()) {
+            this.updateDefaultTimeline = true;
+        }
+    }
+
+    public String getDefaultOutroStart() {
+        return defaultOutroStart;
+    }
+
+    public void setDefaultOutroStart(String defaultOutroStart) {
+        this.defaultOutroStart = defaultOutroStart;
+        if (defaultOutroStart != null && !defaultOutroStart.isBlank()) {
+            this.updateDefaultTimeline = true;
+        }
     }
 }

@@ -10,6 +10,7 @@ import com.universe.screen.application.usecase.GetScreenEntryDetailUseCase;
 import com.universe.screen.application.usecase.GetScreenEntryListUseCase;
 import com.universe.screen.application.usecase.GetScreenTitleDetailUseCase;
 import com.universe.screen.domain.ScreenEntryType;
+import com.universe.screen.domain.ScreenTimelineMode;
 import com.universe.screen.entry.admin.form.CreateScreenEntryForm;
 import com.universe.screen.entry.admin.form.EditScreenEntryForm;
 import jakarta.servlet.http.HttpServletResponse;
@@ -217,7 +218,12 @@ public class AdminScreenEntryPageController {
                         entry.synopsis(),
                         entry.durationSeconds(),
                         entry.videoMediaAssetId() != null ? entry.videoMediaAssetId().toString() : null,
-                        entry.thumbnailMediaAssetId() != null ? entry.thumbnailMediaAssetId().toString() : null
+                        entry.thumbnailMediaAssetId() != null ? entry.thumbnailMediaAssetId().toString() : null,
+                        entry.introMode() != null ? entry.introMode() : ScreenTimelineMode.INHERIT,
+                        entry.formattedIntroStart(),
+                        entry.formattedIntroEnd(),
+                        entry.outroMode() != null ? entry.outroMode() : ScreenTimelineMode.INHERIT,
+                        entry.formattedOutroStart()
                 );
                 model.addAttribute("form", form);
             } else {
@@ -232,6 +238,7 @@ public class AdminScreenEntryPageController {
                 }
             }
             model.addAttribute("types", compatibleTypes);
+            model.addAttribute("timelineModes", ScreenTimelineMode.values());
             model.addAttribute("pageTitle", "Chỉnh sửa Screen Entry - " + entry.title());
             model.addAttribute("activeMenu", ACTIVE_MENU);
             model.addAttribute("activeSubMenu", ACTIVE_SUB_MENU);

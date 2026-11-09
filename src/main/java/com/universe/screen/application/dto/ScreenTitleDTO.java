@@ -4,6 +4,7 @@ import com.universe.screen.domain.ScreenAiringStatus;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTimelineTimestampFormat;
 import com.universe.screen.domain.ScreenTitle;
 
 import java.time.Instant;
@@ -197,5 +198,25 @@ public record ScreenTitleDTO(
                 title.getDefaultIntroEndSeconds(),
                 title.getDefaultOutroStartSeconds()
         );
+    }
+
+    public boolean hasDefaultIntro() {
+        return defaultIntroStartSeconds != null && defaultIntroEndSeconds != null;
+    }
+
+    public boolean hasDefaultOutro() {
+        return defaultOutroStartSeconds != null;
+    }
+
+    public String formattedDefaultIntroStart() {
+        return ScreenTimelineTimestampFormat.formatSeconds(defaultIntroStartSeconds);
+    }
+
+    public String formattedDefaultIntroEnd() {
+        return ScreenTimelineTimestampFormat.formatSeconds(defaultIntroEndSeconds);
+    }
+
+    public String formattedDefaultOutroStart() {
+        return ScreenTimelineTimestampFormat.formatSeconds(defaultOutroStartSeconds);
     }
 }

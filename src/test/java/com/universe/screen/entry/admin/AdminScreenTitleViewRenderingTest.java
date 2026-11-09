@@ -311,4 +311,55 @@ class AdminScreenTitleViewRenderingTest {
                 .andExpect(content().string(containsString("value=\"Đạo diễn A\"")))
                 .andExpect(content().string(containsString("value=\"Sparkly Key Animation\"")));
     }
+
+    @Test
+    @WithMockUser(username = ADMIN_EMAIL, roles = {"ADMIN"})
+    @DisplayName("UX02-C2 Rendering: GET /admin/screen/titles/{id} and /edit render default Intro/Outro timeline metadata")
+    void shouldRenderDefaultTimelineInTitleDetailAndEditTemplates() throws Exception {
+        ScreenTitleDTO dto = new ScreenTitleDTO(
+                TITLE_ID,
+                "kiem-lai-phan-1",
+                "Kiếm Lai Phần 1",
+                "The Great Ruler",
+                "Tóm tắt phim...",
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                null,
+                null,
+                ScreenPublicationStatus.PUBLISHED,
+                Instant.now(),
+                Instant.now(),
+                Instant.now(),
+                24,
+                ScreenAiringStatus.ONGOING,
+                2024,
+                "Trung Quốc",
+                "Phong Hỏa Hí Chư Hầu",
+                "Đạo diễn A",
+                "Sparkly Key Animation",
+                0L,
+                105L,
+                1210L
+        );
+        when(getScreenTitleDetailUseCase.execute(TITLE_ID)).thenReturn(dto);
+
+        mockMvc.perform(get("/admin/screen/titles/{id}", TITLE_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Intro mặc định")))
+                .andExpect(content().string(containsString("00:00 – 01:45")))
+                .andExpect(content().string(containsString("Outro mặc định")))
+                .andExpect(content().string(containsString("<code>20:10</code>")));
+
+        mockMvc.perform(get("/admin/screen/titles/{id}/edit", TITLE_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"defaultTimelinePanel\"")))
+                .andExpect(content().string(containsString("name=\"updateDefaultTimeline\" value=\"true\"")))
+                .andExpect(content().string(containsString("Mốc thời gian mặc định — Intro / Outro")))
+                .andExpect(content().string(containsString("Bắt đầu Intro")))
+                .andExpect(content().string(containsString("Kết thúc Intro")))
+                .andExpect(content().string(containsString("Bắt đầu Outro")))
+                .andExpect(content().string(containsString("value=\"00:00\"")))
+                .andExpect(content().string(containsString("value=\"01:45\"")))
+                .andExpect(content().string(containsString("value=\"20:10\"")));
+    }
 }

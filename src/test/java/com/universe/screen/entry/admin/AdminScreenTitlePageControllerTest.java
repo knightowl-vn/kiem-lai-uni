@@ -210,4 +210,88 @@ class AdminScreenTitlePageControllerTest {
         assertThat(view).isEqualTo("redirect:/admin/screen/titles");
         assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
     }
+
+    @Test
+    @DisplayName("UX02-C2 PageController: editPage formats default Intro and Outro timestamps as MM:SS and HH:MM:SS")
+    void shouldPopulateFormattedDefaultTimelineOnEditPage() {
+        ScreenTitleDTO dto = new ScreenTitleDTO(
+                titleId,
+                "kiem-lai-season-1",
+                "Kiếm Lai Phần 1",
+                "The Great Ruler",
+                "Tóm tắt phim...",
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                posterId,
+                backdropId,
+                ScreenPublicationStatus.PUBLISHED,
+                Instant.now(),
+                Instant.now(),
+                Instant.now(),
+                24,
+                null,
+                2024,
+                "Trung Quốc",
+                null,
+                null,
+                null,
+                0L,
+                105L,
+                3665L
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(dto);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        String view = controller.editPage(titleId, model, response);
+
+        assertThat(view).isEqualTo("admin/screen/title-edit");
+        EditScreenTitleForm form = (EditScreenTitleForm) model.get("form");
+        assertThat(form.getDefaultIntroStart()).isEqualTo("00:00");
+        assertThat(form.getDefaultIntroEnd()).isEqualTo("01:45");
+        assertThat(form.getDefaultOutroStart()).isEqualTo("01:01:05");
+    }
+
+    @Test
+    @DisplayName("UX02-C2 PageController: editPage retains flashed EditScreenTitleForm on validation retry")
+    void shouldRetainFlashedFormOnEditPageWhenValidationRetryOccurs() {
+        ScreenTitleDTO dto = new ScreenTitleDTO(
+                titleId,
+                "kiem-lai-season-1",
+                "Kiếm Lai Phần 1",
+                "The Great Ruler",
+                "Tóm tắt phim...",
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                posterId,
+                backdropId,
+                ScreenPublicationStatus.PUBLISHED,
+                Instant.now(),
+                Instant.now(),
+                Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(dto);
+
+        EditScreenTitleForm flashedForm = new EditScreenTitleForm();
+        flashedForm.setTitle("Kiếm Lai Đang Sửa");
+        flashedForm.setStructure(ScreenStructure.SERIES);
+        flashedForm.setPresentation(ScreenPresentation.ANIMATION_3D);
+        flashedForm.setDefaultIntroStart("01:30");
+        flashedForm.setDefaultIntroEnd("00:45");
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        model.put("form", flashedForm);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        String view = controller.editPage(titleId, model, response);
+
+        assertThat(view).isEqualTo("admin/screen/title-edit");
+        EditScreenTitleForm resolvedForm = (EditScreenTitleForm) model.get("form");
+        assertThat(resolvedForm).isSameAs(flashedForm);
+        assertThat(resolvedForm.getDefaultIntroStart()).isEqualTo("01:30");
+        assertThat(resolvedForm.getDefaultIntroEnd()).isEqualTo("00:45");
+        assertThat(resolvedForm.getPosterMediaAssetId()).isEqualTo(posterId.toString());
+        assertThat(resolvedForm.getBackdropMediaAssetId()).isEqualTo(backdropId.toString());
+    }
 }

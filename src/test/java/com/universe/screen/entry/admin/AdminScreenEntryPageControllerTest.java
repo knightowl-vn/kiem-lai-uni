@@ -359,4 +359,33 @@ class AdminScreenEntryPageControllerTest {
         assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries");
         assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
     }
+
+    @Test
+    @DisplayName("UX02-C2 Page: editPage populates formatted timeline fields and timelineModes")
+    void shouldPopulateFormattedEntryTimelineAndModesOnEditPage() {
+        ScreenEntryDTO entryWithTimeline = new ScreenEntryDTO(
+                entryId, titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1",
+                "Synopsis", null, null, 1200L, ScreenPublicationStatus.DRAFT,
+                null, now, now,
+                com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, 15L, 105L,
+                com.universe.screen.domain.ScreenTimelineMode.DISABLED, null
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(sampleTitle);
+        when(getScreenEntryDetailUseCase.execute(titleId, entryId)).thenReturn(entryWithTimeline);
+
+        Model model = new ConcurrentModel();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.editPage(titleId, entryId, model, null, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/screen/entry-edit");
+        EditScreenEntryForm form = (EditScreenEntryForm) model.getAttribute("form");
+        assertThat(form).isNotNull();
+        assertThat(form.getIntroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.OVERRIDE);
+        assertThat(form.getIntroStart()).isEqualTo("00:15");
+        assertThat(form.getIntroEnd()).isEqualTo("01:45");
+        assertThat(form.getOutroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.DISABLED);
+        assertThat(form.getOutroStart()).isNull();
+        assertThat(model.getAttribute("timelineModes")).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.values());
+    }
 }
