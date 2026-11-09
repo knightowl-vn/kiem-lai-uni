@@ -364,4 +364,60 @@ class ScreenTitlePersistenceMapperTest {
         assertThat(entity.getDirector()).isEqualTo("Đạo diễn mới");
         assertThat(entity.getProductionStudio()).isEqualTo("Studio mới");
     }
+
+    @Test
+    @DisplayName("Should correctly map default timeline metadata fields to entity, updateEntity, and rehydrate to domain")
+    void shouldMapDefaultTimelineMetadataRoundTrip() {
+        UUID id = UUID.randomUUID();
+        Instant t1 = Instant.parse("2026-10-06T10:00:00Z");
+        Instant t2 = Instant.parse("2026-10-06T11:00:00Z");
+
+        ScreenTitle domain = ScreenTitle.createDraft(
+                id, "timeline-series", "Timeline Series",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t1
+        );
+        domain.updateDefaultTimeline(15L, 105L, 1320L, t2);
+
+        ScreenTitleJpaEntity entity = ScreenTitlePersistenceMapper.toEntity(domain);
+        assertThat(entity.getDefaultIntroStartSeconds()).isEqualTo(15L);
+        assertThat(entity.getDefaultIntroEndSeconds()).isEqualTo(105L);
+        assertThat(entity.getDefaultOutroStartSeconds()).isEqualTo(1320L);
+
+        ScreenTitle rehydrated = ScreenTitlePersistenceMapper.toDomain(entity);
+        assertThat(rehydrated.getDefaultIntroStartSeconds()).isEqualTo(15L);
+        assertThat(rehydrated.getDefaultIntroEndSeconds()).isEqualTo(105L);
+        assertThat(rehydrated.getDefaultOutroStartSeconds()).isEqualTo(1320L);
+
+        // Update entity timeline metadata
+        domain.updateDefaultTimeline(0L, 90L, null, t2);
+        ScreenTitlePersistenceMapper.updateEntity(entity, domain);
+        assertThat(entity.getDefaultIntroStartSeconds()).isEqualTo(0L);
+        assertThat(entity.getDefaultIntroEndSeconds()).isEqualTo(90L);
+        assertThat(entity.getDefaultOutroStartSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should fail rehydration when persisted default timeline metadata on ScreenTitleJpaEntity is corrupted")
+    void shouldFailRehydrationWhenPersistedDefaultTimelineIsCorrupted() {
+        ScreenTitleJpaEntity partialIntroEntity = new ScreenTitleJpaEntity(
+                UUID.randomUUID().toString(),
+                "valid-slug",
+                "Valid Title",
+                null,
+                null,
+                "SERIES",
+                "ANIMATION_3D",
+                null,
+                null,
+                "DRAFT",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+        partialIntroEntity.setDefaultIntroStartSeconds(15L);
+        partialIntroEntity.setDefaultIntroEndSeconds(null);
+
+        assertThatThrownBy(() -> ScreenTitlePersistenceMapper.toDomain(partialIntroEntity))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

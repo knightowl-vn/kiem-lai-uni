@@ -39,7 +39,10 @@ public final class ScreenTitlePersistenceMapper {
                 domain.getCountry(),
                 domain.getOriginalAuthor(),
                 domain.getDirector(),
-                domain.getProductionStudio()
+                domain.getProductionStudio(),
+                domain.getDefaultIntroStartSeconds(),
+                domain.getDefaultIntroEndSeconds(),
+                domain.getDefaultOutroStartSeconds()
         );
     }
 
@@ -65,6 +68,9 @@ public final class ScreenTitlePersistenceMapper {
         entity.setOriginalAuthor(domain.getOriginalAuthor());
         entity.setDirector(domain.getDirector());
         entity.setProductionStudio(domain.getProductionStudio());
+        entity.setDefaultIntroStartSeconds(domain.getDefaultIntroStartSeconds());
+        entity.setDefaultIntroEndSeconds(domain.getDefaultIntroEndSeconds());
+        entity.setDefaultOutroStartSeconds(domain.getDefaultOutroStartSeconds());
     }
 
     public static ScreenTitle toDomain(ScreenTitleJpaEntity entity) {
@@ -89,7 +95,10 @@ public final class ScreenTitlePersistenceMapper {
                 entity.getCountry(),
                 entity.getOriginalAuthor(),
                 entity.getDirector(),
-                entity.getProductionStudio()
+                entity.getProductionStudio(),
+                entity.getDefaultIntroStartSeconds(),
+                entity.getDefaultIntroEndSeconds(),
+                entity.getDefaultOutroStartSeconds()
         );
     }
 

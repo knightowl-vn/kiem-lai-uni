@@ -284,4 +284,95 @@ class ScreenEntryPersistenceMapperTest {
         assertThatThrownBy(() -> ScreenEntryPersistenceMapper.toDomain(malformedThumbnail))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    @DisplayName("Should correctly map entry timeline modes and overrides to entity, updateEntity, and rehydrate to domain")
+    void shouldMapEntryTimelineMetadataRoundTrip() {
+        UUID id = UUID.randomUUID();
+        UUID titleId = UUID.randomUUID();
+        Instant t1 = Instant.parse("2026-10-06T10:00:00Z");
+        Instant t2 = Instant.parse("2026-10-06T11:00:00Z");
+
+        ScreenEntry domain = ScreenEntry.createDraft(
+                id, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", t1
+        );
+        domain.updateTimeline(
+                com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, 20L, 110L,
+                com.universe.screen.domain.ScreenTimelineMode.DISABLED, null, t2
+        );
+
+        ScreenEntryJpaEntity entity = ScreenEntryPersistenceMapper.toEntity(domain);
+        assertThat(entity.getIntroMode()).isEqualTo("OVERRIDE");
+        assertThat(entity.getIntroStartSeconds()).isEqualTo(20L);
+        assertThat(entity.getIntroEndSeconds()).isEqualTo(110L);
+        assertThat(entity.getOutroMode()).isEqualTo("DISABLED");
+        assertThat(entity.getOutroStartSeconds()).isNull();
+
+        ScreenEntry rehydrated = ScreenEntryPersistenceMapper.toDomain(entity);
+        assertThat(rehydrated.getIntroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.OVERRIDE);
+        assertThat(rehydrated.getIntroStartSeconds()).isEqualTo(20L);
+        assertThat(rehydrated.getIntroEndSeconds()).isEqualTo(110L);
+        assertThat(rehydrated.getOutroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.DISABLED);
+        assertThat(rehydrated.getOutroStartSeconds()).isNull();
+
+        // Update entity timeline to INHERIT + OVERRIDE
+        domain.updateTimeline(
+                com.universe.screen.domain.ScreenTimelineMode.INHERIT, null, null,
+                com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, 1340L, t2
+        );
+        ScreenEntryPersistenceMapper.updateEntity(entity, domain);
+        assertThat(entity.getIntroMode()).isEqualTo("INHERIT");
+        assertThat(entity.getIntroStartSeconds()).isNull();
+        assertThat(entity.getIntroEndSeconds()).isNull();
+        assertThat(entity.getOutroMode()).isEqualTo("OVERRIDE");
+        assertThat(entity.getOutroStartSeconds()).isEqualTo(1340L);
+    }
+
+    @Test
+    @DisplayName("Should fail rehydration when persisted timeline mode or override values on ScreenEntryJpaEntity are corrupted")
+    void shouldFailRehydrationWhenPersistedEntryTimelineIsCorrupted() {
+        ScreenEntryJpaEntity corruptedOverride = new ScreenEntryJpaEntity(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                "entry-slug",
+                "EPISODE",
+                1,
+                "Episode Title",
+                null,
+                null,
+                null,
+                1500L,
+                "DRAFT",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+        corruptedOverride.setIntroMode("OVERRIDE");
+        corruptedOverride.setIntroStartSeconds(null);
+        corruptedOverride.setIntroEndSeconds(null);
+
+        assertThatThrownBy(() -> ScreenEntryPersistenceMapper.toDomain(corruptedOverride))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        ScreenEntryJpaEntity nullModeEntity = new ScreenEntryJpaEntity(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                "entry-slug",
+                "EPISODE",
+                1,
+                "Episode Title",
+                null,
+                null,
+                null,
+                1500L,
+                "DRAFT",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+        nullModeEntity.setIntroMode(null);
+
+        assertThatThrownBy(() -> ScreenEntryPersistenceMapper.toDomain(nullModeEntity))
+                .isInstanceOf(RuntimeException.class);
+    }
 }

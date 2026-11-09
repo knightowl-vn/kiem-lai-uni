@@ -47,9 +47,77 @@ public final class ScreenTitle {
     private String originalAuthor;
     private String director;
     private String productionStudio;
+    private Long defaultIntroStartSeconds;
+    private Long defaultIntroEndSeconds;
+    private Long defaultOutroStartSeconds;
 
     /**
-     * Canonical constructor for ScreenTitle.
+     * Canonical constructor for ScreenTitle including default timeline metadata.
+     */
+    public ScreenTitle(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            ScreenPublicationStatus status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds
+    ) {
+        this.id = Objects.requireNonNull(id, "Title ID cannot be null.");
+        this.slug = ScreenSlugValidator.validate(slug);
+        this.title = validateTitle(title);
+        this.originalTitle = normalizeOptionalText(originalTitle);
+        this.synopsis = normalizeOptionalText(synopsis);
+        this.structure = Objects.requireNonNull(structure, "ScreenStructure cannot be null.");
+        this.presentation = Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
+        this.totalEpisodeCount = validateTotalEpisodeCount(this.structure, totalEpisodeCount);
+        this.airingStatus = ScreenMetadataValidator.validateAiringStatus(this.structure, airingStatus);
+        this.releaseYear = ScreenMetadataValidator.validateReleaseYear(releaseYear);
+        this.country = ScreenMetadataValidator.validateCountry(country);
+        this.originalAuthor = ScreenMetadataValidator.validateOriginalAuthor(originalAuthor);
+        this.director = ScreenMetadataValidator.validateDirector(director);
+        this.productionStudio = ScreenMetadataValidator.validateProductionStudio(productionStudio);
+        ScreenIntroInterval validatedDefaultIntro = ScreenIntroInterval.ofNullable(
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds
+        );
+        ScreenOutroMarker validatedDefaultOutro = ScreenOutroMarker.ofNullable(defaultOutroStartSeconds);
+        validateDefaultIntroAndOutroBounds(validatedDefaultIntro, validatedDefaultOutro);
+        this.defaultIntroStartSeconds = validatedDefaultIntro != null ? validatedDefaultIntro.startSeconds() : null;
+        this.defaultIntroEndSeconds = validatedDefaultIntro != null ? validatedDefaultIntro.endSeconds() : null;
+        this.defaultOutroStartSeconds = validatedDefaultOutro != null ? validatedDefaultOutro.startSeconds() : null;
+        this.posterMediaAssetId = posterMediaAssetId;
+        this.backdropMediaAssetId = backdropMediaAssetId;
+        this.status = Objects.requireNonNull(status, "ScreenPublicationStatus cannot be null.");
+        this.createdAt = Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
+        this.updatedAt = Objects.requireNonNull(updatedAt, "UpdatedAt timestamp cannot be null.");
+
+        if (this.updatedAt.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before createdAt timestamp.");
+        }
+
+        validatePublicationState(this.status, publishedAt, this.createdAt, this.updatedAt);
+        this.publishedAt = publishedAt;
+    }
+
+    /**
+     * Backwards-compatible constructor without default timeline metadata.
      */
     public ScreenTitle(
             UUID id,
@@ -73,32 +141,31 @@ public final class ScreenTitle {
             String director,
             String productionStudio
     ) {
-        this.id = Objects.requireNonNull(id, "Title ID cannot be null.");
-        this.slug = ScreenSlugValidator.validate(slug);
-        this.title = validateTitle(title);
-        this.originalTitle = normalizeOptionalText(originalTitle);
-        this.synopsis = normalizeOptionalText(synopsis);
-        this.structure = Objects.requireNonNull(structure, "ScreenStructure cannot be null.");
-        this.presentation = Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
-        this.totalEpisodeCount = validateTotalEpisodeCount(this.structure, totalEpisodeCount);
-        this.airingStatus = ScreenMetadataValidator.validateAiringStatus(this.structure, airingStatus);
-        this.releaseYear = ScreenMetadataValidator.validateReleaseYear(releaseYear);
-        this.country = ScreenMetadataValidator.validateCountry(country);
-        this.originalAuthor = ScreenMetadataValidator.validateOriginalAuthor(originalAuthor);
-        this.director = ScreenMetadataValidator.validateDirector(director);
-        this.productionStudio = ScreenMetadataValidator.validateProductionStudio(productionStudio);
-        this.posterMediaAssetId = posterMediaAssetId;
-        this.backdropMediaAssetId = backdropMediaAssetId;
-        this.status = Objects.requireNonNull(status, "ScreenPublicationStatus cannot be null.");
-        this.createdAt = Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
-        this.updatedAt = Objects.requireNonNull(updatedAt, "UpdatedAt timestamp cannot be null.");
-
-        if (this.updatedAt.isBefore(this.createdAt)) {
-            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before createdAt timestamp.");
-        }
-
-        validatePublicationState(this.status, publishedAt, this.createdAt, this.updatedAt);
-        this.publishedAt = publishedAt;
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                null,
+                null,
+                null
+        );
     }
 
     /**
@@ -379,7 +446,7 @@ public final class ScreenTitle {
     }
 
     /**
-     * Updates catalog metadata and classification including release metadata.
+     * Updates catalog metadata, classification, release metadata, and default timeline metadata.
      *
      * <p>Status and {@code publishedAt} remain unchanged.
      */
@@ -399,7 +466,10 @@ public final class ScreenTitle {
             String country,
             String originalAuthor,
             String director,
-            String productionStudio
+            String productionStudio,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds
     ) {
         Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
 
@@ -423,6 +493,12 @@ public final class ScreenTitle {
         String normalizedOriginalAuthor = ScreenMetadataValidator.validateOriginalAuthor(originalAuthor);
         String normalizedDirector = ScreenMetadataValidator.validateDirector(director);
         String normalizedProductionStudio = ScreenMetadataValidator.validateProductionStudio(productionStudio);
+        ScreenIntroInterval validatedDefaultIntro = ScreenIntroInterval.ofNullable(
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds
+        );
+        ScreenOutroMarker validatedDefaultOutro = ScreenOutroMarker.ofNullable(defaultOutroStartSeconds);
+        validateDefaultIntroAndOutroBounds(validatedDefaultIntro, validatedDefaultOutro);
 
         this.slug = validatedSlug;
         this.title = validatedTitle;
@@ -437,8 +513,88 @@ public final class ScreenTitle {
         this.originalAuthor = normalizedOriginalAuthor;
         this.director = normalizedDirector;
         this.productionStudio = normalizedProductionStudio;
+        this.defaultIntroStartSeconds = validatedDefaultIntro != null ? validatedDefaultIntro.startSeconds() : null;
+        this.defaultIntroEndSeconds = validatedDefaultIntro != null ? validatedDefaultIntro.endSeconds() : null;
+        this.defaultOutroStartSeconds = validatedDefaultOutro != null ? validatedDefaultOutro.startSeconds() : null;
         this.posterMediaAssetId = posterMediaAssetId;
         this.backdropMediaAssetId = backdropMediaAssetId;
+        this.updatedAt = authoritativeUpdatedAt;
+    }
+
+    /**
+     * Updates catalog metadata and classification including release metadata, preserving default timeline metadata.
+     *
+     * <p>Status and {@code publishedAt} remain unchanged.
+     */
+    public void updateDetails(
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Instant authoritativeUpdatedAt,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
+    ) {
+        updateDetails(
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                authoritativeUpdatedAt,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                this.defaultIntroStartSeconds,
+                this.defaultIntroEndSeconds,
+                this.defaultOutroStartSeconds
+        );
+    }
+
+    /**
+     * Updates title-level default Intro and Outro timeline metadata atomically.
+     */
+    public void updateDefaultTimeline(
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds,
+            Instant authoritativeUpdatedAt
+    ) {
+        Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
+
+        if (authoritativeUpdatedAt.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before createdAt timestamp.");
+        }
+        if (authoritativeUpdatedAt.isBefore(this.updatedAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before current updatedAt timestamp.");
+        }
+
+        ScreenIntroInterval validatedDefaultIntro = ScreenIntroInterval.ofNullable(
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds
+        );
+        ScreenOutroMarker validatedDefaultOutro = ScreenOutroMarker.ofNullable(defaultOutroStartSeconds);
+        validateDefaultIntroAndOutroBounds(validatedDefaultIntro, validatedDefaultOutro);
+
+        this.defaultIntroStartSeconds = validatedDefaultIntro != null ? validatedDefaultIntro.startSeconds() : null;
+        this.defaultIntroEndSeconds = validatedDefaultIntro != null ? validatedDefaultIntro.endSeconds() : null;
+        this.defaultOutroStartSeconds = validatedDefaultOutro != null ? validatedDefaultOutro.startSeconds() : null;
         this.updatedAt = authoritativeUpdatedAt;
     }
 
@@ -589,6 +745,20 @@ public final class ScreenTitle {
         return ScreenMetadataValidator.normalizeOptionalText(candidate);
     }
 
+    private static void validateDefaultIntroAndOutroBounds(
+            ScreenIntroInterval defaultIntro,
+            ScreenOutroMarker defaultOutro
+    ) {
+        if (defaultIntro != null
+                && defaultOutro != null
+                && defaultOutro.startSeconds() < defaultIntro.endSeconds()) {
+            throw new IllegalArgumentException(
+                    "Default outroStartSeconds (" + defaultOutro.startSeconds()
+                            + ") cannot be before default introEndSeconds (" + defaultIntro.endSeconds() + ")."
+            );
+        }
+    }
+
     private static void validatePublicationState(
             ScreenPublicationStatus status,
             Instant publishedAt,
@@ -693,6 +863,26 @@ public final class ScreenTitle {
 
     public String getProductionStudio() {
         return productionStudio;
+    }
+
+    public Long getDefaultIntroStartSeconds() {
+        return defaultIntroStartSeconds;
+    }
+
+    public Long getDefaultIntroEndSeconds() {
+        return defaultIntroEndSeconds;
+    }
+
+    public Long getDefaultOutroStartSeconds() {
+        return defaultOutroStartSeconds;
+    }
+
+    public ScreenIntroInterval getDefaultIntroInterval() {
+        return ScreenIntroInterval.ofNullable(defaultIntroStartSeconds, defaultIntroEndSeconds);
+    }
+
+    public ScreenOutroMarker getDefaultOutroMarker() {
+        return ScreenOutroMarker.ofNullable(defaultOutroStartSeconds);
     }
 
     @Override

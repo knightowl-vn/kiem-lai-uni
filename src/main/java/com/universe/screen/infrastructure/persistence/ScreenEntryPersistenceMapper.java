@@ -3,6 +3,7 @@ package com.universe.screen.infrastructure.persistence;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPublicationStatus;
+import com.universe.screen.domain.ScreenTimelineMode;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -31,7 +32,12 @@ public final class ScreenEntryPersistenceMapper {
                 domain.getStatus().name(),
                 domain.getPublishedAt(),
                 domain.getCreatedAt(),
-                domain.getUpdatedAt()
+                domain.getUpdatedAt(),
+                domain.getIntroMode().name(),
+                domain.getIntroStartSeconds(),
+                domain.getIntroEndSeconds(),
+                domain.getOutroMode().name(),
+                domain.getOutroStartSeconds()
         );
     }
 
@@ -51,10 +57,21 @@ public final class ScreenEntryPersistenceMapper {
         entity.setPublishedAt(domain.getPublishedAt());
         entity.setCreatedAt(domain.getCreatedAt());
         entity.setUpdatedAt(domain.getUpdatedAt());
+        entity.setIntroMode(domain.getIntroMode().name());
+        entity.setIntroStartSeconds(domain.getIntroStartSeconds());
+        entity.setIntroEndSeconds(domain.getIntroEndSeconds());
+        entity.setOutroMode(domain.getOutroMode().name());
+        entity.setOutroStartSeconds(domain.getOutroStartSeconds());
     }
 
     public static ScreenEntry toDomain(ScreenEntryJpaEntity entity) {
         Objects.requireNonNull(entity, "ScreenEntryJpaEntity cannot be null.");
+        ScreenTimelineMode introMode = ScreenTimelineMode.valueOf(
+                Objects.requireNonNull(entity.getIntroMode(), "Persisted introMode cannot be null.")
+        );
+        ScreenTimelineMode outroMode = ScreenTimelineMode.valueOf(
+                Objects.requireNonNull(entity.getOutroMode(), "Persisted outroMode cannot be null.")
+        );
         return new ScreenEntry(
                 UUID.fromString(entity.getId()),
                 UUID.fromString(entity.getTitleId()),
@@ -69,7 +86,12 @@ public final class ScreenEntryPersistenceMapper {
                 ScreenPublicationStatus.valueOf(entity.getStatus()),
                 entity.getPublishedAt(),
                 entity.getCreatedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                introMode,
+                entity.getIntroStartSeconds(),
+                entity.getIntroEndSeconds(),
+                outroMode,
+                entity.getOutroStartSeconds()
         );
     }
 

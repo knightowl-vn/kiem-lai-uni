@@ -38,4 +38,15 @@ class ScreenEnumsTest {
                         ScreenPublicationStatus.ARCHIVED
                 );
     }
+
+    @Test
+    @DisplayName("ScreenTimelineMode contains exactly INHERIT, OVERRIDE, and DISABLED")
+    void shouldHaveExactScreenTimelineModeValues() {
+        assertThat(ScreenTimelineMode.values())
+                .containsExactlyInAnyOrder(
+                        ScreenTimelineMode.INHERIT,
+                        ScreenTimelineMode.OVERRIDE,
+                        ScreenTimelineMode.DISABLED
+                );
+    }
 }

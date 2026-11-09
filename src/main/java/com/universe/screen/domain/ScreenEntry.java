@@ -51,9 +51,14 @@ public final class ScreenEntry {
     private Instant publishedAt;
     private final Instant createdAt;
     private Instant updatedAt;
+    private ScreenTimelineMode introMode;
+    private Long introStartSeconds;
+    private Long introEndSeconds;
+    private ScreenTimelineMode outroMode;
+    private Long outroStartSeconds;
 
     /**
-     * Canonical constructor for ScreenEntry.
+     * Canonical constructor for ScreenEntry including timeline configuration.
      */
     public ScreenEntry(
             UUID id,
@@ -69,7 +74,12 @@ public final class ScreenEntry {
             ScreenPublicationStatus status,
             Instant publishedAt,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
     ) {
         this.id = Objects.requireNonNull(id, "Entry ID cannot be null.");
         this.titleId = Objects.requireNonNull(titleId, "Title ID cannot be null.");
@@ -91,6 +101,105 @@ public final class ScreenEntry {
 
         validatePublicationState(this.status, publishedAt, this.createdAt, this.updatedAt);
         this.publishedAt = publishedAt;
+
+        ValidatedEntryTimeline validatedTimeline = validateEntryTimeline(
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds
+        );
+        this.introMode = validatedTimeline.introMode();
+        this.introStartSeconds = validatedTimeline.introStartSeconds();
+        this.introEndSeconds = validatedTimeline.introEndSeconds();
+        this.outroMode = validatedTimeline.outroMode();
+        this.outroStartSeconds = validatedTimeline.outroStartSeconds();
+    }
+
+    /**
+     * Backwards-compatible constructor defaulting timeline configuration to INHERIT.
+     */
+    public ScreenEntry(
+            UUID id,
+            UUID titleId,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String title,
+            String synopsis,
+            UUID videoMediaAssetId,
+            UUID thumbnailMediaAssetId,
+            Long durationSeconds,
+            ScreenPublicationStatus status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(
+                id,
+                titleId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                durationSeconds,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                ScreenTimelineMode.INHERIT,
+                null,
+                null,
+                ScreenTimelineMode.INHERIT,
+                null
+        );
+    }
+
+    /**
+     * Factory method to create a new ScreenEntry in DRAFT status with full optional metadata and timeline configuration.
+     */
+    public static ScreenEntry createDraft(
+            UUID id,
+            UUID titleId,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String title,
+            String synopsis,
+            UUID videoMediaAssetId,
+            UUID thumbnailMediaAssetId,
+            Long durationSeconds,
+            Instant createdAt,
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
+    ) {
+        return new ScreenEntry(
+                id,
+                titleId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                durationSeconds,
+                ScreenPublicationStatus.DRAFT,
+                null,
+                createdAt,
+                createdAt,
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds
+        );
     }
 
     /**
@@ -215,7 +324,65 @@ public final class ScreenEntry {
     }
 
     /**
-     * Updates all editable entry details atomically.
+     * Updates all editable entry details and timeline configuration atomically.
+     */
+    public void updateDetails(
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String title,
+            String synopsis,
+            Long durationSeconds,
+            UUID videoMediaAssetId,
+            UUID thumbnailMediaAssetId,
+            Instant authoritativeUpdatedAt,
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
+    ) {
+        Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
+
+        if (authoritativeUpdatedAt.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before createdAt timestamp.");
+        }
+        if (authoritativeUpdatedAt.isBefore(this.updatedAt)) {
+            throw new IllegalArgumentException("UpdatedAt timestamp cannot be before current updatedAt timestamp.");
+        }
+
+        String validatedSlug = ScreenSlugValidator.validate(slug);
+        ScreenEntryType validatedType = Objects.requireNonNull(type, "ScreenEntryType cannot be null.");
+        Integer validatedNumber = validateNumberForType(validatedType, number);
+        String validatedTitle = validateTitle(title);
+        String normalizedSynopsis = normalizeOptionalText(synopsis);
+        Long validatedDuration = validateDuration(durationSeconds);
+        ValidatedEntryTimeline validatedTimeline = validateEntryTimeline(
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds
+        );
+
+        this.slug = validatedSlug;
+        this.type = validatedType;
+        this.number = validatedNumber;
+        this.title = validatedTitle;
+        this.synopsis = normalizedSynopsis;
+        this.durationSeconds = validatedDuration;
+        this.videoMediaAssetId = videoMediaAssetId;
+        this.thumbnailMediaAssetId = thumbnailMediaAssetId;
+        this.introMode = validatedTimeline.introMode();
+        this.introStartSeconds = validatedTimeline.introStartSeconds();
+        this.introEndSeconds = validatedTimeline.introEndSeconds();
+        this.outroMode = validatedTimeline.outroMode();
+        this.outroStartSeconds = validatedTimeline.outroStartSeconds();
+        this.updatedAt = authoritativeUpdatedAt;
+    }
+
+    /**
+     * Updates all editable entry details atomically while preserving existing timeline configuration.
      *
      * <p>Validates and normalizes all candidate values prior to modifying aggregate state.
      *
@@ -240,6 +407,35 @@ public final class ScreenEntry {
             UUID thumbnailMediaAssetId,
             Instant authoritativeUpdatedAt
     ) {
+        updateDetails(
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                durationSeconds,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                authoritativeUpdatedAt,
+                this.introMode,
+                this.introStartSeconds,
+                this.introEndSeconds,
+                this.outroMode,
+                this.outroStartSeconds
+        );
+    }
+
+    /**
+     * Updates episode-specific Intro and Outro timeline configuration atomically.
+     */
+    public void updateTimeline(
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds,
+            Instant authoritativeUpdatedAt
+    ) {
         Objects.requireNonNull(authoritativeUpdatedAt, "UpdatedAt timestamp cannot be null.");
 
         if (authoritativeUpdatedAt.isBefore(this.createdAt)) {
@@ -249,21 +445,19 @@ public final class ScreenEntry {
             throw new IllegalArgumentException("UpdatedAt timestamp cannot be before current updatedAt timestamp.");
         }
 
-        String validatedSlug = ScreenSlugValidator.validate(slug);
-        ScreenEntryType validatedType = Objects.requireNonNull(type, "ScreenEntryType cannot be null.");
-        Integer validatedNumber = validateNumberForType(validatedType, number);
-        String validatedTitle = validateTitle(title);
-        String normalizedSynopsis = normalizeOptionalText(synopsis);
-        Long validatedDuration = validateDuration(durationSeconds);
+        ValidatedEntryTimeline validatedTimeline = validateEntryTimeline(
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds
+        );
 
-        this.slug = validatedSlug;
-        this.type = validatedType;
-        this.number = validatedNumber;
-        this.title = validatedTitle;
-        this.synopsis = normalizedSynopsis;
-        this.durationSeconds = validatedDuration;
-        this.videoMediaAssetId = videoMediaAssetId;
-        this.thumbnailMediaAssetId = thumbnailMediaAssetId;
+        this.introMode = validatedTimeline.introMode();
+        this.introStartSeconds = validatedTimeline.introStartSeconds();
+        this.introEndSeconds = validatedTimeline.introEndSeconds();
+        this.outroMode = validatedTimeline.outroMode();
+        this.outroStartSeconds = validatedTimeline.outroStartSeconds();
         this.updatedAt = authoritativeUpdatedAt;
     }
 
@@ -525,6 +719,81 @@ public final class ScreenEntry {
         }
     }
 
+    private record ValidatedEntryTimeline(
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
+    ) {
+    }
+
+    private static ValidatedEntryTimeline validateEntryTimeline(
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
+    ) {
+        Objects.requireNonNull(introMode, "Intro ScreenTimelineMode cannot be null.");
+        Objects.requireNonNull(outroMode, "Outro ScreenTimelineMode cannot be null.");
+
+        ScreenIntroInterval validatedIntroOverride = null;
+        switch (introMode) {
+            case INHERIT, DISABLED -> {
+                if (introStartSeconds != null || introEndSeconds != null) {
+                    throw new IllegalArgumentException(
+                            "Intro startSeconds and endSeconds must be null when introMode is " + introMode + "."
+                    );
+                }
+            }
+            case OVERRIDE -> {
+                if (introStartSeconds == null || introEndSeconds == null) {
+                    throw new IllegalArgumentException(
+                            "Intro startSeconds and endSeconds are required when introMode is OVERRIDE."
+                    );
+                }
+                validatedIntroOverride = new ScreenIntroInterval(introStartSeconds, introEndSeconds);
+            }
+        }
+
+        ScreenOutroMarker validatedOutroOverride = null;
+        switch (outroMode) {
+            case INHERIT, DISABLED -> {
+                if (outroStartSeconds != null) {
+                    throw new IllegalArgumentException(
+                            "Outro startSeconds must be null when outroMode is " + outroMode + "."
+                    );
+                }
+            }
+            case OVERRIDE -> {
+                if (outroStartSeconds == null) {
+                    throw new IllegalArgumentException(
+                            "Outro startSeconds is required when outroMode is OVERRIDE."
+                    );
+                }
+                validatedOutroOverride = new ScreenOutroMarker(outroStartSeconds);
+            }
+        }
+
+        if (validatedIntroOverride != null
+                && validatedOutroOverride != null
+                && validatedOutroOverride.startSeconds() < validatedIntroOverride.endSeconds()) {
+            throw new IllegalArgumentException(
+                    "Entry override outroStartSeconds (" + validatedOutroOverride.startSeconds()
+                            + ") cannot be before override introEndSeconds (" + validatedIntroOverride.endSeconds() + ")."
+            );
+        }
+
+        return new ValidatedEntryTimeline(
+                introMode,
+                validatedIntroOverride != null ? validatedIntroOverride.startSeconds() : null,
+                validatedIntroOverride != null ? validatedIntroOverride.endSeconds() : null,
+                outroMode,
+                validatedOutroOverride != null ? validatedOutroOverride.startSeconds() : null
+        );
+    }
+
     public UUID getId() {
         return id;
     }
@@ -579,6 +848,42 @@ public final class ScreenEntry {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public ScreenTimelineMode getIntroMode() {
+        return introMode;
+    }
+
+    public Long getIntroStartSeconds() {
+        return introStartSeconds;
+    }
+
+    public Long getIntroEndSeconds() {
+        return introEndSeconds;
+    }
+
+    public ScreenTimelineMode getOutroMode() {
+        return outroMode;
+    }
+
+    public Long getOutroStartSeconds() {
+        return outroStartSeconds;
+    }
+
+    public ScreenIntroInterval getIntroOverride() {
+        return introMode == ScreenTimelineMode.OVERRIDE
+                ? new ScreenIntroInterval(introStartSeconds, introEndSeconds)
+                : null;
+    }
+
+    public ScreenOutroMarker getOutroOverride() {
+        return outroMode == ScreenTimelineMode.OVERRIDE
+                ? new ScreenOutroMarker(outroStartSeconds)
+                : null;
+    }
+
+    public EffectiveScreenTimeline resolveEffectiveTimeline(ScreenTitle parentTitle) {
+        return EffectiveScreenTimeline.resolve(parentTitle, this);
     }
 
     public boolean isEpisode() {

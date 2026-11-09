@@ -29,8 +29,60 @@ public record ScreenTitleDTO(
         String country,
         String originalAuthor,
         String director,
-        String productionStudio
+        String productionStudio,
+        Long defaultIntroStartSeconds,
+        Long defaultIntroEndSeconds,
+        Long defaultOutroStartSeconds
 ) {
+    public ScreenTitleDTO(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            ScreenPublicationStatus status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                null,
+                null,
+                null
+        );
+    }
+
     public ScreenTitleDTO(
             UUID id,
             String slug,
@@ -62,6 +114,9 @@ public record ScreenTitleDTO(
                 createdAt,
                 updatedAt,
                 totalEpisodeCount,
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -106,6 +161,9 @@ public record ScreenTitleDTO(
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
                 null
         );
     }
@@ -134,7 +192,10 @@ public record ScreenTitleDTO(
                 title.getCountry(),
                 title.getOriginalAuthor(),
                 title.getDirector(),
-                title.getProductionStudio()
+                title.getProductionStudio(),
+                title.getDefaultIntroStartSeconds(),
+                title.getDefaultIntroEndSeconds(),
+                title.getDefaultOutroStartSeconds()
         );
     }
 }

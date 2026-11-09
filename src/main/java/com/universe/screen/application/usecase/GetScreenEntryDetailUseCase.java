@@ -46,21 +46,6 @@ public class GetScreenEntryDetailUseCase {
     }
 
     private static ScreenEntryDTO toDTO(ScreenEntry entry) {
-        return new ScreenEntryDTO(
-                entry.getId(),
-                entry.getTitleId(),
-                entry.getSlug(),
-                entry.getType(),
-                entry.getNumber(),
-                entry.getTitle(),
-                entry.getSynopsis(),
-                entry.getVideoMediaAssetId(),
-                entry.getThumbnailMediaAssetId(),
-                entry.getDurationSeconds(),
-                entry.getStatus(),
-                entry.getPublishedAt(),
-                entry.getCreatedAt(),
-                entry.getUpdatedAt()
-        );
+        return ScreenEntryDTO.from(entry);
     }
 }

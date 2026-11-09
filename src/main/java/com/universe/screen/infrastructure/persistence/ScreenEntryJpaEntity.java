@@ -95,6 +95,29 @@ public class ScreenEntryJpaEntity {
     private Long durationSeconds;
 
     @Column(
+            name = "intro_mode",
+            nullable = false,
+            length = 20
+    )
+    private String introMode = "INHERIT";
+
+    @Column(name = "intro_start_seconds")
+    private Long introStartSeconds;
+
+    @Column(name = "intro_end_seconds")
+    private Long introEndSeconds;
+
+    @Column(
+            name = "outro_mode",
+            nullable = false,
+            length = 20
+    )
+    private String outroMode = "INHERIT";
+
+    @Column(name = "outro_start_seconds")
+    private Long outroStartSeconds;
+
+    @Column(
             name = "status",
             nullable = false,
             length = 20
@@ -133,7 +156,12 @@ public class ScreenEntryJpaEntity {
             String status,
             Instant publishedAt,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            String introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            String outroMode,
+            Long outroStartSeconds
     ) {
         this.id = id;
         this.titleId = titleId;
@@ -149,6 +177,50 @@ public class ScreenEntryJpaEntity {
         this.publishedAt = publishedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.introMode = introMode;
+        this.introStartSeconds = introStartSeconds;
+        this.introEndSeconds = introEndSeconds;
+        this.outroMode = outroMode;
+        this.outroStartSeconds = outroStartSeconds;
+    }
+
+    public ScreenEntryJpaEntity(
+            String id,
+            String titleId,
+            String slug,
+            String type,
+            Integer number,
+            String title,
+            String synopsis,
+            String videoMediaAssetId,
+            String thumbnailMediaAssetId,
+            Long durationSeconds,
+            String status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(
+                id,
+                titleId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                durationSeconds,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                "INHERIT",
+                null,
+                null,
+                "INHERIT",
+                null
+        );
     }
 
     public String getId() {
@@ -261,5 +333,45 @@ public class ScreenEntryJpaEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getIntroMode() {
+        return introMode;
+    }
+
+    public void setIntroMode(String introMode) {
+        this.introMode = introMode;
+    }
+
+    public Long getIntroStartSeconds() {
+        return introStartSeconds;
+    }
+
+    public void setIntroStartSeconds(Long introStartSeconds) {
+        this.introStartSeconds = introStartSeconds;
+    }
+
+    public Long getIntroEndSeconds() {
+        return introEndSeconds;
+    }
+
+    public void setIntroEndSeconds(Long introEndSeconds) {
+        this.introEndSeconds = introEndSeconds;
+    }
+
+    public String getOutroMode() {
+        return outroMode;
+    }
+
+    public void setOutroMode(String outroMode) {
+        this.outroMode = outroMode;
+    }
+
+    public Long getOutroStartSeconds() {
+        return outroStartSeconds;
+    }
+
+    public void setOutroStartSeconds(Long outroStartSeconds) {
+        this.outroStartSeconds = outroStartSeconds;
     }
 }
