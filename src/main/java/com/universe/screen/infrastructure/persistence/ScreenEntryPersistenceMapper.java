@@ -37,7 +37,8 @@ public final class ScreenEntryPersistenceMapper {
                 domain.getIntroStartSeconds(),
                 domain.getIntroEndSeconds(),
                 domain.getOutroMode().name(),
-                domain.getOutroStartSeconds()
+                domain.getOutroStartSeconds(),
+                domain.getOutroEndSeconds()
         );
     }
 
@@ -62,6 +63,7 @@ public final class ScreenEntryPersistenceMapper {
         entity.setIntroEndSeconds(domain.getIntroEndSeconds());
         entity.setOutroMode(domain.getOutroMode().name());
         entity.setOutroStartSeconds(domain.getOutroStartSeconds());
+        entity.setOutroEndSeconds(domain.getOutroEndSeconds());
     }
 
     public static ScreenEntry toDomain(ScreenEntryJpaEntity entity) {
@@ -91,7 +93,8 @@ public final class ScreenEntryPersistenceMapper {
                 entity.getIntroStartSeconds(),
                 entity.getIntroEndSeconds(),
                 outroMode,
-                entity.getOutroStartSeconds()
+                entity.getOutroStartSeconds(),
+                entity.getOutroEndSeconds()
         );
     }
 

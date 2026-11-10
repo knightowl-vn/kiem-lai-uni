@@ -50,8 +50,11 @@ public record EffectiveScreenTimeline(
                     || candidateIntro.endSeconds() > durationSeconds)) {
                 candidateIntro = null;
             }
-            if (candidateOutro != null && candidateOutro.startSeconds() >= durationSeconds) {
-                candidateOutro = null;
+            if (candidateOutro != null) {
+                if (candidateOutro.startSeconds() >= durationSeconds
+                        || (candidateOutro.endSeconds() != null && candidateOutro.endSeconds() > durationSeconds)) {
+                    candidateOutro = null;
+                }
             }
         }
 
@@ -96,11 +99,19 @@ public record EffectiveScreenTimeline(
                                 + ") cannot exceed entry durationSeconds (" + durationSeconds + ")."
                 );
             }
-            if (candidateOutro != null && candidateOutro.startSeconds() >= durationSeconds) {
-                throw new IllegalArgumentException(
-                        "Effective outroStartSeconds (" + candidateOutro.startSeconds()
-                                + ") must be strictly less than entry durationSeconds (" + durationSeconds + ")."
-                );
+            if (candidateOutro != null) {
+                if (candidateOutro.startSeconds() >= durationSeconds) {
+                    throw new IllegalArgumentException(
+                            "Effective outroStartSeconds (" + candidateOutro.startSeconds()
+                                    + ") must be strictly less than entry durationSeconds (" + durationSeconds + ")."
+                    );
+                }
+                if (candidateOutro.endSeconds() != null && candidateOutro.endSeconds() > durationSeconds) {
+                    throw new IllegalArgumentException(
+                            "Effective outroEndSeconds (" + candidateOutro.endSeconds()
+                                    + ") cannot exceed entry durationSeconds (" + durationSeconds + ")."
+                    );
+                }
             }
         }
     }
@@ -139,5 +150,9 @@ public record EffectiveScreenTimeline(
 
     public Long outroStartSeconds() {
         return outroMarker != null ? outroMarker.startSeconds() : null;
+    }
+
+    public Long outroEndSeconds() {
+        return outroMarker != null ? outroMarker.endSeconds() : null;
     }
 }

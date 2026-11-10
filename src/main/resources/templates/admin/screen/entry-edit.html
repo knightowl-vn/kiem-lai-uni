@@ -181,7 +181,11 @@
                                  th:style="${form.outroMode == null or form.outroMode.name() == 'INHERIT'} ? 'display: block; font-size: 13px; color: #1967d2; background: #e8f0fe; padding: 8px 12px; border-radius: 4px;' : 'display: none; font-size: 13px; color: #1967d2; background: #e8f0fe; padding: 8px 12px; border-radius: 4px;'">
                                 <span th:if="${title.hasDefaultOutro()}">
                                     Đang kế thừa mốc Outro từ phần phim:
-                                    <strong th:text="${title.formattedDefaultOutroStart()}">22:10</strong>
+                                    <strong th:if="${title.hasBoundedDefaultOutro()}"
+                                            th:text="${title.formattedDefaultOutroStart() + ' — ' + title.formattedDefaultOutroEnd()}">22:10 — 23:45</strong>
+                                    <strong th:unless="${title.hasBoundedDefaultOutro()}"
+                                            th:text="${title.formattedDefaultOutroStart()}">22:10</strong>
+                                    <small th:unless="${title.hasBoundedDefaultOutro()}" style="color: #5f6368; margin-left: 4px;">(đến hết video)</small>
                                     (Nguồn: Kế thừa từ phần phim)
                                 </span>
                                 <span th:unless="${title.hasDefaultOutro()}" style="color: #5f6368;">
@@ -191,13 +195,23 @@
 
                             <!-- Outro OVERRIDE input -->
                             <div id="outroOverrideGroup"
-                                 th:style="${form.outroMode != null and form.outroMode.name() == 'OVERRIDE'} ? 'display: block; margin-top: 10px;' : 'display: none; margin-top: 10px;'">
-                                <label for="outroStart" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px;">
-                                    Bắt đầu Outro <span style="color: #c5221f;">*</span>
-                                </label>
-                                <input type="text" id="outroStart" th:field="*{outroStart}"
-                                       placeholder="VD: 22:10 hoặc 00:22:10"
-                                       style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+                                 th:style="${form.outroMode != null and form.outroMode.name() == 'OVERRIDE'} ? 'display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;' : 'display: none; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;'">
+                                <div>
+                                    <label for="outroStart" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px;">
+                                        Bắt đầu Outro <span style="color: #c5221f;">*</span>
+                                    </label>
+                                    <input type="text" id="outroStart" th:field="*{outroStart}"
+                                           placeholder="VD: 22:10 hoặc 00:22:10"
+                                           style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+                                </div>
+                                <div>
+                                    <label for="outroEnd" style="display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px;">
+                                        Kết thúc Outro (tùy chọn)
+                                    </label>
+                                    <input type="text" id="outroEnd" th:field="*{outroEnd}"
+                                           placeholder="Để trống = đến hết video (vd: 23:30)"
+                                           style="width: 100%; padding: 9px 12px; border: 1px solid #dadce0; border-radius: 4px; font-size: 13px; box-sizing: border-box;">
+                                </div>
                             </div>
 
                             <!-- Outro DISABLED status display -->
@@ -307,6 +321,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const outroOverrideGroup = document.getElementById('outroOverrideGroup');
     const outroDisabledHint = document.getElementById('outroDisabledHint');
     const outroStartInput = document.getElementById('outroStart');
+    const outroEndInput = document.getElementById('outroEnd');
 
     function syncIntroModeFields(isUserChange) {
         if (!introModeSelect) return;
@@ -330,13 +345,17 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!outroModeSelect) return;
         const mode = outroModeSelect.value;
         if (outroInheritHint) outroInheritHint.style.display = mode === 'INHERIT' ? 'block' : 'none';
-        if (outroOverrideGroup) outroOverrideGroup.style.display = mode === 'OVERRIDE' ? 'block' : 'none';
+        if (outroOverrideGroup) outroOverrideGroup.style.display = mode === 'OVERRIDE' ? 'grid' : 'none';
         if (outroDisabledHint) outroDisabledHint.style.display = mode === 'DISABLED' ? 'block' : 'none';
 
         const isOverride = mode === 'OVERRIDE';
         if (outroStartInput) {
             outroStartInput.disabled = !isOverride;
             if (!isOverride && isUserChange) outroStartInput.value = '';
+        }
+        if (outroEndInput) {
+            outroEndInput.disabled = !isOverride;
+            if (!isOverride && isUserChange) outroEndInput.value = '';
         }
     }
 

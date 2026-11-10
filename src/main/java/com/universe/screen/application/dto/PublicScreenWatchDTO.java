@@ -41,7 +41,13 @@ public record PublicScreenWatchDTO(
         String videoMimeType,
         PublicScreenEntryDTO previousEntry,
         PublicScreenEntryDTO nextEntry,
-        List<PublicScreenEntryDTO> playlist
+        List<PublicScreenEntryDTO> playlist,
+        Long effectiveIntroStartSeconds,
+        Long effectiveIntroEndSeconds,
+        boolean hasEffectiveIntro,
+        Long effectiveOutroStartSeconds,
+        Long effectiveOutroEndSeconds,
+        boolean hasEffectiveOutro
 ) {
 
     public PublicScreenWatchDTO {
@@ -55,6 +61,63 @@ public record PublicScreenWatchDTO(
         Objects.requireNonNull(entryType, "Entry type cannot be null.");
         Objects.requireNonNull(entryTitle, "Entry title cannot be null.");
         playlist = playlist != null ? List.copyOf(playlist) : List.of();
+    }
+
+    /**
+     * Backward-compatible convenience constructor omitting timeline metadata.
+     */
+    public PublicScreenWatchDTO(
+            UUID titleId,
+            String titleSlug,
+            String titleDisplayName,
+            ScreenStructure titleStructure,
+            ScreenPresentation titlePresentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            UUID entryId,
+            String entrySlug,
+            ScreenEntryType entryType,
+            Integer entryNumber,
+            String entryTitle,
+            String entrySynopsis,
+            Long durationSeconds,
+            UUID thumbnailMediaAssetId,
+            boolean isPlayable,
+            String videoDeliveryUrl,
+            String videoMimeType,
+            PublicScreenEntryDTO previousEntry,
+            PublicScreenEntryDTO nextEntry,
+            List<PublicScreenEntryDTO> playlist
+    ) {
+        this(
+                titleId,
+                titleSlug,
+                titleDisplayName,
+                titleStructure,
+                titlePresentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                entryId,
+                entrySlug,
+                entryType,
+                entryNumber,
+                entryTitle,
+                entrySynopsis,
+                durationSeconds,
+                thumbnailMediaAssetId,
+                isPlayable,
+                videoDeliveryUrl,
+                videoMimeType,
+                previousEntry,
+                nextEntry,
+                playlist,
+                null,
+                null,
+                false,
+                null,
+                null,
+                false
+        );
     }
 
     /**

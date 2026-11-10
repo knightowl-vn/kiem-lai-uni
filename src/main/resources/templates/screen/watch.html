@@ -57,7 +57,13 @@
                           data-video-src=${watchView.videoDeliveryUrl},
                           data-duration-seconds=${watchView.durationSeconds != null ? watchView.durationSeconds : ''},
                           data-next-url=${watchView.hasNext() ? watchView.nextWatchUrl() : ''},
-                          data-next-label=${watchView.hasNext() ? watchView.nextEntry().displayHeading() : ''}">
+                          data-next-label=${watchView.hasNext() ? watchView.nextEntry().displayHeading() : ''},
+                          data-has-outro=${watchView.hasEffectiveOutro() ? 'true' : 'false'},
+                          data-outro-start-seconds=${watchView.effectiveOutroStartSeconds() != null ? watchView.effectiveOutroStartSeconds() : ''},
+                          data-outro-end-seconds=${watchView.effectiveOutroEndSeconds() != null ? watchView.effectiveOutroEndSeconds() : ''},
+                          data-has-intro=${watchView.hasEffectiveIntro() ? 'true' : 'false'},
+                          data-intro-start-seconds=${watchView.effectiveIntroStartSeconds() != null ? watchView.effectiveIntroStartSeconds() : ''},
+                          data-intro-end-seconds=${watchView.effectiveIntroEndSeconds() != null ? watchView.effectiveIntroEndSeconds() : ''}">
                 <!-- Pre-Playback Poster Stage Image Layer (MS-08G2-UX01-P1) -->
                 <div th:if="${watchView.hasStageImage()}"
                      class="screen-player-poster"
@@ -170,6 +176,19 @@
                         &times;
                     </button>
                 </div>
+
+                <!-- Contextual Manual Skip Outro Action (MS-08G3-UX02-C2.1) -->
+                <button type="button"
+                        class="screen-player-skip-outro-btn"
+                        id="screenPlayerSkipOutroBtn"
+                        aria-label="Bỏ qua Outro"
+                        hidden>
+                    <span>Bỏ qua Outro</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                        <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                    </svg>
+                </button>
 
                 <!-- Custom Modern Player Control Bar (MS-08G2-UX01) -->
                 <div class="screen-player-controls" id="screenPlayerControls" aria-label="Điều khiển phát video">

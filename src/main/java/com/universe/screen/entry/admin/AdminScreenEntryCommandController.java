@@ -133,11 +133,14 @@ public class AdminScreenEntryCommandController {
                         form.getTitle(),
                         form.getSynopsis(),
                         form.getDurationSeconds(),
+                        true,
                         parsedTimeline.introMode(),
                         parsedTimeline.introStartSeconds(),
                         parsedTimeline.introEndSeconds(),
                         parsedTimeline.outroMode(),
-                        parsedTimeline.outroStartSeconds()
+                        parsedTimeline.outroStartSeconds(),
+                        parsedTimeline.updateOutroEnd(),
+                        parsedTimeline.outroEndSeconds()
                 );
             } else {
                 command = new UpdateScreenEntryCommand(
@@ -282,17 +285,25 @@ public class AdminScreenEntryCommandController {
         }
 
         Long outroStartSeconds = null;
+        Long outroEndSeconds = null;
+        boolean updateOutroEnd = form.isOutroEndProvided();
         if (outroMode == ScreenTimelineMode.OVERRIDE) {
             outroStartSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(form.getOutroStart());
+            if (updateOutroEnd) {
+                outroEndSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(form.getOutroEnd());
+                ScreenTimelineTimestampFormat.validateOutroPairAndOrder(outroStartSeconds, outroEndSeconds);
+            }
             if (outroStartSeconds == null) {
                 throw new IllegalArgumentException(ScreenTimelineTimestampFormat.MISSING_OUTRO_OVERRIDE_MESSAGE);
             }
         } else {
             form.setOutroStart(null);
+            form.setOutroEnd(null);
+            updateOutroEnd = true;
         }
 
         ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(introEndSeconds, outroStartSeconds);
-        return new ParsedEntryTimeline(introMode, introStartSeconds, introEndSeconds, outroMode, outroStartSeconds);
+        return new ParsedEntryTimeline(introMode, introStartSeconds, introEndSeconds, outroMode, outroStartSeconds, updateOutroEnd, outroEndSeconds);
     }
 
     private record ParsedEntryTimeline(
@@ -300,7 +311,9 @@ public class AdminScreenEntryCommandController {
             Long introStartSeconds,
             Long introEndSeconds,
             ScreenTimelineMode outroMode,
-            Long outroStartSeconds
+            Long outroStartSeconds,
+            boolean updateOutroEnd,
+            Long outroEndSeconds
     ) {
     }
 

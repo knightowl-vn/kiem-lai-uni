@@ -108,20 +108,26 @@ public class UpdateScreenTitleUseCase {
         Long targetDefaultIntroStart;
         Long targetDefaultIntroEnd;
         Long targetDefaultOutroStart;
+        Long targetDefaultOutroEnd;
 
         if (!command.updateDefaultTimeline()) {
             targetDefaultIntroStart = existing.getDefaultIntroStartSeconds();
             targetDefaultIntroEnd = existing.getDefaultIntroEndSeconds();
             targetDefaultOutroStart = existing.getDefaultOutroStartSeconds();
+            targetDefaultOutroEnd = existing.getDefaultOutroEndSeconds();
         } else {
             targetDefaultIntroStart = command.defaultIntroStartSeconds();
             targetDefaultIntroEnd = command.defaultIntroEndSeconds();
             targetDefaultOutroStart = command.defaultOutroStartSeconds();
+            targetDefaultOutroEnd = command.updateDefaultOutroEnd()
+                    ? command.defaultOutroEndSeconds()
+                    : existing.getDefaultOutroEndSeconds();
             validateTitleDefaultTimelineAndExistingEntries(
                     existing.getId(),
                     targetDefaultIntroStart,
                     targetDefaultIntroEnd,
-                    targetDefaultOutroStart
+                    targetDefaultOutroStart,
+                    targetDefaultOutroEnd
             );
         }
 
@@ -149,7 +155,8 @@ public class UpdateScreenTitleUseCase {
                 targetProductionStudio,
                 targetDefaultIntroStart,
                 targetDefaultIntroEnd,
-                targetDefaultOutroStart
+                targetDefaultOutroStart,
+                targetDefaultOutroEnd
         );
 
         ScreenTitle saved = titleRepository.save(existing);
@@ -161,10 +168,12 @@ public class UpdateScreenTitleUseCase {
             java.util.UUID titleId,
             Long defaultIntroStartSeconds,
             Long defaultIntroEndSeconds,
-            Long defaultOutroStartSeconds
+            Long defaultOutroStartSeconds,
+            Long defaultOutroEndSeconds
     ) {
         try {
             ScreenTimelineTimestampFormat.validateIntroPairAndOrder(defaultIntroStartSeconds, defaultIntroEndSeconds);
+            ScreenTimelineTimestampFormat.validateOutroPairAndOrder(defaultOutroStartSeconds, defaultOutroEndSeconds);
             ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(defaultIntroEndSeconds, defaultOutroStartSeconds);
         } catch (IllegalArgumentException ex) {
             throw new InvalidScreenTimelineConfigurationException(ex.getMessage(), ex);
@@ -174,7 +183,10 @@ public class UpdateScreenTitleUseCase {
                 defaultIntroStartSeconds,
                 defaultIntroEndSeconds
         );
-        ScreenOutroMarker candidateDefaultOutro = ScreenOutroMarker.ofNullable(defaultOutroStartSeconds);
+        ScreenOutroMarker candidateDefaultOutro = ScreenOutroMarker.ofNullable(
+                defaultOutroStartSeconds,
+                defaultOutroEndSeconds
+        );
 
         if (candidateDefaultIntro == null && candidateDefaultOutro == null) {
             return;
@@ -220,11 +232,19 @@ public class UpdateScreenTitleUseCase {
                                     + " (Tập \"" + entry.getTitle() + "\": " + durationSeconds + " giây)."
                     );
                 }
-                if (inheritsOutro && effectiveOutro.startSeconds() >= durationSeconds) {
-                    throw new InvalidScreenTimelineConfigurationException(
-                            ScreenTimelineTimestampFormat.OUTRO_EXCEEDS_DURATION_MESSAGE
-                                    + " (Tập \"" + entry.getTitle() + "\": " + durationSeconds + " giây)."
-                    );
+                if (inheritsOutro) {
+                    if (effectiveOutro.startSeconds() >= durationSeconds) {
+                        throw new InvalidScreenTimelineConfigurationException(
+                                ScreenTimelineTimestampFormat.OUTRO_EXCEEDS_DURATION_MESSAGE
+                                        + " (Tập \"" + entry.getTitle() + "\": " + durationSeconds + " giây)."
+                        );
+                    }
+                    if (effectiveOutro.hasEnd() && effectiveOutro.endSeconds() > durationSeconds) {
+                        throw new InvalidScreenTimelineConfigurationException(
+                                ScreenTimelineTimestampFormat.OUTRO_END_EXCEEDS_DURATION_MESSAGE
+                                        + " (Tập \"" + entry.getTitle() + "\": " + durationSeconds + " giây)."
+                        );
+                    }
                 }
             }
         }

@@ -174,8 +174,14 @@
                                        style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; font-family: monospace;"
                                        placeholder="MM:SS hoặc HH:MM:SS (vd: 20:10)">
                             </div>
+                            <div>
+                                <label for="defaultOutroEnd" style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px;">Kết thúc Outro (tùy chọn)</label>
+                                <input id="defaultOutroEnd" type="text" th:field="*{defaultOutroEnd}" maxlength="16"
+                                       style="width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; font-size: 14px; font-family: monospace;"
+                                       placeholder="Để trống = đến hết video (vd: 21:30)">
+                            </div>
                         </div>
-                        <small style="color: #5f6368; display: block; margin-top: 8px;">Chấp nhận định dạng <code>MM:SS</code>, <code>HH:MM:SS</code> hoặc số giây nguyên không âm.</small>
+                        <small style="color: #5f6368; display: block; margin-top: 8px;">Chấp nhận định dạng <code>MM:SS</code>, <code>HH:MM:SS</code> hoặc số giây nguyên không âm. Để trống kết thúc Outro nếu Outro kéo dài đến hết video.</small>
                     </div>
 
                     <!-- Poster Section -->

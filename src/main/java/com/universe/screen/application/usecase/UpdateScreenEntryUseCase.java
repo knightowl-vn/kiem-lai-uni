@@ -92,6 +92,7 @@ public class UpdateScreenEntryUseCase {
         Long targetIntroEnd;
         ScreenTimelineMode targetOutroMode;
         Long targetOutroStart;
+        Long targetOutroEnd;
 
         if (!command.updateTimeline()) {
             targetIntroMode = existing.getIntroMode();
@@ -99,6 +100,7 @@ public class UpdateScreenEntryUseCase {
             targetIntroEnd = existing.getIntroEndSeconds();
             targetOutroMode = existing.getOutroMode();
             targetOutroStart = existing.getOutroStartSeconds();
+            targetOutroEnd = existing.getOutroEndSeconds();
         } else {
             if (command.introMode() == null || command.outroMode() == null) {
                 throw new InvalidScreenTimelineConfigurationException(
@@ -110,6 +112,13 @@ public class UpdateScreenEntryUseCase {
             targetIntroEnd = command.introEndSeconds();
             targetOutroMode = command.outroMode();
             targetOutroStart = command.outroStartSeconds();
+            if (targetOutroMode != ScreenTimelineMode.OVERRIDE) {
+                targetOutroEnd = null;
+            } else if (command.updateOutroEnd()) {
+                targetOutroEnd = command.outroEndSeconds();
+            } else {
+                targetOutroEnd = existing.getOutroEndSeconds();
+            }
         }
 
         validateCandidateEntryTimeline(
@@ -119,7 +128,8 @@ public class UpdateScreenEntryUseCase {
                 targetIntroStart,
                 targetIntroEnd,
                 targetOutroMode,
-                targetOutroStart
+                targetOutroStart,
+                targetOutroEnd
         );
 
         Instant now = clockPort.now();
@@ -138,7 +148,8 @@ public class UpdateScreenEntryUseCase {
                 targetIntroStart,
                 targetIntroEnd,
                 targetOutroMode,
-                targetOutroStart
+                targetOutroStart,
+                targetOutroEnd
         );
 
         ScreenEntry saved = entryRepository.save(existing);
@@ -153,7 +164,8 @@ public class UpdateScreenEntryUseCase {
             Long introStartSeconds,
             Long introEndSeconds,
             ScreenTimelineMode outroMode,
-            Long outroStartSeconds
+            Long outroStartSeconds,
+            Long outroEndSeconds
     ) {
         ScreenIntroInterval candidateIntro;
         if (introMode == ScreenTimelineMode.OVERRIDE) {
@@ -184,14 +196,14 @@ public class UpdateScreenEntryUseCase {
                         ScreenTimelineTimestampFormat.MISSING_OUTRO_OVERRIDE_MESSAGE
                 );
             }
-            if (outroStartSeconds < 0) {
-                throw new InvalidScreenTimelineConfigurationException(
-                        ScreenTimelineTimestampFormat.INVALID_TIMESTAMP_MESSAGE
-                );
+            try {
+                ScreenTimelineTimestampFormat.validateOutroPairAndOrder(outroStartSeconds, outroEndSeconds);
+                candidateOutro = ScreenOutroMarker.ofNullable(outroStartSeconds, outroEndSeconds);
+            } catch (IllegalArgumentException ex) {
+                throw new InvalidScreenTimelineConfigurationException(ex.getMessage(), ex);
             }
-            candidateOutro = new ScreenOutroMarker(outroStartSeconds);
         } else {
-            if (outroStartSeconds != null) {
+            if (outroStartSeconds != null || outroEndSeconds != null) {
                 throw new InvalidScreenTimelineConfigurationException(
                         "Chế độ " + outroMode + " không được phép lưu mốc thời gian Outro tùy chỉnh."
                 );
@@ -213,10 +225,17 @@ public class UpdateScreenEntryUseCase {
                         ScreenTimelineTimestampFormat.INTRO_EXCEEDS_DURATION_MESSAGE
                 );
             }
-            if (candidateOutro != null && candidateOutro.startSeconds() >= durationSeconds) {
-                throw new InvalidScreenTimelineConfigurationException(
-                        ScreenTimelineTimestampFormat.OUTRO_EXCEEDS_DURATION_MESSAGE
-                );
+            if (candidateOutro != null) {
+                if (candidateOutro.startSeconds() >= durationSeconds) {
+                    throw new InvalidScreenTimelineConfigurationException(
+                            ScreenTimelineTimestampFormat.OUTRO_EXCEEDS_DURATION_MESSAGE
+                    );
+                }
+                if (candidateOutro.hasEnd() && candidateOutro.endSeconds() > durationSeconds) {
+                    throw new InvalidScreenTimelineConfigurationException(
+                            ScreenTimelineTimestampFormat.OUTRO_END_EXCEEDS_DURATION_MESSAGE
+                    );
+                }
             }
         }
     }

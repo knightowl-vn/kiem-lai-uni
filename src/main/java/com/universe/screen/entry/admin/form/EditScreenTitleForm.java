@@ -30,8 +30,56 @@ public class EditScreenTitleForm {
     private String defaultIntroStart;
     private String defaultIntroEnd;
     private String defaultOutroStart;
+    private boolean defaultOutroEndProvided = false;
+    private String defaultOutroEnd;
 
     public EditScreenTitleForm() {
+    }
+
+    public EditScreenTitleForm(
+            String title,
+            String slug,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            String defaultIntroStart,
+            String defaultIntroEnd,
+            String defaultOutroStart,
+            String defaultOutroEnd
+    ) {
+        this(
+                title,
+                slug,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                defaultIntroStart != null || defaultIntroEnd != null || defaultOutroStart != null || defaultOutroEnd != null,
+                defaultIntroStart,
+                defaultIntroEnd,
+                defaultOutroStart,
+                true,
+                defaultOutroEnd
+        );
     }
 
     public EditScreenTitleForm(
@@ -73,7 +121,56 @@ public class EditScreenTitleForm {
                 defaultIntroStart != null || defaultIntroEnd != null || defaultOutroStart != null,
                 defaultIntroStart,
                 defaultIntroEnd,
-                defaultOutroStart
+                defaultOutroStart,
+                false,
+                null
+        );
+    }
+
+    public EditScreenTitleForm(
+            String title,
+            String slug,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            boolean updateDefaultTimeline,
+            String defaultIntroStart,
+            String defaultIntroEnd,
+            String defaultOutroStart,
+            String defaultOutroEnd
+    ) {
+        this(
+                title,
+                slug,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                updateDefaultTimeline,
+                defaultIntroStart,
+                defaultIntroEnd,
+                defaultOutroStart,
+                true,
+                defaultOutroEnd
         );
     }
 
@@ -98,6 +195,54 @@ public class EditScreenTitleForm {
             String defaultIntroEnd,
             String defaultOutroStart
     ) {
+        this(
+                title,
+                slug,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                updateDefaultTimeline,
+                defaultIntroStart,
+                defaultIntroEnd,
+                defaultOutroStart,
+                false,
+                null
+        );
+    }
+
+    public EditScreenTitleForm(
+            String title,
+            String slug,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            boolean updateDefaultTimeline,
+            String defaultIntroStart,
+            String defaultIntroEnd,
+            String defaultOutroStart,
+            boolean defaultOutroEndProvided,
+            String defaultOutroEnd
+    ) {
         this.title = title;
         this.slug = slug;
         this.originalTitle = originalTitle;
@@ -117,6 +262,8 @@ public class EditScreenTitleForm {
         this.defaultIntroStart = defaultIntroStart;
         this.defaultIntroEnd = defaultIntroEnd;
         this.defaultOutroStart = defaultOutroStart;
+        this.defaultOutroEndProvided = defaultOutroEndProvided;
+        this.defaultOutroEnd = defaultOutroEnd;
     }
 
     public EditScreenTitleForm(
@@ -365,7 +512,8 @@ public class EditScreenTitleForm {
         return updateDefaultTimeline
                 || (defaultIntroStart != null && !defaultIntroStart.isBlank())
                 || (defaultIntroEnd != null && !defaultIntroEnd.isBlank())
-                || (defaultOutroStart != null && !defaultOutroStart.isBlank());
+                || (defaultOutroStart != null && !defaultOutroStart.isBlank())
+                || (defaultOutroEnd != null && !defaultOutroEnd.isBlank());
     }
 
     public String getDefaultIntroStart() {
@@ -399,5 +547,25 @@ public class EditScreenTitleForm {
         if (defaultOutroStart != null && !defaultOutroStart.isBlank()) {
             this.updateDefaultTimeline = true;
         }
+    }
+
+    public String getDefaultOutroEnd() {
+        return defaultOutroEnd;
+    }
+
+    public void setDefaultOutroEnd(String defaultOutroEnd) {
+        this.defaultOutroEnd = defaultOutroEnd;
+        this.defaultOutroEndProvided = true;
+        if (defaultOutroEnd != null && !defaultOutroEnd.isBlank()) {
+            this.updateDefaultTimeline = true;
+        }
+    }
+
+    public boolean isDefaultOutroEndProvided() {
+        return defaultOutroEndProvided;
+    }
+
+    public void setDefaultOutroEndProvided(boolean defaultOutroEndProvided) {
+        this.defaultOutroEndProvided = defaultOutroEndProvided;
     }
 }

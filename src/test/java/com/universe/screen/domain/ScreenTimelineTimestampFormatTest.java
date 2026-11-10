@@ -131,4 +131,36 @@ class ScreenTimelineTimestampFormatTest {
         ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(null, 100L);
         ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(120L, null);
     }
+
+    @Test
+    @DisplayName("UX02-C2.1: validateOutroPairAndOrder validates optional Outro end, requiring start when end is present and end > start")
+    void shouldValidateOutroPairAndOrder() {
+        // Valid cases: both null, or start present with null end, or end > start
+        ScreenTimelineTimestampFormat.validateOutroPairAndOrder(null, null);
+        ScreenTimelineTimestampFormat.validateOutroPairAndOrder(1452L, null);
+        ScreenTimelineTimestampFormat.validateOutroPairAndOrder(1452L, 1530L);
+
+        // Orphaned Outro end
+        assertThatThrownBy(() -> ScreenTimelineTimestampFormat.validateOutroPairAndOrder(null, 1530L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Không thể thiết lập thời gian kết thúc Outro khi chưa có thời gian bắt đầu.");
+
+        // Negative start or end
+        assertThatThrownBy(() -> ScreenTimelineTimestampFormat.validateOutroPairAndOrder(-1L, 1530L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Thời gian không hợp lệ. Hãy nhập MM:SS hoặc HH:MM:SS.");
+
+        assertThatThrownBy(() -> ScreenTimelineTimestampFormat.validateOutroPairAndOrder(1452L, -5L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Thời gian không hợp lệ. Hãy nhập MM:SS hoặc HH:MM:SS.");
+
+        // Reversed or equal order
+        assertThatThrownBy(() -> ScreenTimelineTimestampFormat.validateOutroPairAndOrder(1530L, 1530L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Thời gian kết thúc Outro phải lớn hơn thời gian bắt đầu.");
+
+        assertThatThrownBy(() -> ScreenTimelineTimestampFormat.validateOutroPairAndOrder(1530L, 1452L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Thời gian kết thúc Outro phải lớn hơn thời gian bắt đầu.");
+    }
 }

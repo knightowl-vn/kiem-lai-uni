@@ -5,6 +5,7 @@ import com.universe.screen.application.dto.PublicScreenWatchDTO;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenStructure;
+import com.universe.screen.domain.ScreenTimelineTimestampFormat;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,7 +38,13 @@ public record PublicScreenWatchView(
         String videoMimeType,
         PublicScreenEntryView previousEntry,
         PublicScreenEntryView nextEntry,
-        List<PublicScreenEntryView> playlist
+        List<PublicScreenEntryView> playlist,
+        Long effectiveIntroStartSeconds,
+        Long effectiveIntroEndSeconds,
+        boolean hasEffectiveIntro,
+        Long effectiveOutroStartSeconds,
+        Long effectiveOutroEndSeconds,
+        boolean hasEffectiveOutro
 ) {
 
     public PublicScreenWatchView {
@@ -51,6 +58,63 @@ public record PublicScreenWatchView(
         Objects.requireNonNull(entryType, "Entry type cannot be null.");
         Objects.requireNonNull(entryTitle, "Entry title cannot be null.");
         playlist = playlist != null ? List.copyOf(playlist) : List.of();
+    }
+
+    /**
+     * Backward-compatible convenience constructor omitting timeline metadata.
+     */
+    public PublicScreenWatchView(
+            UUID titleId,
+            String titleSlug,
+            String titleDisplayName,
+            ScreenStructure titleStructure,
+            ScreenPresentation titlePresentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            UUID entryId,
+            String entrySlug,
+            ScreenEntryType entryType,
+            Integer entryNumber,
+            String entryTitle,
+            String entrySynopsis,
+            Long durationSeconds,
+            UUID thumbnailMediaAssetId,
+            boolean isPlayable,
+            String videoDeliveryUrl,
+            String videoMimeType,
+            PublicScreenEntryView previousEntry,
+            PublicScreenEntryView nextEntry,
+            List<PublicScreenEntryView> playlist
+    ) {
+        this(
+                titleId,
+                titleSlug,
+                titleDisplayName,
+                titleStructure,
+                titlePresentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                entryId,
+                entrySlug,
+                entryType,
+                entryNumber,
+                entryTitle,
+                entrySynopsis,
+                durationSeconds,
+                thumbnailMediaAssetId,
+                isPlayable,
+                videoDeliveryUrl,
+                videoMimeType,
+                previousEntry,
+                nextEntry,
+                playlist,
+                null,
+                null,
+                false,
+                null,
+                null,
+                false
+        );
     }
 
     /**
@@ -139,8 +203,42 @@ public record PublicScreenWatchView(
                 dto.videoMimeType(),
                 prevView,
                 nextView,
-                playlistViews
+                playlistViews,
+                dto.effectiveIntroStartSeconds(),
+                dto.effectiveIntroEndSeconds(),
+                dto.hasEffectiveIntro(),
+                dto.effectiveOutroStartSeconds(),
+                dto.effectiveOutroEndSeconds(),
+                dto.hasEffectiveOutro()
         );
+    }
+
+    public boolean hasEffectiveIntro() {
+        return hasEffectiveIntro;
+    }
+
+    public boolean hasEffectiveOutro() {
+        return hasEffectiveOutro;
+    }
+
+    public boolean hasBoundedEffectiveOutro() {
+        return hasEffectiveOutro && effectiveOutroStartSeconds != null && effectiveOutroEndSeconds != null;
+    }
+
+    public String formattedEffectiveIntroStart() {
+        return ScreenTimelineTimestampFormat.formatSeconds(effectiveIntroStartSeconds);
+    }
+
+    public String formattedEffectiveIntroEnd() {
+        return ScreenTimelineTimestampFormat.formatSeconds(effectiveIntroEndSeconds);
+    }
+
+    public String formattedEffectiveOutroStart() {
+        return ScreenTimelineTimestampFormat.formatSeconds(effectiveOutroStartSeconds);
+    }
+
+    public String formattedEffectiveOutroEnd() {
+        return ScreenTimelineTimestampFormat.formatSeconds(effectiveOutroEndSeconds);
     }
 
     public boolean isEpisode() {

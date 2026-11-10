@@ -100,6 +100,9 @@ public class ScreenTitleJpaEntity {
     @Column(name = "default_outro_start_seconds")
     private Long defaultOutroStartSeconds;
 
+    @Column(name = "default_outro_end_seconds")
+    private Long defaultOutroEndSeconds;
+
     @Column(
             name = "structure",
             nullable = false,
@@ -176,7 +179,8 @@ public class ScreenTitleJpaEntity {
             String productionStudio,
             Long defaultIntroStartSeconds,
             Long defaultIntroEndSeconds,
-            Long defaultOutroStartSeconds
+            Long defaultOutroStartSeconds,
+            Long defaultOutroEndSeconds
     ) {
         this.id = id;
         this.slug = slug;
@@ -201,6 +205,60 @@ public class ScreenTitleJpaEntity {
         this.defaultIntroStartSeconds = defaultIntroStartSeconds;
         this.defaultIntroEndSeconds = defaultIntroEndSeconds;
         this.defaultOutroStartSeconds = defaultOutroStartSeconds;
+        this.defaultOutroEndSeconds = defaultOutroEndSeconds;
+    }
+
+    public ScreenTitleJpaEntity(
+            String id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            String structure,
+            String presentation,
+            String posterMediaAssetId,
+            String backdropMediaAssetId,
+            String status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            Integer totalEpisodeCount,
+            String airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds,
+                defaultOutroStartSeconds,
+                null
+        );
     }
 
     public ScreenTitleJpaEntity(
@@ -507,5 +565,13 @@ public class ScreenTitleJpaEntity {
 
     public void setDefaultOutroStartSeconds(Long defaultOutroStartSeconds) {
         this.defaultOutroStartSeconds = defaultOutroStartSeconds;
+    }
+
+    public Long getDefaultOutroEndSeconds() {
+        return defaultOutroEndSeconds;
+    }
+
+    public void setDefaultOutroEndSeconds(Long defaultOutroEndSeconds) {
+        this.defaultOutroEndSeconds = defaultOutroEndSeconds;
     }
 }

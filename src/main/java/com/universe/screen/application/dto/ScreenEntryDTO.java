@@ -28,8 +28,53 @@ public record ScreenEntryDTO(
         Long introStartSeconds,
         Long introEndSeconds,
         ScreenTimelineMode outroMode,
-        Long outroStartSeconds
+        Long outroStartSeconds,
+        Long outroEndSeconds
 ) {
+    public ScreenEntryDTO(
+            UUID id,
+            UUID titleId,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String title,
+            String synopsis,
+            UUID videoMediaAssetId,
+            UUID thumbnailMediaAssetId,
+            Long durationSeconds,
+            ScreenPublicationStatus status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
+    ) {
+        this(
+                id,
+                titleId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                durationSeconds,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds,
+                null
+        );
+    }
     public ScreenEntryDTO(
             UUID id,
             UUID titleId,
@@ -92,8 +137,13 @@ public record ScreenEntryDTO(
                 entry.getIntroStartSeconds(),
                 entry.getIntroEndSeconds(),
                 entry.getOutroMode(),
-                entry.getOutroStartSeconds()
+                entry.getOutroStartSeconds(),
+                entry.getOutroEndSeconds()
         );
+    }
+
+    public boolean hasBoundedOutroOverride() {
+        return outroMode == ScreenTimelineMode.OVERRIDE && outroStartSeconds != null && outroEndSeconds != null;
     }
 
     public String formattedIntroStart() {
@@ -106,5 +156,9 @@ public record ScreenEntryDTO(
 
     public String formattedOutroStart() {
         return ScreenTimelineTimestampFormat.formatSeconds(outroStartSeconds);
+    }
+
+    public String formattedOutroEnd() {
+        return ScreenTimelineTimestampFormat.formatSeconds(outroEndSeconds);
     }
 }

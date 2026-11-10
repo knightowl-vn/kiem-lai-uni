@@ -258,7 +258,9 @@ public class AdminScreenTitleCommandController {
                 parsedTimeline = parseAndValidateDefaultTimeline(
                         form.getDefaultIntroStart(),
                         form.getDefaultIntroEnd(),
-                        form.getDefaultOutroStart()
+                        form.getDefaultOutroStart(),
+                        form.getDefaultOutroEnd(),
+                        form.isDefaultOutroEndProvided()
                 );
             }
 
@@ -347,7 +349,9 @@ public class AdminScreenTitleCommandController {
                             updateDefaultTimeline,
                             parsedTimeline != null ? parsedTimeline.introStartSeconds() : null,
                             parsedTimeline != null ? parsedTimeline.introEndSeconds() : null,
-                            parsedTimeline != null ? parsedTimeline.outroStartSeconds() : null
+                            parsedTimeline != null ? parsedTimeline.outroStartSeconds() : null,
+                            parsedTimeline != null ? parsedTimeline.updateDefaultOutroEnd() : false,
+                            parsedTimeline != null ? parsedTimeline.outroEndSeconds() : null
                     )
             );
 
@@ -529,15 +533,23 @@ public class AdminScreenTitleCommandController {
     private static ParsedDefaultTimeline parseAndValidateDefaultTimeline(
             String defaultIntroStartRaw,
             String defaultIntroEndRaw,
-            String defaultOutroStartRaw
+            String defaultOutroStartRaw,
+            String defaultOutroEndRaw,
+            boolean defaultOutroEndProvided
     ) {
         try {
             Long introStartSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(defaultIntroStartRaw);
             Long introEndSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(defaultIntroEndRaw);
             Long outroStartSeconds = ScreenTimelineTimestampFormat.parseOptionalSeconds(defaultOutroStartRaw);
+            Long outroEndSeconds = defaultOutroEndProvided
+                    ? ScreenTimelineTimestampFormat.parseOptionalSeconds(defaultOutroEndRaw)
+                    : null;
             ScreenTimelineTimestampFormat.validateIntroPairAndOrder(introStartSeconds, introEndSeconds);
+            if (defaultOutroEndProvided) {
+                ScreenTimelineTimestampFormat.validateOutroPairAndOrder(outroStartSeconds, outroEndSeconds);
+            }
             ScreenTimelineTimestampFormat.validateOutroNotBeforeIntroEnd(introEndSeconds, outroStartSeconds);
-            return new ParsedDefaultTimeline(introStartSeconds, introEndSeconds, outroStartSeconds);
+            return new ParsedDefaultTimeline(introStartSeconds, introEndSeconds, outroStartSeconds, defaultOutroEndProvided, outroEndSeconds);
         } catch (IllegalArgumentException ex) {
             throw new AdminScreenValidationException(ex.getMessage(), ex);
         }
@@ -554,7 +566,9 @@ public class AdminScreenTitleCommandController {
     private record ParsedDefaultTimeline(
             Long introStartSeconds,
             Long introEndSeconds,
-            Long outroStartSeconds
+            Long outroStartSeconds,
+            boolean updateDefaultOutroEnd,
+            Long outroEndSeconds
     ) {
     }
 

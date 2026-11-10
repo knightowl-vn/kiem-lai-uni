@@ -20,10 +20,16 @@ public final class ScreenTimelineTimestampFormat {
             "Outro không được bắt đầu trước khi Intro kết thúc.";
     public static final String MISSING_OUTRO_OVERRIDE_MESSAGE =
             "Vui lòng nhập thời gian bắt đầu Outro.";
+    public static final String MISSING_OUTRO_START_FOR_END_MESSAGE =
+            "Không thể thiết lập thời gian kết thúc Outro khi chưa có thời gian bắt đầu.";
+    public static final String INVALID_OUTRO_ORDER_MESSAGE =
+            "Thời gian kết thúc Outro phải lớn hơn thời gian bắt đầu.";
     public static final String INTRO_EXCEEDS_DURATION_MESSAGE =
             "Thời gian kết thúc Intro không được vượt quá thời lượng tập phim.";
     public static final String OUTRO_EXCEEDS_DURATION_MESSAGE =
             "Thời gian bắt đầu Outro phải nhỏ hơn thời lượng tập phim.";
+    public static final String OUTRO_END_EXCEEDS_DURATION_MESSAGE =
+            "Thời gian kết thúc Outro không được vượt quá thời lượng tập phim.";
 
     private static final Pattern DIGITS_ONLY = Pattern.compile("^\\d+$");
 
@@ -145,6 +151,29 @@ public final class ScreenTimelineTimestampFormat {
         }
         if (introEndSeconds != null && outroStartSeconds != null && outroStartSeconds < introEndSeconds) {
             throw new IllegalArgumentException(INVALID_OUTRO_BEFORE_INTRO_END_MESSAGE);
+        }
+    }
+
+    /**
+     * Validates that an Outro start/end pair is valid:
+     * <ul>
+     *   <li>{@code outroEndSeconds} is optional, but if present requires {@code outroStartSeconds}.</li>
+     *   <li>If {@code outroEndSeconds} is present, it must be strictly greater than {@code outroStartSeconds}.</li>
+     *   <li>Neither timestamp can be negative.</li>
+     * </ul>
+     */
+    public static void validateOutroPairAndOrder(Long outroStartSeconds, Long outroEndSeconds) {
+        if (outroStartSeconds != null && outroStartSeconds < 0) {
+            throw new IllegalArgumentException(INVALID_TIMESTAMP_MESSAGE);
+        }
+        if (outroEndSeconds != null && outroEndSeconds < 0) {
+            throw new IllegalArgumentException(INVALID_TIMESTAMP_MESSAGE);
+        }
+        if (outroStartSeconds == null && outroEndSeconds != null) {
+            throw new IllegalArgumentException(MISSING_OUTRO_START_FOR_END_MESSAGE);
+        }
+        if (outroStartSeconds != null && outroEndSeconds != null && outroEndSeconds <= outroStartSeconds) {
+            throw new IllegalArgumentException(INVALID_OUTRO_ORDER_MESSAGE);
         }
     }
 }

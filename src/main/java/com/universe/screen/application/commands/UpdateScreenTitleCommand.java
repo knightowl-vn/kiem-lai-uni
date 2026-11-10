@@ -28,11 +28,67 @@ public record UpdateScreenTitleCommand(
         boolean updateDefaultTimeline,
         Long defaultIntroStartSeconds,
         Long defaultIntroEndSeconds,
-        Long defaultOutroStartSeconds
+        Long defaultOutroStartSeconds,
+        boolean updateDefaultOutroEnd,
+        Long defaultOutroEndSeconds
 ) {
 
     /**
-     * Explicit release metadata and default timeline update constructor.
+     * Explicit release metadata and default timeline update constructor including outro end boundary.
+     */
+    public UpdateScreenTitleCommand(
+            UUID titleId,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            boolean updateTotalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds,
+            Long defaultOutroEndSeconds
+    ) {
+        this(
+                titleId,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                updateTotalEpisodeCount,
+                true,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                true,
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds,
+                defaultOutroStartSeconds,
+                true,
+                defaultOutroEndSeconds
+        );
+    }
+
+    /**
+     * Explicit release metadata and default timeline update constructor (without outro end boundary).
      */
     public UpdateScreenTitleCommand(
             UUID titleId,
@@ -78,7 +134,121 @@ public record UpdateScreenTitleCommand(
                 true,
                 defaultIntroStartSeconds,
                 defaultIntroEndSeconds,
-                defaultOutroStartSeconds
+                defaultOutroStartSeconds,
+                false,
+                null
+        );
+    }
+
+    /**
+     * 23-parameter constructor with explicit updateDefaultTimeline flag and outro end boundary.
+     */
+    public UpdateScreenTitleCommand(
+            UUID titleId,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            boolean updateTotalEpisodeCount,
+            boolean updateReleaseMetadata,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            boolean updateDefaultTimeline,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds,
+            Long defaultOutroEndSeconds
+    ) {
+        this(
+                titleId,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                updateTotalEpisodeCount,
+                updateReleaseMetadata,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                updateDefaultTimeline,
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds,
+                defaultOutroStartSeconds,
+                true,
+                defaultOutroEndSeconds
+        );
+    }
+
+    /**
+     * Backward-compatible 22-parameter constructor with explicit updateDefaultTimeline flag
+     * (without outro end boundary).
+     */
+    public UpdateScreenTitleCommand(
+            UUID titleId,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Integer totalEpisodeCount,
+            boolean updateTotalEpisodeCount,
+            boolean updateReleaseMetadata,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            boolean updateDefaultTimeline,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds
+    ) {
+        this(
+                titleId,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                totalEpisodeCount,
+                updateTotalEpisodeCount,
+                updateReleaseMetadata,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                updateDefaultTimeline,
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds,
+                defaultOutroStartSeconds,
+                false,
+                null
         );
     }
 
@@ -128,6 +298,8 @@ public record UpdateScreenTitleCommand(
                 false,
                 null,
                 null,
+                null,
+                false,
                 null
         );
     }
@@ -178,6 +350,8 @@ public record UpdateScreenTitleCommand(
                 false,
                 null,
                 null,
+                null,
+                false,
                 null
         );
     }
@@ -221,6 +395,8 @@ public record UpdateScreenTitleCommand(
                 false,
                 null,
                 null,
+                null,
+                false,
                 null
         );
     }
@@ -265,6 +441,8 @@ public record UpdateScreenTitleCommand(
                 false,
                 null,
                 null,
+                null,
+                false,
                 null
         );
     }
@@ -306,6 +484,8 @@ public record UpdateScreenTitleCommand(
                 false,
                 null,
                 null,
+                null,
+                false,
                 null
         );
     }

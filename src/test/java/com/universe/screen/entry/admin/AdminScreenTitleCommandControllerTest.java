@@ -2166,6 +2166,74 @@ class AdminScreenTitleCommandControllerTest {
         assertThat(captured.defaultIntroStartSeconds()).isEqualTo(0L);
         assertThat(captured.defaultIntroEndSeconds()).isEqualTo(105L);
         assertThat(captured.defaultOutroStartSeconds()).isEqualTo(1210L);
+        assertThat(captured.defaultOutroEndSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1 Command: updateTitle parses bounded default Outro and passes to UpdateScreenTitleCommand")
+    void shouldParseBoundedDefaultOutroOnUpdate() {
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setDefaultIntroStart("00:00");
+        form.setDefaultIntroEnd("01:45");
+        form.setDefaultOutroStart("24:12");
+        form.setDefaultOutroEnd("25:30");
+
+        org.mockito.ArgumentCaptor<UpdateScreenTitleCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenTitleCommand.class);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+        verify(updateScreenTitleUseCase).execute(captor.capture());
+        UpdateScreenTitleCommand captured = captor.getValue();
+        assertThat(captured.updateDefaultTimeline()).isTrue();
+        assertThat(captured.defaultOutroStartSeconds()).isEqualTo(1452L);
+        assertThat(captured.defaultOutroEndSeconds()).isEqualTo(1530L);
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1 Command: updateTitle rejects orphaned default Outro end before command execution")
+    void shouldRejectOrphanedDefaultOutroEndBeforeCommandExecution() {
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setDefaultOutroStart("");
+        form.setDefaultOutroEnd("25:30");
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("Không thể thiết lập thời gian kết thúc Outro khi chưa có thời gian bắt đầu.");
+        verify(updateScreenTitleUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1 Command: updateTitle rejects invalid default Outro order before command execution")
+    void shouldRejectInvalidDefaultOutroOrderBeforeCommandExecution() {
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setDefaultOutroStart("25:30");
+        form.setDefaultOutroEnd("24:12");
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/edit");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+        assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .contains("Thời gian kết thúc Outro phải lớn hơn thời gian bắt đầu.");
+        verify(updateScreenTitleUseCase, never()).execute(any());
     }
 
     @Test
@@ -2308,5 +2376,72 @@ class AdminScreenTitleCommandControllerTest {
         assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
                 .isEqualTo("Bắt đầu Outro vượt quá thời lượng tập phim (1000 giây).");
         assertThat(redirectAttributes.getFlashAttributes().get("form")).isSameAs(form);
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1-SR01 Defect B Regression: updateTitle passes updateDefaultOutroEnd=false when legacy form omits defaultOutroEnd")
+    void shouldPreserveDefaultOutroEndWhenLegacyFormOmitsDefaultOutroEndField() {
+        ScreenTitleDTO existingDto = new ScreenTitleDTO(
+                titleId, "kiem-lai", "Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(existingDto);
+        when(updateScreenTitleUseCase.execute(any(UpdateScreenTitleCommand.class))).thenReturn(existingDto);
+
+        // Legacy form using 19-arg constructor omitting defaultOutroEnd
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24,
+                ScreenAiringStatus.ONGOING, 2026, "VN", "Author", "Director", "Studio",
+                true, "00:00", "01:30", "20:00"
+        );
+
+        org.mockito.ArgumentCaptor<UpdateScreenTitleCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenTitleCommand.class);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+        verify(updateScreenTitleUseCase).execute(captor.capture());
+        UpdateScreenTitleCommand captured = captor.getValue();
+        assertThat(captured.updateDefaultTimeline()).isTrue();
+        assertThat(captured.defaultOutroStartSeconds()).isEqualTo(1200L);
+        assertThat(captured.updateDefaultOutroEnd()).isFalse();
+        assertThat(captured.defaultOutroEndSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1-SR01 Defect B Regression: updateTitle passes updateDefaultOutroEnd=true and null seconds when form explicitly leaves defaultOutroEnd blank")
+    void shouldClearDefaultOutroEndWhenFormSubmitsExplicitBlankOutroEnd() {
+        ScreenTitleDTO existingDto = new ScreenTitleDTO(
+                titleId, "kiem-lai", "Title", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.DRAFT, null, Instant.now(), Instant.now()
+        );
+        when(getScreenTitleDetailUseCase.execute(titleId)).thenReturn(existingDto);
+        when(updateScreenTitleUseCase.execute(any(UpdateScreenTitleCommand.class))).thenReturn(existingDto);
+
+        EditScreenTitleForm form = new EditScreenTitleForm(
+                "Title", null, null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null, 24
+        );
+        form.setDefaultIntroStart("00:00");
+        form.setDefaultIntroEnd("01:30");
+        form.setDefaultOutroStart("20:00");
+        form.setDefaultOutroEnd("");
+
+        org.mockito.ArgumentCaptor<UpdateScreenTitleCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenTitleCommand.class);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateTitle(titleId, form, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId);
+        verify(updateScreenTitleUseCase).execute(captor.capture());
+        UpdateScreenTitleCommand captured = captor.getValue();
+        assertThat(captured.updateDefaultTimeline()).isTrue();
+        assertThat(captured.defaultOutroStartSeconds()).isEqualTo(1200L);
+        assertThat(captured.updateDefaultOutroEnd()).isTrue();
+        assertThat(captured.defaultOutroEndSeconds()).isNull();
     }
 }

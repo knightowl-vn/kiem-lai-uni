@@ -129,7 +129,8 @@ public class AdminScreenTitlePageController {
                         title.productionStudio(),
                         title.formattedDefaultIntroStart(),
                         title.formattedDefaultIntroEnd(),
-                        title.formattedDefaultOutroStart()
+                        title.formattedDefaultOutroStart(),
+                        title.formattedDefaultOutroEnd()
                 );
                 model.addAttribute("form", form);
             } else if (model.getAttribute("form") instanceof EditScreenTitleForm existingForm) {

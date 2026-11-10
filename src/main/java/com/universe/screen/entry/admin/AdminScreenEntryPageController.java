@@ -223,7 +223,8 @@ public class AdminScreenEntryPageController {
                         entry.formattedIntroStart(),
                         entry.formattedIntroEnd(),
                         entry.outroMode() != null ? entry.outroMode() : ScreenTimelineMode.INHERIT,
-                        entry.formattedOutroStart()
+                        entry.formattedOutroStart(),
+                        entry.formattedOutroEnd()
                 );
                 model.addAttribute("form", form);
             } else {

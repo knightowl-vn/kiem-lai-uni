@@ -455,4 +455,91 @@ class GetPublicScreenWatchUseCaseTest {
             assertThat(result.entryType()).isEqualTo(ScreenEntryType.TRAILER);
         }
     }
+
+    @Nested
+    @DisplayName("Effective Timeline Resolution Tests (MS-08G3-UX02-C2.1)")
+    class TimelineResolutionTests {
+
+        @Test
+        @DisplayName("Inherits default bounded Outro from ScreenTitle [1452s, 1530s]")
+        void inheritsBoundedOutroFromTitle() {
+            UUID titleId = UUID.randomUUID();
+            ScreenTitle title = createPublishedTitle(titleId, "kiem-lai-1", "Kiếm Lai", ScreenStructure.SERIES);
+            title.updateDefaultTimeline(0L, 90L, 1452L, 1530L, now);
+
+            ScreenEntry ep1 = new ScreenEntry(
+                    UUID.randomUUID(), titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                    null, UUID.randomUUID(), 1576L,
+                    ScreenPublicationStatus.PUBLISHED, now, now, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(ep1));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(ep1));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(ep1));
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.hasEffectiveIntro()).isTrue();
+            assertThat(result.effectiveIntroStartSeconds()).isEqualTo(0L);
+            assertThat(result.effectiveIntroEndSeconds()).isEqualTo(90L);
+            assertThat(result.hasEffectiveOutro()).isTrue();
+            assertThat(result.effectiveOutroStartSeconds()).isEqualTo(1452L);
+            assertThat(result.effectiveOutroEndSeconds()).isEqualTo(1530L);
+        }
+
+        @Test
+        @DisplayName("Entry override bounded Outro overrides parent ScreenTitle defaults")
+        void entryOverrideBoundedOutroOverridesTitleDefaults() {
+            UUID titleId = UUID.randomUUID();
+            ScreenTitle title = createPublishedTitle(titleId, "kiem-lai-1", "Kiếm Lai", ScreenStructure.SERIES);
+            title.updateDefaultTimeline(0L, 90L, 1400L, 1480L, now);
+
+            ScreenEntry ep1 = new ScreenEntry(
+                    UUID.randomUUID(), titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                    null, UUID.randomUUID(), 1576L,
+                    ScreenPublicationStatus.PUBLISHED, now, now, now
+            );
+            ep1.updateTimeline(
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, 1452L, 1530L, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(ep1));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(ep1));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(ep1));
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.hasEffectiveOutro()).isTrue();
+            assertThat(result.effectiveOutroStartSeconds()).isEqualTo(1452L);
+            assertThat(result.effectiveOutroEndSeconds()).isEqualTo(1530L);
+        }
+
+        @Test
+        @DisplayName("Entry with DISABLED Outro mode produces hasEffectiveOutro=false")
+        void entryWithDisabledOutroMode() {
+            UUID titleId = UUID.randomUUID();
+            ScreenTitle title = createPublishedTitle(titleId, "kiem-lai-1", "Kiếm Lai", ScreenStructure.SERIES);
+            title.updateDefaultTimeline(0L, 90L, 1452L, 1530L, now);
+
+            ScreenEntry ep1 = createPublishedEntry(UUID.randomUUID(), titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", null);
+            ep1.updateTimeline(
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.DISABLED, null, null, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(ep1));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(ep1));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(ep1));
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.hasEffectiveOutro()).isFalse();
+            assertThat(result.effectiveOutroStartSeconds()).isNull();
+            assertThat(result.effectiveOutroEndSeconds()).isNull();
+        }
+    }
 }

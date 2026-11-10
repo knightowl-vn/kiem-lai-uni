@@ -219,7 +219,8 @@
     .screen-franchise-item,
     .screen-episode-chip,
     .screen-feature-chip,
-    .screen-detail-backdrop {
+    .screen-detail-backdrop,
+    .screen-player-skip-outro-btn {
         transition: none !important;
         transform: none !important;
         animation: none !important;
@@ -2683,7 +2684,8 @@ a.screen-comment-origin-badge:focus-visible {
 .screen-watch-player-wrap:not(.is-enhanced) .screen-player-buffering,
 .screen-watch-player-wrap:not(.is-enhanced) .screen-player-seek-feedback,
 .screen-watch-player-wrap:not(.is-enhanced) .screen-player-resume-modal,
-.screen-watch-player-wrap:not(.is-enhanced) .screen-player-next-up {
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-next-up,
+.screen-watch-player-wrap:not(.is-enhanced) .screen-player-skip-outro-btn {
     display: none !important;
 }
 
@@ -2693,6 +2695,7 @@ a.screen-comment-origin-badge:focus-visible {
 .screen-player-big-play[hidden],
 .screen-player-resume-modal[hidden],
 .screen-player-next-up[hidden],
+.screen-player-skip-outro-btn[hidden],
 .screen-player-speed-menu[hidden],
 .screen-player-pip-btn[hidden],
 .screen-player-icon[hidden] {
@@ -3318,6 +3321,51 @@ a.screen-comment-origin-badge:focus-visible {
     color: #ffffff;
 }
 
+/* Contextual Manual Skip Outro Action (MS-08G3-UX02-C2.1) */
+.screen-player-skip-outro-btn {
+    position: absolute;
+    right: 14px;
+    bottom: 68px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    background: rgba(15, 18, 24, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
+    cursor: pointer;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
+    user-select: none;
+}
+
+.screen-player-skip-outro-btn:hover {
+    background: rgba(30, 41, 59, 0.96);
+    border-color: rgba(147, 197, 253, 0.7);
+    color: #93c5fd;
+    transform: translateY(-1px);
+}
+
+.screen-player-skip-outro-btn:active {
+    transform: translateY(0);
+}
+
+.screen-player-skip-outro-btn:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn {
+    bottom: 126px;
+}
+
 /* ==========================================================================
    Presentation Modes & Responsive Control Bar
    Mode A: Mobile Portrait / Narrow Inline (container <= 640px down to 280px)
@@ -3424,6 +3472,17 @@ a.screen-comment-origin-badge:focus-visible {
         right: 8px;
         bottom: 56px;
         padding: 6px 10px;
+    }
+
+    .screen-player-skip-outro-btn {
+        right: 8px;
+        bottom: 56px;
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn {
+        bottom: 104px;
     }
 
     /* Compact Settings Menu to prevent clipping on 16:9 stage heights */

@@ -122,10 +122,12 @@ class PublicScreenWatchViewRenderingTest {
         PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
                 titleId, "kiem-lai-1", "Kiếm Lai Phần 1",
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
-                posterId, entryId, "tap-2", ScreenEntryType.EPISODE, 2,
+                posterId, null, entryId, "tap-2", ScreenEntryType.EPISODE, 2,
                 "Tập 2: Phong Vân", "Tóm tắt tập 2", 1440L, thumbnailId,
                 true, "/media/assets/" + videoAssetId + "/content", "video/mp4",
-                prev, next, List.of(prev, curr, next)
+                prev, next, List.of(prev, curr, next),
+                10L, 100L, true,
+                1300L, 1400L, true
         );
 
         when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-2")).thenReturn(watchDTO);
@@ -166,6 +168,13 @@ class PublicScreenWatchViewRenderingTest {
                 .andExpect(content().string(containsString("data-entry-id=\"" + entryId + "\"")))
                 .andExpect(content().string(containsString("data-entry-label=\"Tập 2\"")))
                 .andExpect(content().string(containsString("data-video-src=\"/media/assets/" + videoAssetId + "/content\"")))
+                // MS-08G3-UX02-C2.1: Outro boundary dataset and Skip Outro button
+                .andExpect(content().string(containsString("data-has-outro=\"true\"")))
+                .andExpect(content().string(containsString("data-outro-start-seconds=\"1300\"")))
+                .andExpect(content().string(containsString("data-outro-end-seconds=\"1400\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerSkipOutroBtn\"")))
+                .andExpect(content().string(containsString("class=\"screen-player-skip-outro-btn\"")))
+                .andExpect(content().string(containsString("Bỏ qua Outro")))
                 // MS-08G2-UX01-P1: Pre-playback poster stage image layer & integrated 10s seek icons
                 .andExpect(content().string(containsString("id=\"screenPlayerPoster\"")))
                 .andExpect(content().string(containsString("id=\"screenPlayerPosterImg\"")))

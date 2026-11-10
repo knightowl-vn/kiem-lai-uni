@@ -42,7 +42,8 @@ public final class ScreenTitlePersistenceMapper {
                 domain.getProductionStudio(),
                 domain.getDefaultIntroStartSeconds(),
                 domain.getDefaultIntroEndSeconds(),
-                domain.getDefaultOutroStartSeconds()
+                domain.getDefaultOutroStartSeconds(),
+                domain.getDefaultOutroEndSeconds()
         );
     }
 
@@ -71,6 +72,7 @@ public final class ScreenTitlePersistenceMapper {
         entity.setDefaultIntroStartSeconds(domain.getDefaultIntroStartSeconds());
         entity.setDefaultIntroEndSeconds(domain.getDefaultIntroEndSeconds());
         entity.setDefaultOutroStartSeconds(domain.getDefaultOutroStartSeconds());
+        entity.setDefaultOutroEndSeconds(domain.getDefaultOutroEndSeconds());
     }
 
     public static ScreenTitle toDomain(ScreenTitleJpaEntity entity) {
@@ -98,7 +100,8 @@ public final class ScreenTitlePersistenceMapper {
                 entity.getProductionStudio(),
                 entity.getDefaultIntroStartSeconds(),
                 entity.getDefaultIntroEndSeconds(),
-                entity.getDefaultOutroStartSeconds()
+                entity.getDefaultOutroStartSeconds(),
+                entity.getDefaultOutroEndSeconds()
         );
     }
 

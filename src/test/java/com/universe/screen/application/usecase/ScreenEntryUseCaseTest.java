@@ -17,6 +17,7 @@ import com.universe.screen.domain.ScreenPresentation;
 import com.universe.screen.domain.ScreenPublicationStatus;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.domain.ScreenTimelineMode;
+import com.universe.screen.domain.ScreenTimelineTimestampFormat;
 import com.universe.screen.domain.ScreenTitle;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
@@ -838,6 +839,27 @@ class ScreenEntryUseCaseTest {
         }
 
         @Test
+        @DisplayName("UX02-C2.1 UpdateEntry: rejects when overridden Outro end exceeds known durationSeconds")
+        void shouldRejectWhenOutroEndExceedsDurationSeconds() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, 1500L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1400L, 1600L
+            );
+
+            assertThatThrownBy(() -> useCase.execute(cmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage("Thời gian kết thúc Outro không được vượt quá thời lượng tập phim.");
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
         @DisplayName("UX02-C2-SR01 Defect 2 Regression: rejects legacy command when duration shortened below existing overridden Intro end")
         void shouldRejectLegacyCommandWhenDurationShortenedBelowOverriddenIntroEnd() {
             when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
@@ -938,6 +960,134 @@ class ScreenEntryUseCaseTest {
             assertThatThrownBy(() -> useCase.execute(cmd))
                     .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
                     .hasMessage("Vui lòng chọn chế độ mốc thời gian cho cả Intro và Outro.");
+
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1-SR01 Defect B Regression: preserves stored outroEnd when legacy command omits outroEnd")
+        void shouldPreserveStoredOutroEndWhenLegacyCommandOmitsOutroEnd() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1200L, 1350L, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(50));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // 14-arg command (updateTimeline = true, outroMode = OVERRIDE, outroStart = 1200L, updateOutroEnd = false)
+            UpdateScreenEntryCommand legacyCmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 1500L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1200L
+            );
+
+            ScreenEntryDTO result = useCase.execute(legacyCmd);
+
+            assertThat(result.outroMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(result.outroStartSeconds()).isEqualTo(1200L);
+            assertThat(result.outroEndSeconds()).isEqualTo(1350L);
+            verify(entryRepository).save(entry);
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1-SR01 Defect B Regression: clears stored outroEnd when command explicitly sets it with updateOutroEnd=true")
+        void shouldClearStoredOutroEndWhenCommandExplicitlySetsItWithUpdateOutroEndTrue() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1200L, 1350L, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(50));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // 15-arg command with explicit outroEnd = null (updateOutroEnd = true)
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 1500L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1200L, null
+            );
+
+            ScreenEntryDTO result = useCase.execute(cmd);
+
+            assertThat(result.outroMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
+            assertThat(result.outroStartSeconds()).isEqualTo(1200L);
+            assertThat(result.outroEndSeconds()).isNull();
+            verify(entryRepository).save(entry);
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1-SR01 Defect B Regression: clears stored outroEnd when mode changed to INHERIT or DISABLED")
+        void shouldClearStoredOutroEndWhenModeChangedToInheritOrDisabled() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1200L, 1350L, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+            when(clockPort.now()).thenReturn(now.plusSeconds(50));
+            when(entryRepository.save(any(ScreenEntry.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // Changing outroMode to INHERIT (without supplying outroEnd)
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 1500L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.INHERIT, null
+            );
+
+            ScreenEntryDTO result = useCase.execute(cmd);
+
+            assertThat(result.outroMode()).isEqualTo(ScreenTimelineMode.INHERIT);
+            assertThat(result.outroStartSeconds()).isNull();
+            assertThat(result.outroEndSeconds()).isNull();
+            verify(entryRepository).save(entry);
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1-SR01 Defect B Regression: rejects update when duration shortened to less than stored outroEnd")
+        void shouldRejectUpdateWhenDurationShortenedToLessThanStoredOutroEnd() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1500L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1200L, 1350L, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // Non-timeline update shortens duration to 1300L (< stored outroEnd 1350L)
+            UpdateScreenEntryCommand cmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 1300L
+            );
+
+            assertThatThrownBy(() -> useCase.execute(cmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage(ScreenTimelineTimestampFormat.OUTRO_END_EXCEEDS_DURATION_MESSAGE);
+
+            verify(entryRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1-SR01 Defect B Regression: rejects legacy timeline update when outroStart changed to after stored outroEnd")
+        void shouldRejectLegacyTimelineUpdateWhenOutroStartChangedToAfterStoredOutroEnd() {
+            when(titleRepository.findByIdForUpdate(seriesTitleId)).thenReturn(Optional.of(seriesTitle));
+            ScreenEntry entry = ScreenEntry.createDraft(
+                    entryId, seriesTitleId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1", null, null, null, 1600L, now
+            );
+            entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1200L, 1350L, now);
+            when(entryRepository.findByIdForUpdate(entryId)).thenReturn(Optional.of(entry));
+
+            UpdateScreenEntryUseCase useCase = new UpdateScreenEntryUseCase(titleRepository, entryRepository, clockPort);
+            // Legacy command updates outroStart to 1400L (> stored outroEnd 1350L, updateOutroEnd = false)
+            UpdateScreenEntryCommand legacyCmd = new UpdateScreenEntryCommand(
+                    seriesTitleId, entryId, "ep-1", ScreenEntryType.EPISODE, 1, "Ep 1 Updated", null, 1600L,
+                    true, ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1400L
+            );
+
+            assertThatThrownBy(() -> useCase.execute(legacyCmd))
+                    .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                    .hasMessage("Thời gian kết thúc Outro phải lớn hơn thời gian bắt đầu.");
 
             verify(entryRepository, never()).save(any());
         }

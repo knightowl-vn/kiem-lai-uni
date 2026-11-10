@@ -19,8 +19,82 @@ public class EditScreenEntryForm {
     private String introEnd;
     private ScreenTimelineMode outroMode;
     private String outroStart;
+    private boolean outroEndProvided = false;
+    private String outroEnd;
 
     public EditScreenEntryForm() {
+    }
+
+    public EditScreenEntryForm(
+            String title,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String synopsis,
+            Long durationSeconds,
+            String videoMediaAssetId,
+            String thumbnailMediaAssetId,
+            boolean updateTimeline,
+            ScreenTimelineMode introMode,
+            String introStart,
+            String introEnd,
+            ScreenTimelineMode outroMode,
+            String outroStart,
+            boolean outroEndProvided,
+            String outroEnd
+    ) {
+        this.title = title;
+        this.slug = slug;
+        this.type = type;
+        this.number = number;
+        this.synopsis = synopsis;
+        this.durationSeconds = durationSeconds;
+        this.videoMediaAssetId = videoMediaAssetId;
+        this.thumbnailMediaAssetId = thumbnailMediaAssetId;
+        this.updateTimeline = updateTimeline;
+        this.introMode = introMode;
+        this.introStart = introStart;
+        this.introEnd = introEnd;
+        this.outroMode = outroMode;
+        this.outroStart = outroStart;
+        this.outroEndProvided = outroEndProvided;
+        this.outroEnd = outroEnd;
+    }
+
+    public EditScreenEntryForm(
+            String title,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String synopsis,
+            Long durationSeconds,
+            String videoMediaAssetId,
+            String thumbnailMediaAssetId,
+            ScreenTimelineMode introMode,
+            String introStart,
+            String introEnd,
+            ScreenTimelineMode outroMode,
+            String outroStart,
+            String outroEnd
+    ) {
+        this(
+                title,
+                slug,
+                type,
+                number,
+                synopsis,
+                durationSeconds,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                true,
+                introMode,
+                introStart,
+                introEnd,
+                outroMode,
+                outroStart,
+                true,
+                outroEnd
+        );
     }
 
     public EditScreenEntryForm(
@@ -38,20 +112,24 @@ public class EditScreenEntryForm {
             ScreenTimelineMode outroMode,
             String outroStart
     ) {
-        this.title = title;
-        this.slug = slug;
-        this.type = type;
-        this.number = number;
-        this.synopsis = synopsis;
-        this.durationSeconds = durationSeconds;
-        this.videoMediaAssetId = videoMediaAssetId;
-        this.thumbnailMediaAssetId = thumbnailMediaAssetId;
-        this.updateTimeline = true;
-        this.introMode = introMode;
-        this.introStart = introStart;
-        this.introEnd = introEnd;
-        this.outroMode = outroMode;
-        this.outroStart = outroStart;
+        this(
+                title,
+                slug,
+                type,
+                number,
+                synopsis,
+                durationSeconds,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                true,
+                introMode,
+                introStart,
+                introEnd,
+                outroMode,
+                outroStart,
+                false,
+                null
+        );
     }
 
     public EditScreenEntryForm(
@@ -64,20 +142,24 @@ public class EditScreenEntryForm {
             String videoMediaAssetId,
             String thumbnailMediaAssetId
     ) {
-        this.title = title;
-        this.slug = slug;
-        this.type = type;
-        this.number = number;
-        this.synopsis = synopsis;
-        this.durationSeconds = durationSeconds;
-        this.videoMediaAssetId = videoMediaAssetId;
-        this.thumbnailMediaAssetId = thumbnailMediaAssetId;
-        this.updateTimeline = false;
-        this.introMode = null;
-        this.introStart = null;
-        this.introEnd = null;
-        this.outroMode = null;
-        this.outroStart = null;
+        this(
+                title,
+                slug,
+                type,
+                number,
+                synopsis,
+                durationSeconds,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null
+        );
     }
 
     public String getTitle() {
@@ -158,7 +240,8 @@ public class EditScreenEntryForm {
                 || outroMode != null
                 || (introStart != null && !introStart.isBlank())
                 || (introEnd != null && !introEnd.isBlank())
-                || (outroStart != null && !outroStart.isBlank());
+                || (outroStart != null && !outroStart.isBlank())
+                || (outroEnd != null && !outroEnd.isBlank());
     }
 
     public ScreenTimelineMode getIntroMode() {
@@ -214,5 +297,25 @@ public class EditScreenEntryForm {
         if (outroStart != null && !outroStart.isBlank()) {
             this.updateTimeline = true;
         }
+    }
+
+    public String getOutroEnd() {
+        return outroEnd;
+    }
+
+    public void setOutroEnd(String outroEnd) {
+        this.outroEnd = outroEnd;
+        this.outroEndProvided = true;
+        if (outroEnd != null && !outroEnd.isBlank()) {
+            this.updateTimeline = true;
+        }
+    }
+
+    public boolean isOutroEndProvided() {
+        return outroEndProvided;
+    }
+
+    public void setOutroEndProvided(boolean outroEndProvided) {
+        this.outroEndProvided = outroEndProvided;
     }
 }

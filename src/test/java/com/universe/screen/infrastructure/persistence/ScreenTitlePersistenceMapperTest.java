@@ -376,24 +376,27 @@ class ScreenTitlePersistenceMapperTest {
                 id, "timeline-series", "Timeline Series",
                 ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, t1
         );
-        domain.updateDefaultTimeline(15L, 105L, 1320L, t2);
+        domain.updateDefaultTimeline(15L, 105L, 1320L, 1400L, t2);
 
         ScreenTitleJpaEntity entity = ScreenTitlePersistenceMapper.toEntity(domain);
         assertThat(entity.getDefaultIntroStartSeconds()).isEqualTo(15L);
         assertThat(entity.getDefaultIntroEndSeconds()).isEqualTo(105L);
         assertThat(entity.getDefaultOutroStartSeconds()).isEqualTo(1320L);
+        assertThat(entity.getDefaultOutroEndSeconds()).isEqualTo(1400L);
 
         ScreenTitle rehydrated = ScreenTitlePersistenceMapper.toDomain(entity);
         assertThat(rehydrated.getDefaultIntroStartSeconds()).isEqualTo(15L);
         assertThat(rehydrated.getDefaultIntroEndSeconds()).isEqualTo(105L);
         assertThat(rehydrated.getDefaultOutroStartSeconds()).isEqualTo(1320L);
+        assertThat(rehydrated.getDefaultOutroEndSeconds()).isEqualTo(1400L);
 
         // Update entity timeline metadata
-        domain.updateDefaultTimeline(0L, 90L, null, t2);
+        domain.updateDefaultTimeline(0L, 90L, null, null, t2);
         ScreenTitlePersistenceMapper.updateEntity(entity, domain);
         assertThat(entity.getDefaultIntroStartSeconds()).isEqualTo(0L);
         assertThat(entity.getDefaultIntroEndSeconds()).isEqualTo(90L);
         assertThat(entity.getDefaultOutroStartSeconds()).isNull();
+        assertThat(entity.getDefaultOutroEndSeconds()).isNull();
     }
 
     @Test

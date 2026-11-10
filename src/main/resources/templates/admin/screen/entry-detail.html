@@ -158,13 +158,22 @@
                             <td style="padding: 10px 0;">
                                 <span th:if="${entry.outroMode == null or entry.outroMode.name() == 'INHERIT'}">
                                     <span style="background: #e8f0fe; color: #1967d2; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Kế thừa từ phần phim</span>
-                                    <code th:if="${title.hasDefaultOutro()}" style="margin-left: 6px;"
-                                          th:text="${title.formattedDefaultOutroStart()}">22:10</code>
+                                    <span th:if="${title.hasDefaultOutro()}">
+                                        <code th:if="${title.hasBoundedDefaultOutro()}" style="margin-left: 6px;"
+                                              th:text="${title.formattedDefaultOutroStart() + ' — ' + title.formattedDefaultOutroEnd()}">22:10 — 23:45</code>
+                                        <code th:unless="${title.hasBoundedDefaultOutro()}" style="margin-left: 6px;"
+                                              th:text="${title.formattedDefaultOutroStart()}">22:10</code>
+                                        <small th:unless="${title.hasBoundedDefaultOutro()}" style="color: #5f6368; margin-left: 4px;">(đến hết video)</small>
+                                    </span>
                                     <small th:unless="${title.hasDefaultOutro()}" style="color: #80868b; margin-left: 6px;">(Phần phim chưa thiết lập)</small>
                                 </span>
                                 <span th:if="${entry.outroMode != null and entry.outroMode.name() == 'OVERRIDE'}">
                                     <span style="background: #e6f4ea; color: #137333; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Tùy chỉnh cho tập này</span>
-                                    <code style="margin-left: 6px;" th:text="${entry.formattedOutroStart()}">21:30</code>
+                                    <code th:if="${entry.hasBoundedOutroOverride()}" style="margin-left: 6px;"
+                                          th:text="${entry.formattedOutroStart() + ' — ' + entry.formattedOutroEnd()}">21:30 — 22:45</code>
+                                    <code th:unless="${entry.hasBoundedOutroOverride()}" style="margin-left: 6px;"
+                                          th:text="${entry.formattedOutroStart()}">21:30</code>
+                                    <small th:unless="${entry.hasBoundedOutroOverride()}" style="color: #5f6368; margin-left: 4px;">(đến hết video)</small>
                                 </span>
                                 <span th:if="${entry.outroMode != null and entry.outroMode.name() == 'DISABLED'}">
                                     <span style="background: #fef7e0; color: #b06000; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Không có Outro</span>

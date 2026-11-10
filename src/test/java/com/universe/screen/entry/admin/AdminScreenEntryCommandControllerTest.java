@@ -334,6 +334,123 @@ class AdminScreenEntryCommandControllerTest {
             assertThat(captured.introEndSeconds()).isEqualTo(100L);
             assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.OVERRIDE);
             assertThat(captured.outroStartSeconds()).isEqualTo(1265L);
+            assertThat(captured.updateOutroEnd()).isFalse();
+            assertThat(captured.outroEndSeconds()).isNull();
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1 Command: updateEntry parses bounded Outro override timestamps and passes to UpdateScreenEntryCommand")
+        void shouldParseBoundedOutroOverrideTimestampsAndPassToCommandOnUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1576L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "00:10", "01:40",
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "24:12", "25:30"
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.updateTimeline()).isTrue();
+            assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.OVERRIDE);
+            assertThat(captured.outroStartSeconds()).isEqualTo(1452L);
+            assertThat(captured.updateOutroEnd()).isTrue();
+            assertThat(captured.outroEndSeconds()).isEqualTo(1530L);
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1-SR01 Defect B Regression: updateEntry passes updateOutroEnd=true and null seconds when form explicitly leaves outroEnd blank")
+        void shouldClearOutroEndWhenFormSubmitsExplicitBlankOutroEndOnEntryUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1576L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "00:10", "01:40",
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "24:12", ""
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.updateTimeline()).isTrue();
+            assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.OVERRIDE);
+            assertThat(captured.outroStartSeconds()).isEqualTo(1452L);
+            assertThat(captured.updateOutroEnd()).isTrue();
+            assertThat(captured.outroEndSeconds()).isNull();
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1-SR01 Defect B Regression: updateEntry passes updateOutroEnd=true when mode is changed to INHERIT or DISABLED")
+        void shouldSetUpdateOutroEndTrueWhenModeChangedToInheritOrDisabledOnEntryUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1576L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.INHERIT, null
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            org.mockito.ArgumentCaptor<UpdateScreenEntryCommand> captor = org.mockito.ArgumentCaptor.forClass(UpdateScreenEntryCommand.class);
+            when(updateScreenEntryUseCase.execute(captor.capture())).thenReturn(sampleEntry);
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId);
+            UpdateScreenEntryCommand captured = captor.getValue();
+            assertThat(captured.updateTimeline()).isTrue();
+            assertThat(captured.outroMode()).isEqualTo(com.universe.screen.domain.ScreenTimelineMode.INHERIT);
+            assertThat(captured.outroStartSeconds()).isNull();
+            assertThat(captured.updateOutroEnd()).isTrue();
+            assertThat(captured.outroEndSeconds()).isNull();
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1 Command: updateEntry rejects orphaned outroEnd when outroStart is missing")
+        void shouldRejectOrphanedOutroEndWhenOutroStartMissingOnEntryUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1576L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "00:10", "01:40",
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "", "25:30"
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .contains("Không thể thiết lập thời gian kết thúc Outro khi chưa có thời gian bắt đầu.");
+            verify(updateScreenEntryUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("UX02-C2.1 Command: updateEntry rejects invalid Outro order when outroEnd <= outroStart")
+        void shouldRejectInvalidOutroOrderWhenOutroEndBeforeStartOnEntryUpdate() {
+            EditScreenEntryForm form = new EditScreenEntryForm(
+                    "Tập 1", "ep-1", ScreenEntryType.EPISODE, 1, "Mô tả", 1576L, null, null,
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "00:10", "01:40",
+                    com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, "25:30", "24:12"
+            );
+            BindingResult bindingResult = new BeanPropertyBindingResult(form, "form");
+            RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+            String view = controller.updateEntry(titleId, entryId, form, bindingResult, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/screen/titles/" + titleId + "/entries/" + entryId + "/edit");
+            assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+            assertThat((String) redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .contains("Thời gian kết thúc Outro phải lớn hơn thời gian bắt đầu.");
+            verify(updateScreenEntryUseCase, never()).execute(any());
         }
 
         @Test

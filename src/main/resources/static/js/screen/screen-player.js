@@ -281,6 +281,7 @@
         var nextEpBtn = context.querySelector('#screenPlayerNextEpBtn');
         var nextUpPrompt = context.querySelector('#screenPlayerNextUpPrompt');
         var nextUpDismissBtn = context.querySelector('#screenPlayerNextUpDismissBtn');
+        var skipOutroBtn = context.querySelector('#screenPlayerSkipOutroBtn');
 
         var posterEl = context.querySelector('#screenPlayerPoster')
             || context.querySelector('.screen-player-poster');
@@ -307,6 +308,30 @@
         var attrDuration = playerWrap && typeof playerWrap.getAttribute === 'function'
             ? parseFloat(playerWrap.getAttribute('data-duration-seconds'))
             : NaN;
+
+        var hasOutroOpt = opts.hasOutro !== undefined
+            ? Boolean(opts.hasOutro)
+            : (playerWrap && typeof playerWrap.getAttribute === 'function' && playerWrap.getAttribute('data-has-outro') === 'true');
+        var rawOutroStart = opts.outroStartSeconds !== undefined
+            ? opts.outroStartSeconds
+            : (playerWrap && typeof playerWrap.getAttribute === 'function' ? playerWrap.getAttribute('data-outro-start-seconds') : null);
+        var rawOutroEnd = opts.outroEndSeconds !== undefined
+            ? opts.outroEndSeconds
+            : (playerWrap && typeof playerWrap.getAttribute === 'function' ? playerWrap.getAttribute('data-outro-end-seconds') : null);
+
+        var outroStartSeconds = (rawOutroStart !== null && rawOutroStart !== '' && !isNaN(Number(rawOutroStart)))
+            ? Number(rawOutroStart)
+            : null;
+        var outroEndSeconds = (rawOutroEnd !== null && rawOutroEnd !== '' && !isNaN(Number(rawOutroEnd)))
+            ? Number(rawOutroEnd)
+            : null;
+
+        var isOutroValid = Boolean(
+            hasOutroOpt &&
+            outroStartSeconds !== null &&
+            outroStartSeconds >= 0 &&
+            (outroEndSeconds === null || outroEndSeconds > outroStartSeconds)
+        );
 
         var storage = opts.storage !== undefined
             ? opts.storage
@@ -678,6 +703,7 @@
             hasPlayedOrSeeked = true;
             lastKnownPosition = clamped;
             updateTimeline();
+            evaluateSkipOutroAction();
             return clamped;
         }
 
@@ -1241,12 +1267,27 @@
             if (!nextUpPrompt || nextUpDismissed) {
                 return;
             }
-            var dur = getEffectiveDuration();
-            var cur = getCurrentTimeSafe();
             if (video.ended) {
                 setElementHidden(nextUpPrompt, false);
                 return;
             }
+            var dur = getEffectiveDuration();
+            var cur = getCurrentTimeSafe();
+
+            // When a valid bounded Outro is followed by after-credit content,
+            // suppress the floating near-end Next Up suggestion during playback
+            // so after-credit scenes remain completely unobstructed.
+            var hasBoundedAfterCredit = Boolean(
+                isOutroValid &&
+                outroEndSeconds !== null &&
+                dur !== null &&
+                outroEndSeconds < dur
+            );
+            if (hasBoundedAfterCredit) {
+                setElementHidden(nextUpPrompt, true);
+                return;
+            }
+
             if (dur !== null && dur >= NEXT_UP_MIN_DURATION_SECONDS && cur > 0 && cur >= dur - NEXT_UP_WINDOW_SECONDS) {
                 setElementHidden(nextUpPrompt, false);
             } else {
@@ -1260,6 +1301,84 @@
             }
             nextUpDismissed = true;
             setElementHidden(nextUpPrompt, true);
+        }
+
+        // =====================================================================
+        // Contextual Manual Skip Outro Action (MS-08G3-UX02-C2.1)
+        // =====================================================================
+
+        function evaluateSkipOutroAction() {
+            if (!skipOutroBtn) {
+                return;
+            }
+            if (!isOutroValid) {
+                setElementHidden(skipOutroBtn, true);
+                return;
+            }
+            var dur = getEffectiveDuration();
+            var cur = getCurrentTimeSafe();
+
+            // Suppress if start is at or beyond duration
+            if (dur !== null && dur > 0 && outroStartSeconds >= dur) {
+                setElementHidden(skipOutroBtn, true);
+                return;
+            }
+
+            // Suppress if bounded outro end exceeds duration
+            if (outroEndSeconds !== null && dur !== null && dur > 0 && outroEndSeconds > dur) {
+                setElementHidden(skipOutroBtn, true);
+                return;
+            }
+
+            if (video.ended) {
+                setElementHidden(skipOutroBtn, true);
+                return;
+            }
+
+            var inOutro = false;
+            if (outroEndSeconds !== null) {
+                // Case A: Bounded Outro [start, end)
+                inOutro = (cur >= outroStartSeconds && cur < outroEndSeconds);
+            } else {
+                // Case B: Unbounded Outro [start, videoEnd)
+                if (dur !== null && dur > 0) {
+                    inOutro = (cur >= outroStartSeconds && cur < dur);
+                } else {
+                    inOutro = (cur >= outroStartSeconds);
+                }
+            }
+
+            setElementHidden(skipOutroBtn, !inOutro);
+        }
+
+        function onSkipOutroClick(e) {
+            if (e && typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
+            if (e && typeof e.stopPropagation === 'function') {
+                e.stopPropagation();
+            }
+            if (!isOutroValid) {
+                return;
+            }
+            var dur = getEffectiveDuration();
+
+            if (outroEndSeconds !== null) {
+                // Case A: Explicit bounded Outro end -> seek to end timestamp
+                if (dur !== null && dur > 0 && outroEndSeconds > dur) {
+                    // Suppress unsafe seek past playable duration
+                    return;
+                }
+                seekTo(outroEndSeconds);
+            } else {
+                // Case B: Outro end omitted -> seek safely to video end
+                if (dur !== null && dur > 0) {
+                    seekTo(dur);
+                } else if (typeof video.duration === 'number' && isFinite(video.duration) && video.duration > 0) {
+                    seekTo(video.duration);
+                }
+            }
+            evaluateSkipOutroAction();
         }
 
         // =====================================================================
@@ -1515,6 +1634,7 @@
             if (!hasRenderedVideoFrame && (hasPlayedOrSeeked || (typeof video.currentTime === 'number' && video.currentTime > 0)) && isVideoFrameReady(video)) {
                 hidePoster();
             }
+            evaluateSkipOutroAction();
         }
 
         function onLoadedMetadata() {
@@ -1534,6 +1654,7 @@
                 evaluateInitialResume();
             }
             updateTimeline();
+            evaluateSkipOutroAction();
         }
 
         function onTimeUpdate() {
@@ -1547,6 +1668,7 @@
             updateTimeline();
             saveProgressThrottled();
             evaluateNextUpPrompt();
+            evaluateSkipOutroAction();
         }
 
         function onProgress() {
@@ -1558,6 +1680,7 @@
             if (resumeCandidate && resumePromptPending && !isEligibleForResume(resumeCandidate)) {
                 hideResumeModal();
             }
+            evaluateSkipOutroAction();
         }
 
         function onEnded() {
@@ -1565,6 +1688,7 @@
             setBuffering(false);
             clearSavedProgress();
             evaluateNextUpPrompt();
+            evaluateSkipOutroAction();
         }
 
         function onVolumeChange() {
@@ -1788,6 +1912,9 @@
         if (nextUpDismissBtn && typeof nextUpDismissBtn.addEventListener === 'function') {
             nextUpDismissBtn.addEventListener('click', onNextUpDismiss);
         }
+        if (skipOutroBtn && typeof skipOutroBtn.addEventListener === 'function') {
+            skipOutroBtn.addEventListener('click', onSkipOutroClick);
+        }
         if (playerWrap && typeof playerWrap.addEventListener === 'function') {
             playerWrap.addEventListener('keydown', handleKeyDown);
             playerWrap.addEventListener('mousemove', wakeControls);
@@ -1812,6 +1939,7 @@
         syncVolumeUI();
         updateTimeline();
         evaluateInitialResume();
+        evaluateSkipOutroAction();
 
         if (posterImgEl) {
             // Neutralize any legacy or residual inline onerror handler
@@ -1932,6 +2060,9 @@
             if (nextUpDismissBtn && typeof nextUpDismissBtn.removeEventListener === 'function') {
                 nextUpDismissBtn.removeEventListener('click', onNextUpDismiss);
             }
+            if (skipOutroBtn && typeof skipOutroBtn.removeEventListener === 'function') {
+                skipOutroBtn.removeEventListener('click', onSkipOutroClick);
+            }
             if (playerWrap && typeof playerWrap.removeEventListener === 'function') {
                 playerWrap.removeEventListener('keydown', handleKeyDown);
                 playerWrap.removeEventListener('mousemove', wakeControls);
@@ -1972,6 +2103,9 @@
             resumeModal: resumeModal,
             nextEpBtn: nextEpBtn,
             nextUpPrompt: nextUpPrompt,
+            skipOutroBtn: skipOutroBtn,
+            evaluateSkipOutroAction: evaluateSkipOutroAction,
+            isOutroActive: function () { return skipOutroBtn ? !skipOutroBtn.hidden : false; },
             showError: showError,
             hideError: hideError,
             handleRetry: handleRetry,

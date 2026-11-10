@@ -234,6 +234,15 @@ function createUX01Fixture(customAttrs = {}) {
     if (customAttrs.durationSeconds !== undefined) {
         wrap.setAttribute('data-duration-seconds', String(customAttrs.durationSeconds));
     }
+    if (customAttrs.hasOutro !== undefined) {
+        wrap.setAttribute('data-has-outro', customAttrs.hasOutro ? 'true' : 'false');
+    }
+    if (customAttrs.outroStartSeconds !== undefined) {
+        wrap.setAttribute('data-outro-start-seconds', String(customAttrs.outroStartSeconds));
+    }
+    if (customAttrs.outroEndSeconds !== undefined) {
+        wrap.setAttribute('data-outro-end-seconds', String(customAttrs.outroEndSeconds));
+    }
 
     let _isPaused = customAttrs.paused !== undefined ? Boolean(customAttrs.paused) : true;
     Object.defineProperty(video, 'paused', {
@@ -416,10 +425,17 @@ function createUX01Fixture(customAttrs = {}) {
         wrap.appendChild(poster);
     }
 
+    const skipOutroBtn = createMockElement('button', {
+        id: 'screenPlayerSkipOutroBtn',
+        class: 'screen-player-skip-outro-btn',
+        hidden: ''
+    }, 'Bỏ qua Outro');
+
     wrap.appendChild(buffering);
     wrap.appendChild(seekFeedback);
     wrap.appendChild(bigPlayBtn);
     wrap.appendChild(resumeModal);
+    wrap.appendChild(skipOutroBtn);
     wrap.appendChild(controls);
 
     return {
@@ -437,6 +453,7 @@ function createUX01Fixture(customAttrs = {}) {
         resumeResetBtn,
         nextUpPrompt,
         nextUpDismissBtn,
+        skipOutroBtn,
         nextEpBtn,
         controls,
         bufferedBar,
@@ -2326,4 +2343,356 @@ describe('ScreenPlayer — Responsive Video Player Controls, Standalone PiP and 
         assert.strictEqual(fixture.doc.getListeners('click').length, 0);
     });
 
+});
+
+describe('ScreenPlayer — Outro End Boundary & Manual Skip Outro (MS-08G3-UX02-C2.1)', () => {
+
+    test('C2.1-1. Bounded Outro [24:12 -> 25:30] on 26:16: button is hidden before 24:12 (1452s)', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452, // 24:12
+            outroEndSeconds: 1530,   // 25:30
+            videoDuration: 1576,     // 26:16
+            videoCurrentTime: 1000
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Skip Outro button hidden before Outro starts');
+        assert.strictEqual(controller.isOutroActive(), false);
+
+        // Advance to 1451s
+        fixture.video.currentTime = 1451;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Still hidden at 1451s');
+    });
+
+    test('C2.1-2. Bounded Outro [24:12 -> 25:30]: button is visible during Outro interval [1452s, 1530s)', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1452
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Skip Outro button visible at Outro start (1452s)');
+        assert.strictEqual(controller.isOutroActive(), true);
+
+        // Advance within Outro to 1500s
+        fixture.video.currentTime = 1500;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Skip Outro button remains visible at 1500s');
+    });
+
+    test('C2.1-3. Bounded Outro [24:12 -> 25:30]: button hides at and after 25:30 (1530s) allowing after-credit playback', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1452
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+
+        // Advance to exactly Outro end (1530s)
+        fixture.video.currentTime = 1530;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Skip Outro button hides at outroEnd boundary');
+        assert.strictEqual(controller.isOutroActive(), false);
+
+        // Advance into after-credit scene (1550s)
+        fixture.video.currentTime = 1550;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Skip Outro button remains hidden during after-credits');
+    });
+
+    test('C2.1-4. Bounded Outro: clicking Skip Outro seeks to 25:30 (1530s), hides button, does NOT end video, and does NOT trigger next episode', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1460,
+            paused: false
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+
+        let clickPrevented = false;
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => { clickPrevented = true; },
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(clickPrevented, true, 'Default prevented on click');
+        assert.strictEqual(fixture.video.currentTime, 1530, 'Video seeked to bounded outroEnd (1530s)');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Skip Outro button immediately hidden after seeking to end');
+        assert.strictEqual(fixture.video.paused, false, 'Playback continues without pausing');
+        assert.strictEqual(fixture.video.ended, undefined, 'Video is not ended; after-credit scene remains watchable');
+    });
+
+    test('C2.1-5. Bounded Outro: seeking back into Outro interval re-shows the Skip Outro button', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1550 // in after-credit scene
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true);
+
+        // Seek backwards into Outro (1480s)
+        controller.seekTo(1480);
+        fixture.video.dispatchEvent('seeked');
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Button reappears when seeking back into Outro interval');
+    });
+
+    test('C2.1-6. Unbounded Outro [24:12 -> NULL] on 26:16: button appears at 1452s and stays visible until video end', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            // outroEndSeconds omitted -> null
+            videoDuration: 1576,
+            videoCurrentTime: 1000
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true);
+
+        // Advance to 1452s
+        fixture.video.currentTime = 1452;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Button visible at 1452s');
+
+        // Advance to 1570s
+        fixture.video.currentTime = 1570;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Button still visible near end for unbounded Outro');
+    });
+
+    test('C2.1-7. Unbounded Outro: clicking Skip Outro seeks safely to video.duration (1576s)', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(fixture.video.currentTime, 1576, 'Seeked safely to video duration');
+    });
+
+    test('C2.1-8. Native ended event hides Skip Outro button', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1500
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+
+        fixture.video.ended = true;
+        fixture.video.dispatchEvent('ended');
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Ended event hides Skip Outro button');
+    });
+
+    test('C2.1-9. Outro disabled (hasOutro: false) or absent: Skip Outro button is never shown and click is no-op', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: false,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Button hidden when hasOutro is false');
+
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(fixture.video.currentTime, 1480, 'Position unchanged by click when disabled');
+    });
+
+    test('C2.1-10. Invalid Outro metadata: start >= duration or end > duration suppresses button and prevents unsafe seeking', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1600, // exceeds duration 1576
+            videoDuration: 1576,
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Button suppressed when outroEnd exceeds video duration');
+
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(fixture.video.currentTime, 1480, 'Unsafe seek past duration is suppressed');
+    });
+
+    test('C2.1-11. No next episode published (hasNext: false): Skip Outro still operates cleanly', () => {
+        const fixture = createUX01Fixture({
+            hasNext: false,
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.nextUpPrompt, null, 'No next episode prompt in standalone / final episode');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Skip Outro button operates normally');
+
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(fixture.video.currentTime, 1530, 'Seeked cleanly to outroEnd');
+    });
+
+    test('C2.1-12. Controller destroy removes Skip Outro click event listener cleanly', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.getListeners('click').length, 1);
+
+        controller.destroy();
+
+        assert.strictEqual(fixture.skipOutroBtn.getListeners('click').length, 0);
+    });
+
+});
+
+describe('ScreenPlayer — After-Credit Protection & Near-End Next Up Suppression (MS-08G3-UX02-C2.1-SR01)', () => {
+
+    test('SR01-A1. Bounded Outro [1452, 1530) on 1576s with hasNext=true: Next Up prompt is suppressed during after-credits [1530..1576), appears only on ended', () => {
+        const fixture = createUX01Fixture({
+            hasNext: true,
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1460,
+            paused: false
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        // 1 & 2. Skip Outro is visible at 1460, clicking seeks to 1530
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Skip Outro visible in Outro interval');
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+        assert.strictEqual(fixture.video.currentTime, 1530, 'Seeked to Outro end');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Skip Outro hidden at Outro end');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Next Up prompt hidden at 1530');
+
+        // 3. At 1531s (within standard last 45s window), Next Up prompt remains hidden to protect after-credits
+        fixture.video.currentTime = 1531;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Next Up prompt remains hidden at 1531s');
+
+        // 4. At 1550s and 1575s, Next Up prompt remains hidden during after-credit content
+        fixture.video.currentTime = 1550;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Next Up prompt remains hidden at 1550s');
+
+        fixture.video.currentTime = 1575;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Next Up prompt remains hidden at 1575s');
+
+        // 6. Manual Next Episode button in control bar remains available
+        assert.strictEqual(fixture.nextEpBtn !== null, true, 'Permanent Next Episode control exists');
+        assert.strictEqual(fixture.nextEpBtn.getAttribute('href'), '/screen/kiem-lai-phan-1/watch/tap-2');
+
+        // 5. At native ended, Next Up appears according to existing behavior
+        fixture.video.ended = true;
+        fixture.video.dispatchEvent('ended');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Next Up prompt appears on native video ended');
+    });
+
+    test('SR01-A2. Unbounded Outro preserves legacy near-end suggestion behavior (shows within last 45s)', () => {
+        const fixture = createUX01Fixture({
+            hasNext: true,
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            // unbounded: outroEndSeconds is null
+            videoDuration: 1576,
+            videoCurrentTime: 1500
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        // Before last 45s window (1500 < 1531): hidden
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Hidden before 45s window');
+
+        // In last 45s window (1531s): appears normally for unbounded outro
+        fixture.video.currentTime = 1531;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Appears in 45s window for unbounded outro');
+    });
+
+    test('SR01-A3. No Outro configured preserves legacy near-end suggestion behavior', () => {
+        const fixture = createUX01Fixture({
+            hasNext: true,
+            hasOutro: false,
+            videoDuration: 1576,
+            videoCurrentTime: 1535
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Appears in 45s window when no outro');
+    });
+
+    test('SR01-A4. Standalone / final episode with hasNext=false: no Next Up prompt exists or appears', () => {
+        const fixture = createUX01Fixture({
+            hasNext: false,
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1550
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.nextUpPrompt, null, 'nextUpPrompt is null when hasNext is false');
+        fixture.video.currentTime = 1550;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(fixture.nextUpPrompt, null);
+    });
 });

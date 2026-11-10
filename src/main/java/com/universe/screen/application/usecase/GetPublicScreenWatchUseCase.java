@@ -8,6 +8,7 @@ import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundEx
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
+import com.universe.screen.domain.EffectiveScreenTimeline;
 import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenStructure;
@@ -113,6 +114,8 @@ public class GetPublicScreenWatchUseCase {
             }
         }
 
+        EffectiveScreenTimeline effectiveTimeline = entry.resolveEffectiveTimeline(title);
+
         return new PublicScreenWatchDTO(
                 title.getId(),
                 title.getSlug(),
@@ -134,7 +137,13 @@ public class GetPublicScreenWatchUseCase {
                 videoMimeType,
                 previousEntry,
                 nextEntry,
-                playlist
+                playlist,
+                effectiveTimeline.introStartSeconds(),
+                effectiveTimeline.introEndSeconds(),
+                effectiveTimeline.hasIntro(),
+                effectiveTimeline.outroStartSeconds(),
+                effectiveTimeline.outroEndSeconds(),
+                effectiveTimeline.hasOutro()
         );
     }
 

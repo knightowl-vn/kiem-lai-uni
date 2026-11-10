@@ -753,6 +753,146 @@ class ScreenTimelineMetadataTest {
         assertThat(entry.getOutroStartSeconds()).isEqualTo(1380L);
     }
 
+    // =========================================================================
+    // UX02-C2.1: OUTRO END BOUNDARY & AFTER-CREDIT PROTECTION TESTS
+    // =========================================================================
+
+    @Test
+    @DisplayName("UX02-C2.1: ScreenOutroMarker models both unbounded (end=null) and bounded (end>start) Outro intervals")
+    void outroMarkerSupportsBoundedAndUnboundedIntervals() {
+        // Unbounded Outro (null end)
+        ScreenOutroMarker unbounded = ScreenOutroMarker.ofNullable(1452L);
+        assertThat(unbounded).isNotNull();
+        assertThat(unbounded.startSeconds()).isEqualTo(1452L);
+        assertThat(unbounded.endSeconds()).isNull();
+        assertThat(unbounded.hasEnd()).isFalse();
+        assertThat(unbounded.isReachedAt(1451L)).isFalse();
+        assertThat(unbounded.isReachedAt(1452L)).isTrue();
+        assertThat(unbounded.isReachedAt(1530L)).isTrue();
+        assertThat(unbounded.contains(1451L)).isFalse();
+        assertThat(unbounded.contains(1452L)).isTrue();
+        assertThat(unbounded.contains(1576L)).isTrue(); // unbounded extends to end of video
+
+        // Bounded Outro [1452, 1530)
+        ScreenOutroMarker bounded = ScreenOutroMarker.ofNullable(1452L, 1530L);
+        assertThat(bounded).isNotNull();
+        assertThat(bounded.startSeconds()).isEqualTo(1452L);
+        assertThat(bounded.endSeconds()).isEqualTo(1530L);
+        assertThat(bounded.hasEnd()).isTrue();
+        assertThat(bounded.contains(1451L)).isFalse();
+        assertThat(bounded.contains(1452L)).isTrue();
+        assertThat(bounded.contains(1529L)).isTrue();
+        assertThat(bounded.contains(1530L)).isFalse(); // after-credit boundary!
+        assertThat(bounded.contains(1576L)).isFalse(); // after-credit scene protected
+
+        // Invariants
+        assertThatThrownBy(() -> new ScreenOutroMarker(1530L, 1530L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("strictly greater");
+
+        assertThatThrownBy(() -> new ScreenOutroMarker(1530L, 1452L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("strictly greater");
+
+        assertThatThrownBy(() -> ScreenOutroMarker.ofNullable(null, 1530L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("startSeconds is null");
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1: Title default Outro with end boundary is inherited semantically by entry in INHERIT mode")
+    void titleDefaultBoundedOutroIsInheritedSemantically() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = ScreenTitle.createDraft(
+                titleId, "kiem-lai-s1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, T0
+        );
+        // 24:12 to 25:30 (1452s to 1530s)
+        title.updateDefaultTimeline(15L, 105L, 1452L, 1530L, T1);
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1576L, T0
+        );
+
+        EffectiveScreenTimeline effective = entry.resolveEffectiveTimeline(title);
+        assertThat(effective.hasOutro()).isTrue();
+        assertThat(effective.outroStartSeconds()).isEqualTo(1452L);
+        assertThat(effective.outroEndSeconds()).isEqualTo(1530L);
+        assertThat(effective.outroMarker().hasEnd()).isTrue();
+        assertThat(effective.outroMarker().contains(1500L)).isTrue();
+        assertThat(effective.outroMarker().contains(1550L)).isFalse(); // After-credit scene protected
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1: Entry OVERRIDE with null end means video end and does NOT inherit title Outro end independently")
+    void entryOverrideWithNullEndDoesNotInheritTitleOutroEnd() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = ScreenTitle.createDraft(
+                titleId, "kiem-lai-s1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, T0
+        );
+        // Title has bounded Outro: 1452s to 1530s
+        title.updateDefaultTimeline(15L, 105L, 1452L, 1530L, T1);
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1576L, T0
+        );
+        // Entry overrides Outro to start at 1400s without end (unbounded)
+        entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1400L, null, T1);
+
+        EffectiveScreenTimeline effective = entry.resolveEffectiveTimeline(title);
+        assertThat(effective.hasOutro()).isTrue();
+        assertThat(effective.outroStartSeconds()).isEqualTo(1400L);
+        assertThat(effective.outroEndSeconds()).isNull(); // Must NOT inherit title's 1530L!
+        assertThat(effective.outroMarker().hasEnd()).isFalse();
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1: Entry OVERRIDE with bounded Outro uses its own end")
+    void entryOverrideWithBoundedOutroUsesItsOwnEnd() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = ScreenTitle.createDraft(
+                titleId, "kiem-lai-s1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, T0
+        );
+        // Title has unbounded Outro at 1452s
+        title.updateDefaultTimeline(15L, 105L, 1452L, null, T1);
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1576L, T0
+        );
+        // Entry overrides Outro with bounded 1420s to 1500s
+        entry.updateTimeline(ScreenTimelineMode.INHERIT, null, null, ScreenTimelineMode.OVERRIDE, 1420L, 1500L, T1);
+
+        EffectiveScreenTimeline effective = entry.resolveEffectiveTimeline(title);
+        assertThat(effective.hasOutro()).isTrue();
+        assertThat(effective.outroStartSeconds()).isEqualTo(1420L);
+        assertThat(effective.outroEndSeconds()).isEqualTo(1500L);
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1: EffectiveScreenTimeline suppresses Outro when candidate outroEnd exceeds known duration")
+    void effectiveTimelineSuppressesOutroWhenOutroEndExceedsDuration() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = ScreenTitle.createDraft(
+                titleId, "kiem-lai-s1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, T0
+        );
+        // Duration is 1500s, but Outro end is 1530s
+        title.updateDefaultTimeline(15L, 105L, 1400L, 1530L, T1);
+
+        ScreenEntry entry = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "tap-1",
+                ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1500L, T0
+        );
+
+        EffectiveScreenTimeline effective = entry.resolveEffectiveTimeline(title);
+        assertThat(effective.hasOutro()).isFalse(); // Safely suppressed due to exceeding duration
+    }
+
     private static void assertTimelinePreserved(ScreenEntryDTO dto) {
         assertThat(dto.introMode()).isEqualTo(ScreenTimelineMode.OVERRIDE);
         assertThat(dto.introStartSeconds()).isEqualTo(20L);

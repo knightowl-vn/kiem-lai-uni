@@ -204,4 +204,56 @@ class PublicScreenWatchViewTest {
 
         assertThat(view.formattedDuration()).isEqualTo("2:02:05");
     }
+
+    @Test
+    @DisplayName("UX02-C2.1: Bounded Outro formatting on PublicScreenWatchView [24:12 -> 25:30]")
+    void boundedOutroFormattingOnWatchView() {
+        PublicScreenWatchDTO dto = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1576L, null,
+                true, "/media/assets/vid/content", "video/mp4",
+                null, null, List.of(),
+                0L, 90L, true,
+                1452L, 1530L, true
+        );
+
+        PublicScreenWatchView view = PublicScreenWatchView.fromDTO(dto);
+
+        assertThat(view.hasEffectiveIntro()).isTrue();
+        assertThat(view.effectiveIntroStartSeconds()).isEqualTo(0L);
+        assertThat(view.effectiveIntroEndSeconds()).isEqualTo(90L);
+        assertThat(view.hasEffectiveOutro()).isTrue();
+        assertThat(view.hasBoundedEffectiveOutro()).isTrue();
+        assertThat(view.effectiveOutroStartSeconds()).isEqualTo(1452L);
+        assertThat(view.effectiveOutroEndSeconds()).isEqualTo(1530L);
+        assertThat(view.formattedEffectiveOutroStart()).isEqualTo("24:12");
+        assertThat(view.formattedEffectiveOutroEnd()).isEqualTo("25:30");
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1: Unbounded Outro formatting on PublicScreenWatchView [24:12 -> null]")
+    void unboundedOutroFormattingOnWatchView() {
+        PublicScreenWatchDTO dto = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1576L, null,
+                true, "/media/assets/vid/content", "video/mp4",
+                null, null, List.of(),
+                null, null, false,
+                1452L, null, true
+        );
+
+        PublicScreenWatchView view = PublicScreenWatchView.fromDTO(dto);
+
+        assertThat(view.hasEffectiveIntro()).isFalse();
+        assertThat(view.hasEffectiveOutro()).isTrue();
+        assertThat(view.hasBoundedEffectiveOutro()).isFalse();
+        assertThat(view.effectiveOutroStartSeconds()).isEqualTo(1452L);
+        assertThat(view.effectiveOutroEndSeconds()).isNull();
+        assertThat(view.formattedEffectiveOutroStart()).isEqualTo("24:12");
+        assertThat(view.formattedEffectiveOutroEnd()).isNull();
+    }
 }

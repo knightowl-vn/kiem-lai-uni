@@ -1087,6 +1087,33 @@ class ScreenTitleUseCaseTest {
     }
 
     @Test
+    @DisplayName("UX02-C2.1 UpdateTitle: rejects title default update when an inheriting entry duration is exceeded by Outro end")
+    void shouldRejectTitleDefaultUpdateWhenInheritingEntryDurationExceededByOutroEnd() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        ScreenEntry ep1 = ScreenEntry.createDraft(
+                UUID.randomUUID(), titleId, "ep-1", ScreenEntryType.EPISODE, 1, "Tập 1", null, null, null, 1500L, now
+        );
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of(ep1));
+
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 90L, 1400L, 1600L
+        );
+
+        assertThatThrownBy(() -> updateUseCase.execute(command))
+                .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                .hasMessage("Thời gian kết thúc Outro không được vượt quá thời lượng tập phim. (Tập \"Tập 1\": 1500 giây).");
+        verify(titleRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("UX02-C2 UpdateTitle: allows title default update when shorter entry has DISABLED the segment")
     void shouldAllowTitleDefaultUpdateWhenShorterEntryDisabledSegment() {
         ScreenTitle existing = ScreenTitle.createDraft(
@@ -1112,5 +1139,109 @@ class ScreenTitleUseCaseTest {
 
         ScreenTitleDTO dto = updateUseCase.execute(command);
         assertThat(dto.defaultOutroStartSeconds()).isEqualTo(1200L);
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1-SR01 Defect B Regression: preserves stored defaultOutroEnd when legacy command omits outroEnd")
+    void shouldPreserveStoredDefaultOutroEndWhenLegacyCommandOmitsOutroEnd() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        existing.updateDefaultTimeline(0L, 90L, 1200L, 1350L, now);
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(60));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Legacy 22-arg command omits defaultOutroEnd (updateDefaultOutroEnd = false)
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 90L, 1200L
+        );
+
+        ScreenTitleDTO dto = updateUseCase.execute(command);
+        assertThat(dto.defaultOutroStartSeconds()).isEqualTo(1200L);
+        assertThat(dto.defaultOutroEndSeconds()).isEqualTo(1350L);
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1-SR01 Defect B Regression: clears stored defaultOutroEnd when command explicitly sets it with updateDefaultOutroEnd=true")
+    void shouldClearStoredDefaultOutroEndWhenCommandExplicitlySetsItWithUpdateDefaultOutroEndTrue() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        existing.updateDefaultTimeline(0L, 90L, 1200L, 1350L, now);
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+        when(clockPort.now()).thenReturn(now.plusSeconds(60));
+        when(entryRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+        when(titleRepository.save(any(ScreenTitle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // 23-arg command with explicit defaultOutroEnd = null (updateDefaultOutroEnd = true)
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 90L, 1200L, null
+        );
+
+        ScreenTitleDTO dto = updateUseCase.execute(command);
+        assertThat(dto.defaultOutroStartSeconds()).isEqualTo(1200L);
+        assertThat(dto.defaultOutroEndSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1-SR01 Defect B Regression: rejects legacy command when defaultOutroStart changed to after stored defaultOutroEnd")
+    void shouldRejectLegacyCommandWhenDefaultOutroStartChangedToAfterStoredDefaultOutroEnd() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        existing.updateDefaultTimeline(0L, 90L, 1200L, 1350L, now);
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+
+        // Legacy command updates outroStart to 1400L (> stored outroEnd 1350L), updateDefaultOutroEnd = false
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 90L, 1400L
+        );
+
+        assertThatThrownBy(() -> updateUseCase.execute(command))
+                .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                .hasMessage("Thời gian kết thúc Outro phải lớn hơn thời gian bắt đầu.");
+        verify(titleRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("UX02-C2.1-SR01 Defect B Regression: rejects legacy command clearing defaultOutroStart while stored defaultOutroEnd exists")
+    void shouldRejectLegacyCommandClearingDefaultOutroStartWhileStoredDefaultOutroEndExists() {
+        ScreenTitle existing = ScreenTitle.createDraft(
+                titleId, "kiem-lai", "Kiếm Lai", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        existing.updateDefaultTimeline(0L, 90L, 1200L, 1350L, now);
+
+        when(titleRepository.findByIdForUpdate(titleId)).thenReturn(Optional.of(existing));
+
+        // Legacy command clears outroStart to null while omitting outroEnd (updateDefaultOutroEnd = false)
+        UpdateScreenTitleCommand command = new UpdateScreenTitleCommand(
+                titleId, "kiem-lai", "Kiếm Lai", null, null,
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, null, null,
+                null, true,
+                false, null, null, null, null, null, null,
+                true, 0L, 90L, null
+        );
+
+        assertThatThrownBy(() -> updateUseCase.execute(command))
+                .isInstanceOf(InvalidScreenTimelineConfigurationException.class)
+                .hasMessage("Không thể thiết lập thời gian kết thúc Outro khi chưa có thời gian bắt đầu.");
+        verify(titleRepository, never()).save(any());
     }
 }

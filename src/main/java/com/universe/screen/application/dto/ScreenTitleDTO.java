@@ -33,8 +33,61 @@ public record ScreenTitleDTO(
         String productionStudio,
         Long defaultIntroStartSeconds,
         Long defaultIntroEndSeconds,
-        Long defaultOutroStartSeconds
+        Long defaultOutroStartSeconds,
+        Long defaultOutroEndSeconds
 ) {
+    public ScreenTitleDTO(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            ScreenPublicationStatus status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            Integer totalEpisodeCount,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            Long defaultIntroStartSeconds,
+            Long defaultIntroEndSeconds,
+            Long defaultOutroStartSeconds
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                totalEpisodeCount,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                defaultIntroStartSeconds,
+                defaultIntroEndSeconds,
+                defaultOutroStartSeconds,
+                null
+        );
+    }
     public ScreenTitleDTO(
             UUID id,
             String slug,
@@ -196,7 +249,8 @@ public record ScreenTitleDTO(
                 title.getProductionStudio(),
                 title.getDefaultIntroStartSeconds(),
                 title.getDefaultIntroEndSeconds(),
-                title.getDefaultOutroStartSeconds()
+                title.getDefaultOutroStartSeconds(),
+                title.getDefaultOutroEndSeconds()
         );
     }
 
@@ -206,6 +260,10 @@ public record ScreenTitleDTO(
 
     public boolean hasDefaultOutro() {
         return defaultOutroStartSeconds != null;
+    }
+
+    public boolean hasBoundedDefaultOutro() {
+        return defaultOutroStartSeconds != null && defaultOutroEndSeconds != null;
     }
 
     public String formattedDefaultIntroStart() {
@@ -218,5 +276,9 @@ public record ScreenTitleDTO(
 
     public String formattedDefaultOutroStart() {
         return ScreenTimelineTimestampFormat.formatSeconds(defaultOutroStartSeconds);
+    }
+
+    public String formattedDefaultOutroEnd() {
+        return ScreenTimelineTimestampFormat.formatSeconds(defaultOutroEndSeconds);
     }
 }

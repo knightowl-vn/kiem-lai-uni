@@ -117,6 +117,9 @@ public class ScreenEntryJpaEntity {
     @Column(name = "outro_start_seconds")
     private Long outroStartSeconds;
 
+    @Column(name = "outro_end_seconds")
+    private Long outroEndSeconds;
+
     @Column(
             name = "status",
             nullable = false,
@@ -161,7 +164,8 @@ public class ScreenEntryJpaEntity {
             Long introStartSeconds,
             Long introEndSeconds,
             String outroMode,
-            Long outroStartSeconds
+            Long outroStartSeconds,
+            Long outroEndSeconds
     ) {
         this.id = id;
         this.titleId = titleId;
@@ -182,6 +186,52 @@ public class ScreenEntryJpaEntity {
         this.introEndSeconds = introEndSeconds;
         this.outroMode = outroMode;
         this.outroStartSeconds = outroStartSeconds;
+        this.outroEndSeconds = outroEndSeconds;
+    }
+
+    public ScreenEntryJpaEntity(
+            String id,
+            String titleId,
+            String slug,
+            String type,
+            Integer number,
+            String title,
+            String synopsis,
+            String videoMediaAssetId,
+            String thumbnailMediaAssetId,
+            Long durationSeconds,
+            String status,
+            Instant publishedAt,
+            Instant createdAt,
+            Instant updatedAt,
+            String introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            String outroMode,
+            Long outroStartSeconds
+    ) {
+        this(
+                id,
+                titleId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                videoMediaAssetId,
+                thumbnailMediaAssetId,
+                durationSeconds,
+                status,
+                publishedAt,
+                createdAt,
+                updatedAt,
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds,
+                null
+        );
     }
 
     public ScreenEntryJpaEntity(
@@ -373,5 +423,13 @@ public class ScreenEntryJpaEntity {
 
     public void setOutroStartSeconds(Long outroStartSeconds) {
         this.outroStartSeconds = outroStartSeconds;
+    }
+
+    public Long getOutroEndSeconds() {
+        return outroEndSeconds;
+    }
+
+    public void setOutroEndSeconds(Long outroEndSeconds) {
+        this.outroEndSeconds = outroEndSeconds;
     }
 }

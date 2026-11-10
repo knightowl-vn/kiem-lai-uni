@@ -318,7 +318,7 @@ class ScreenEntryPersistenceMapperTest {
         // Update entity timeline to INHERIT + OVERRIDE
         domain.updateTimeline(
                 com.universe.screen.domain.ScreenTimelineMode.INHERIT, null, null,
-                com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, 1340L, t2
+                com.universe.screen.domain.ScreenTimelineMode.OVERRIDE, 1340L, 1420L, t2
         );
         ScreenEntryPersistenceMapper.updateEntity(entity, domain);
         assertThat(entity.getIntroMode()).isEqualTo("INHERIT");
@@ -326,6 +326,10 @@ class ScreenEntryPersistenceMapperTest {
         assertThat(entity.getIntroEndSeconds()).isNull();
         assertThat(entity.getOutroMode()).isEqualTo("OVERRIDE");
         assertThat(entity.getOutroStartSeconds()).isEqualTo(1340L);
+        assertThat(entity.getOutroEndSeconds()).isEqualTo(1420L);
+
+        ScreenEntry rehydratedBounded = ScreenEntryPersistenceMapper.toDomain(entity);
+        assertThat(rehydratedBounded.getOutroEndSeconds()).isEqualTo(1420L);
     }
 
     @Test

@@ -19,11 +19,93 @@ public record UpdateScreenEntryCommand(
         Long introStartSeconds,
         Long introEndSeconds,
         ScreenTimelineMode outroMode,
-        Long outroStartSeconds
+        Long outroStartSeconds,
+        boolean updateOutroEnd,
+        Long outroEndSeconds
 ) {
 
     /**
-     * Explicit entry details and timeline update constructor.
+     * Explicit entry details and timeline update constructor including outro end boundary.
+     */
+    public UpdateScreenEntryCommand(
+            UUID titleId,
+            UUID entryId,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String title,
+            String synopsis,
+            Long durationSeconds,
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds,
+            Long outroEndSeconds
+    ) {
+        this(
+                titleId,
+                entryId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                durationSeconds,
+                true,
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds,
+                true,
+                outroEndSeconds
+        );
+    }
+
+    /**
+     * Explicit entry details and timeline update constructor with explicit updateTimeline flag
+     * including outro end boundary.
+     */
+    public UpdateScreenEntryCommand(
+            UUID titleId,
+            UUID entryId,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String title,
+            String synopsis,
+            Long durationSeconds,
+            boolean updateTimeline,
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds,
+            Long outroEndSeconds
+    ) {
+        this(
+                titleId,
+                entryId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                durationSeconds,
+                updateTimeline,
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds,
+                true,
+                outroEndSeconds
+        );
+    }
+
+    /**
+     * Explicit entry details and timeline update constructor (without outro end boundary).
      */
     public UpdateScreenEntryCommand(
             UUID titleId,
@@ -54,7 +136,49 @@ public record UpdateScreenEntryCommand(
                 introStartSeconds,
                 introEndSeconds,
                 outroMode,
-                outroStartSeconds
+                outroStartSeconds,
+                false,
+                null
+        );
+    }
+
+    /**
+     * Backward-compatible 14-parameter constructor with explicit updateTimeline flag
+     * (without outro end boundary).
+     */
+    public UpdateScreenEntryCommand(
+            UUID titleId,
+            UUID entryId,
+            String slug,
+            ScreenEntryType type,
+            Integer number,
+            String title,
+            String synopsis,
+            Long durationSeconds,
+            boolean updateTimeline,
+            ScreenTimelineMode introMode,
+            Long introStartSeconds,
+            Long introEndSeconds,
+            ScreenTimelineMode outroMode,
+            Long outroStartSeconds
+    ) {
+        this(
+                titleId,
+                entryId,
+                slug,
+                type,
+                number,
+                title,
+                synopsis,
+                durationSeconds,
+                updateTimeline,
+                introMode,
+                introStartSeconds,
+                introEndSeconds,
+                outroMode,
+                outroStartSeconds,
+                false,
+                null
         );
     }
 
@@ -86,6 +210,8 @@ public record UpdateScreenEntryCommand(
                 null,
                 null,
                 null,
+                null,
+                false,
                 null
         );
     }
