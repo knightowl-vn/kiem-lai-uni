@@ -243,6 +243,17 @@ function createUX01Fixture(customAttrs = {}) {
     if (customAttrs.outroEndSeconds !== undefined) {
         wrap.setAttribute('data-outro-end-seconds', String(customAttrs.outroEndSeconds));
     }
+    if (customAttrs.nextUrl !== undefined) {
+        wrap.setAttribute('data-next-url', customAttrs.nextUrl);
+    } else if (customAttrs.hasNext !== false) {
+        wrap.setAttribute('data-next-url', '/screen/kiem-lai-phan-1/watch/tap-2');
+    }
+    if (customAttrs.nextLabel !== undefined) {
+        wrap.setAttribute('data-next-label', customAttrs.nextLabel || 'Tập 2');
+    }
+    if (customAttrs.hasNext !== undefined) {
+        wrap.setAttribute('data-has-next', customAttrs.hasNext ? 'true' : 'false');
+    }
 
     let _isPaused = customAttrs.paused !== undefined ? Boolean(customAttrs.paused) : true;
     Object.defineProperty(video, 'paused', {
@@ -429,7 +440,20 @@ function createUX01Fixture(customAttrs = {}) {
         id: 'screenPlayerSkipOutroBtn',
         class: 'screen-player-skip-outro-btn',
         hidden: ''
-    }, 'Bỏ qua Outro');
+    }, 'Bỏ qua phần kết');
+
+    let nextOutroLink = null;
+    if (customAttrs.hasNext !== false && customAttrs.includeNextOutroLink !== false) {
+        nextOutroLink = createMockElement('a', {
+            id: 'screenPlayerNextOutroLink',
+            class: 'screen-player-skip-outro-btn screen-player-next-outro-link',
+            href: customAttrs.nextUrl || '/screen/kiem-lai-phan-1/watch/tap-2',
+            'aria-label': 'Tập tiếp theo',
+            title: 'Tập tiếp theo',
+            hidden: ''
+        }, 'Tập tiếp theo');
+        wrap.appendChild(nextOutroLink);
+    }
 
     wrap.appendChild(buffering);
     wrap.appendChild(seekFeedback);
@@ -454,6 +478,7 @@ function createUX01Fixture(customAttrs = {}) {
         nextUpPrompt,
         nextUpDismissBtn,
         skipOutroBtn,
+        nextOutroLink,
         nextEpBtn,
         controls,
         bufferedBar,
@@ -2453,13 +2478,14 @@ describe('ScreenPlayer — Outro End Boundary & Manual Skip Outro (MS-08G3-UX02-
         assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Button reappears when seeking back into Outro interval');
     });
 
-    test('C2.1-6. Unbounded Outro [24:12 -> NULL] on 26:16: button appears at 1452s and stays visible until video end', () => {
+    test('C2.1-6. Unbounded Outro without next episode (hasNext: false): button appears at 1452s and stays visible until video end', () => {
         const fixture = createUX01Fixture({
             hasOutro: true,
             outroStartSeconds: 1452,
             // outroEndSeconds omitted -> null
             videoDuration: 1576,
-            videoCurrentTime: 1000
+            videoCurrentTime: 1000,
+            hasNext: false
         });
         const controller = ScreenPlayer.init(fixture.doc);
         assert.strictEqual(fixture.skipOutroBtn.hidden, true);
@@ -2468,6 +2494,8 @@ describe('ScreenPlayer — Outro End Boundary & Manual Skip Outro (MS-08G3-UX02-
         fixture.video.currentTime = 1452;
         fixture.video.dispatchEvent('timeupdate');
         assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Button visible at 1452s');
+        assert.strictEqual(controller.isOutroActive(), true);
+        assert.strictEqual(controller.getContextualOutroMode(), 'SEEK_VIDEO_END');
 
         // Advance to 1570s
         fixture.video.currentTime = 1570;
@@ -2475,15 +2503,17 @@ describe('ScreenPlayer — Outro End Boundary & Manual Skip Outro (MS-08G3-UX02-
         assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Button still visible near end for unbounded Outro');
     });
 
-    test('C2.1-7. Unbounded Outro: clicking Skip Outro seeks safely to video.duration (1576s)', () => {
+    test('C2.1-7. Unbounded Outro without next episode (hasNext: false): clicking Skip Outro seeks safely to video.duration (1576s)', () => {
         const fixture = createUX01Fixture({
             hasOutro: true,
             outroStartSeconds: 1452,
             videoDuration: 1576,
-            videoCurrentTime: 1480
+            videoCurrentTime: 1480,
+            hasNext: false
         });
         const controller = ScreenPlayer.init(fixture.doc);
         assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+        assert.strictEqual(controller.getContextualOutroMode(), 'SEEK_VIDEO_END');
 
         fixture.skipOutroBtn.dispatchEvent({
             type: 'click',
@@ -2495,7 +2525,7 @@ describe('ScreenPlayer — Outro End Boundary & Manual Skip Outro (MS-08G3-UX02-
         assert.strictEqual(fixture.video.currentTime, 1576, 'Seeked safely to video duration');
     });
 
-    test('C2.1-8. Native ended event hides Skip Outro button', () => {
+    test('C2.1-8. Native ended event hides Outro action elements', () => {
         const fixture = createUX01Fixture({
             hasOutro: true,
             outroStartSeconds: 1452,
@@ -2503,12 +2533,16 @@ describe('ScreenPlayer — Outro End Boundary & Manual Skip Outro (MS-08G3-UX02-
             videoCurrentTime: 1500
         });
         const controller = ScreenPlayer.init(fixture.doc);
-        assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+        assert.strictEqual(controller.isOutroActive(), true, 'Outro action is active during Outro');
 
         fixture.video.ended = true;
         fixture.video.dispatchEvent('ended');
 
+        assert.strictEqual(controller.isOutroActive(), false, 'Ended event deactivates Outro action');
         assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Ended event hides Skip Outro button');
+        if (fixture.nextOutroLink) {
+            assert.strictEqual(fixture.nextOutroLink.hidden, true, 'Ended event hides Next Outro link');
+        }
     });
 
     test('C2.1-9. Outro disabled (hasOutro: false) or absent: Skip Outro button is never shown and click is no-op', () => {
@@ -2646,7 +2680,7 @@ describe('ScreenPlayer — After-Credit Protection & Near-End Next Up Suppressio
         assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Next Up prompt appears on native video ended');
     });
 
-    test('SR01-A2. Unbounded Outro preserves legacy near-end suggestion behavior (shows within last 45s)', () => {
+    test('SR01-A2. Unbounded Outro with next episode: suppresses floating Next Up prompt during Outro to avoid double prompt; appears on ended', () => {
         const fixture = createUX01Fixture({
             hasNext: true,
             hasOutro: true,
@@ -2660,10 +2694,16 @@ describe('ScreenPlayer — After-Credit Protection & Near-End Next Up Suppressio
         // Before last 45s window (1500 < 1531): hidden
         assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Hidden before 45s window');
 
-        // In last 45s window (1531s): appears normally for unbounded outro
+        // In last 45s window (1531s): primary contextual action is active, floating prompt is suppressed (Section 4.5)
         fixture.video.currentTime = 1531;
         fixture.video.dispatchEvent('timeupdate');
-        assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Appears in 45s window for unbounded outro');
+        assert.strictEqual(controller.isOutroActive(), true, 'Primary contextual action is active');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Floating Next Up suppressed during Outro to prevent double prompt');
+
+        // At native ended: Next Up prompt appears
+        fixture.video.ended = true;
+        fixture.video.dispatchEvent('ended');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Appears on native video ended');
     });
 
     test('SR01-A3. No Outro configured preserves legacy near-end suggestion behavior', () => {
@@ -2695,4 +2735,581 @@ describe('ScreenPlayer — After-Credit Protection & Near-End Next Up Suppressio
         fixture.video.dispatchEvent('timeupdate');
         assert.strictEqual(fixture.nextUpPrompt, null);
     });
+});
+
+describe('ScreenPlayer — Contextual Next Episode Navigation & Vietnamese Labels (MS-08G3-UX02-C3)', () => {
+
+    test('C3-1. Strict Vietnamese Labels: Mode 1/3 use "Bỏ qua phần kết", Mode 2 uses "Tập tiếp theo"', () => {
+        // Mode 1: Bounded Outro
+        const f1 = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1460,
+            hasNext: true
+        });
+        const c1 = ScreenPlayer.init(f1.doc);
+        assert.strictEqual(c1.getContextualOutroMode(), 'SEEK_AFTER_OUTRO');
+        assert.strictEqual(f1.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+        assert.strictEqual(f1.skipOutroBtn.textContent.includes('Bỏ qua phần kết'), true);
+
+        // Mode 2: Unbounded Outro with next episode
+        const f2 = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1460,
+            hasNext: true
+        });
+        const c2 = ScreenPlayer.init(f2.doc);
+        assert.strictEqual(c2.getContextualOutroMode(), 'NAVIGATE_NEXT');
+        assert.strictEqual(f2.nextOutroLink.getAttribute('aria-label'), 'Tập tiếp theo');
+        assert.strictEqual(f2.nextOutroLink.textContent.includes('Tập tiếp theo'), true);
+
+        // Mode 3: Unbounded Outro without next episode
+        const f3 = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1460,
+            hasNext: false
+        });
+        const c3 = ScreenPlayer.init(f3.doc);
+        assert.strictEqual(c3.getContextualOutroMode(), 'SEEK_VIDEO_END');
+        assert.strictEqual(f3.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+        assert.strictEqual(f3.skipOutroBtn.textContent.includes('Bỏ qua phần kết'), true);
+
+        // Prohibit all forbidden phrases across all configurations
+        const forbiddenPhrases = [
+            'Bỏ qua Intro', 'Bỏ qua Outro', 'Bỏ qua danh đề',
+            'Bỏ qua phần giới thiệu', 'Xem tiếp sau danh đề', 'Skip Intro', 'Skip Outro'
+        ];
+        forbiddenPhrases.forEach(phrase => {
+            assert.strictEqual(f1.skipOutroBtn.textContent.includes(phrase), false, `Must not contain forbidden phrase: ${phrase}`);
+            assert.strictEqual(f2.nextOutroLink.textContent.includes(phrase), false, `Must not contain forbidden phrase: ${phrase}`);
+            assert.strictEqual(f3.skipOutroBtn.textContent.includes(phrase), false, `Must not contain forbidden phrase: ${phrase}`);
+        });
+    });
+
+    test('C3-2. Mode 1 (SEEK_AFTER_OUTRO): Bounded Outro [1452, 1530) on 1576s with hasNext=true shows "Bỏ qua phần kết", seeks to 1530s without navigation, preserves after-credit content', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1460,
+            hasNext: true,
+            nextUrl: '/screen/kiem-lai-1/watch/tap-2'
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        assert.strictEqual(controller.getContextualOutroMode(), 'SEEK_AFTER_OUTRO');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Skip Outro button visible');
+        assert.strictEqual(fixture.nextOutroLink.hidden, true, 'Next Outro link hidden in Mode 1');
+        assert.strictEqual(fixture.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+
+        // Click action
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(fixture.video.currentTime, 1530, 'Seeks to explicit outroEnd');
+        assert.strictEqual(navigatedUrl, null, 'Never navigates to next episode in Mode 1 (after-credit preserved)');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Hides button immediately at outroEnd');
+        assert.strictEqual(fixture.video.ended, undefined, 'Playback continues into after-credit content');
+    });
+
+    test('C3-3. Mode 2 (NAVIGATE_NEXT) with coordinated link: Unbounded Outro [1452, null) on 1576s with hasNext=true displays "Tập tiếp theo" link, clicking triggers navigation', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true,
+            nextUrl: '/screen/kiem-lai-1/watch/tap-2'
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        assert.strictEqual(controller.getContextualOutroMode(), 'NAVIGATE_NEXT');
+        assert.strictEqual(fixture.nextOutroLink.hidden, false, 'Next Outro link visible');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Skip Outro button hidden in Mode 2');
+        assert.strictEqual(fixture.nextOutroLink.getAttribute('aria-label'), 'Tập tiếp theo');
+
+        // Click action
+        let clickPrevented = false;
+        fixture.nextOutroLink.dispatchEvent({
+            type: 'click',
+            target: fixture.nextOutroLink,
+            preventDefault: () => { clickPrevented = true; },
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(clickPrevented, true, 'Click default prevented on intercepted navigate');
+        assert.strictEqual(navigatedUrl, '/screen/kiem-lai-1/watch/tap-2', 'Navigates to nextUrl');
+    });
+
+    test('C3-4. Mode 2 (NAVIGATE_NEXT) keyboard activation: Space and Enter trigger navigation on nextOutroLink', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true,
+            nextUrl: '/screen/kiem-lai-1/watch/tap-2'
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        assert.strictEqual(fixture.nextOutroLink.hidden, false);
+
+        // Keyboard Space activation
+        let spacePrevented = false;
+        fixture.nextOutroLink.dispatchEvent({
+            type: 'keydown',
+            key: ' ',
+            target: fixture.nextOutroLink,
+            preventDefault: () => { spacePrevented = true; }
+        });
+        assert.strictEqual(spacePrevented, true);
+        assert.strictEqual(navigatedUrl, '/screen/kiem-lai-1/watch/tap-2');
+
+        // Reset and test click simulation via Enter
+        navigatedUrl = null;
+        fixture.nextOutroLink.dispatchEvent({
+            type: 'click',
+            target: fixture.nextOutroLink,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+        assert.strictEqual(navigatedUrl, '/screen/kiem-lai-1/watch/tap-2');
+    });
+
+    test('C3-5. Mode 2 (NAVIGATE_NEXT) standalone fallback: When nextOutroLink is absent from DOM, skipOutroBtn updates dynamically to "Tập tiếp theo" and navigates', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true,
+            includeNextOutroLink: false,
+            nextUrl: '/screen/kiem-lai-1/watch/tap-2'
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        assert.strictEqual(fixture.nextOutroLink, null, 'nextOutroLink element is absent');
+        assert.strictEqual(controller.getContextualOutroMode(), 'NAVIGATE_NEXT');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Fallback skipOutroBtn visible');
+        assert.strictEqual(fixture.skipOutroBtn.getAttribute('aria-label'), 'Tập tiếp theo');
+        assert.strictEqual(fixture.skipOutroBtn.getAttribute('data-action'), 'navigate-next');
+
+        // Click fallback button
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(navigatedUrl, '/screen/kiem-lai-1/watch/tap-2', 'Clicking fallback button navigates to next episode');
+    });
+
+    test('C3-6. Mode 3 (SEEK_VIDEO_END): Unbounded Outro [1452, null) on 1576s with hasNext=false displays "Bỏ qua phần kết" and seeks safely to duration', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: false
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        assert.strictEqual(controller.getContextualOutroMode(), 'SEEK_VIDEO_END');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+        assert.strictEqual(fixture.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+
+        // Click action
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(fixture.video.currentTime, 1576, 'Seeks safely to duration');
+        assert.strictEqual(navigatedUrl, null, 'Never navigates');
+    });
+
+    test('C3-7. Outro boundary tolerance (outroEnd within 0.5s of duration): [1452, 1576) on 1576s resolves to end-of-video', () => {
+        // With hasNext: true -> Mode 2 (NAVIGATE_NEXT)
+        const f1 = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1576, // equals duration
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true
+        });
+        const c1 = ScreenPlayer.init(f1.doc);
+        assert.strictEqual(c1.getContextualOutroMode(), 'NAVIGATE_NEXT');
+        assert.strictEqual(f1.nextOutroLink.hidden, false);
+        assert.strictEqual(f1.nextOutroLink.getAttribute('aria-label'), 'Tập tiếp theo');
+
+        // With hasNext: false -> Mode 3 (SEEK_VIDEO_END)
+        const f2 = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1575.8, // within 0.5s of 1576
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: false
+        });
+        const c2 = ScreenPlayer.init(f2.doc);
+        assert.strictEqual(c2.getContextualOutroMode(), 'SEEK_VIDEO_END');
+        assert.strictEqual(f2.skipOutroBtn.hidden, false);
+        assert.strictEqual(f2.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+    });
+
+    test('C3-8. Visual Overlap & Floating Suppression (Section 4.5): No double prompt during active Outro; restored on native ended', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        // In Outro interval: contextual CTA is active, Next Up floating prompt is strictly suppressed
+        assert.strictEqual(controller.isOutroActive(), true, 'Outro contextual action is active');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Next Up prompt suppressed to prevent visual overlap');
+
+        // Advance to near end (1550s): still in Outro -> Next Up remains suppressed
+        fixture.video.currentTime = 1550;
+        fixture.video.dispatchEvent('timeupdate');
+        assert.strictEqual(controller.isOutroActive(), true);
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'No double prompt near end');
+
+        // Native video.ended: Outro action hides, Next Up prompt appears
+        fixture.video.ended = true;
+        fixture.video.dispatchEvent('ended');
+        assert.strictEqual(controller.isOutroActive(), false, 'Outro action hidden on ended');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Next Up prompt appears on ended');
+    });
+
+    test('C3-9. Idle viewer protection: Contextual Outro action does NOT auto-navigate', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true,
+            nextUrl: '/screen/kiem-lai-1/watch/tap-2',
+            paused: false
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        // Simulate playback progression while viewer remains idle
+        for (let t = 1480; t < 1570; t += 10) {
+            fixture.video.currentTime = t;
+            fixture.video.dispatchEvent('timeupdate');
+        }
+
+        assert.strictEqual(navigatedUrl, null, 'Idle viewer never triggers automatic navigation');
+        assert.strictEqual(controller.isOutroActive(), true, 'Contextual navigation remains available for manual click');
+    });
+
+    test('C3-10. Scenario E: Outro disabled (hasOutro: false) or absent displays no contextual Outro action', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: false,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(controller.getContextualOutroMode(), null);
+        assert.strictEqual(controller.isOutroActive(), false);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true);
+        if (fixture.nextOutroLink) {
+            assert.strictEqual(fixture.nextOutroLink.hidden, true);
+        }
+    });
+
+    test('C3-11. Lifecycle & Teardown: controller.destroy() cleanly removes event listeners on both button and link', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            videoDuration: 1576,
+            videoCurrentTime: 1480,
+            hasNext: true
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.getListeners('click').length, 1);
+        assert.strictEqual(fixture.nextOutroLink.getListeners('click').length, 1);
+        assert.strictEqual(fixture.nextOutroLink.getListeners('keydown').length, 1);
+
+        controller.destroy();
+
+        assert.strictEqual(fixture.skipOutroBtn.getListeners('click').length, 0);
+        assert.strictEqual(fixture.nextOutroLink.getListeners('click').length, 0);
+        assert.strictEqual(fixture.nextOutroLink.getListeners('keydown').length, 0);
+    });
+
+});
+
+describe('ScreenPlayer — Prevent Inert Outro Skip Action When Video Duration Is Unknown (MS-08G3-UX02-C3-SR01)', () => {
+
+    test('SR01-1. Unknown duration, no next episode: unbounded Outro, video.duration = NaN, no fallback -> Bỏ qua phần kết is hidden', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: false,
+            videoDuration: NaN,
+            durationSeconds: '',
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Bỏ qua phần kết must be hidden when duration is unknown/NaN');
+        assert.strictEqual(controller.isOutroActive(), false, 'isOutroActive must be false when duration is unknown');
+    });
+
+    test('SR01-2. Infinite duration: video.duration = Infinity with no finite fallback -> Bỏ qua phần kết is hidden', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: false,
+            videoDuration: Infinity,
+            durationSeconds: '',
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Bỏ qua phần kết must be hidden when duration is Infinity');
+        assert.strictEqual(controller.isOutroActive(), false, 'isOutroActive must be false');
+    });
+
+    test('SR01-3 & 4. Duration becomes valid via durationchange: Bỏ qua phần kết becomes visible and clicking seeks safely to 1576', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: false,
+            videoDuration: NaN,
+            durationSeconds: '',
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        // Initially hidden
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true, 'Initially hidden while duration is NaN');
+        assert.strictEqual(controller.isOutroActive(), false);
+
+        // Duration becomes valid
+        fixture.video.duration = 1576;
+        fixture.video.dispatchEvent('durationchange');
+
+        // Now visible
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Becomes visible once finite duration is available');
+        assert.strictEqual(controller.isOutroActive(), true);
+        assert.strictEqual(fixture.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+
+        // Click seeks safely to 1576
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+        assert.strictEqual(fixture.video.currentTime, 1576, 'Seeks safely to 1576');
+    });
+
+    test('SR01-3b. Duration becomes valid via loadedmetadata: Bỏ qua phần kết becomes visible', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: false,
+            videoDuration: NaN,
+            durationSeconds: '',
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true);
+
+        // Duration becomes valid on loadedmetadata
+        fixture.video.duration = 1576;
+        fixture.video.dispatchEvent('loadedmetadata');
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Becomes visible after loadedmetadata provides duration');
+        assert.strictEqual(controller.isOutroActive(), true);
+    });
+
+    test('SR01-5. Finite metadata fallback: data-duration-seconds is present when video.duration = NaN -> safe seek behavior preserved', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: false,
+            videoDuration: NaN,
+            durationSeconds: 1576, // finite metadata fallback
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false, 'Visible via data-duration-seconds fallback');
+        assert.strictEqual(controller.isOutroActive(), true);
+        assert.strictEqual(fixture.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+
+        // Clicking seeks to metadata duration
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+        assert.strictEqual(fixture.video.currentTime, 1576, 'Seeks safely to metadata duration');
+    });
+
+    test('SR01-6. Next episode exists: unbounded Outro with next episode exposes "Tập tiếp theo" even when duration is unknown/NaN', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: true,
+            nextUrl: '/screen/kiem-lai-1/watch/tap-2',
+            videoDuration: NaN,
+            durationSeconds: '',
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        assert.strictEqual(controller.getContextualOutroMode(), 'NAVIGATE_NEXT');
+        assert.strictEqual(fixture.nextOutroLink.hidden, false, 'Tập tiếp theo link is visible despite NaN duration');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true);
+        assert.strictEqual(fixture.nextOutroLink.getAttribute('aria-label'), 'Tập tiếp theo');
+
+        // Click navigates to next episode
+        fixture.nextOutroLink.dispatchEvent({
+            type: 'click',
+            target: fixture.nextOutroLink,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+        assert.strictEqual(navigatedUrl, '/screen/kiem-lai-1/watch/tap-2', 'Successfully navigates to nextUrl');
+    });
+
+    test('SR01-7. Bounded after-credit: [1452, 1530) on duration 1576 still seeks to 1530 without navigation', () => {
+        let navigatedUrl = null;
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: 1530,
+            videoDuration: 1576,
+            videoCurrentTime: 1460,
+            hasNext: true,
+            nextUrl: '/screen/kiem-lai-1/watch/tap-2'
+        });
+        const controller = ScreenPlayer.init(fixture.doc, {
+            navigate: url => { navigatedUrl = url; }
+        });
+
+        assert.strictEqual(controller.getContextualOutroMode(), 'SEEK_AFTER_OUTRO');
+        assert.strictEqual(fixture.skipOutroBtn.hidden, false);
+        assert.strictEqual(fixture.nextOutroLink.hidden, true);
+        assert.strictEqual(fixture.skipOutroBtn.getAttribute('aria-label'), 'Bỏ qua phần kết');
+
+        fixture.skipOutroBtn.dispatchEvent({
+            type: 'click',
+            target: fixture.skipOutroBtn,
+            preventDefault: () => {},
+            stopPropagation: () => {}
+        });
+
+        assert.strictEqual(fixture.video.currentTime, 1530, 'Seeks to explicit outroEnd (1530)');
+        assert.strictEqual(navigatedUrl, null, 'Never navigates');
+    });
+
+    test('SR01-8. Next Up suppression: no duplicate floating CTA is introduced during duration recovery in Outro interval', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: true,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: true,
+            videoDuration: NaN,
+            durationSeconds: '',
+            videoCurrentTime: 1540
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        // Before duration update: nextUpPrompt is suppressed by active Outro navigation link
+        assert.strictEqual(fixture.nextOutroLink.hidden, false, 'Next Outro link visible');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Next Up prompt suppressed');
+
+        // Duration update occurs
+        fixture.video.duration = 1576;
+        fixture.video.dispatchEvent('durationchange');
+
+        // Still in Outro: Next Up prompt remains suppressed, only 1 primary CTA is visible
+        assert.strictEqual(fixture.nextOutroLink.hidden, false, 'Next Outro link remains visible');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, true, 'Next Up prompt remains suppressed (no double prompt)');
+
+        // When ended fires: Next Up prompt appears and Outro action hides
+        fixture.video.ended = true;
+        fixture.video.dispatchEvent('ended');
+        assert.strictEqual(fixture.nextOutroLink.hidden, true, 'Outro action hidden on ended');
+        assert.strictEqual(fixture.nextUpPrompt.hidden, false, 'Next Up prompt appears on ended');
+    });
+
+    test('SR01-9. Disabled/absent Outro: hasOutro=false never displays contextual action regardless of duration updates', () => {
+        const fixture = createUX01Fixture({
+            hasOutro: false,
+            outroStartSeconds: 1452,
+            outroEndSeconds: null,
+            hasNext: false,
+            videoDuration: NaN,
+            durationSeconds: '',
+            videoCurrentTime: 1480
+        });
+        const controller = ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true);
+        assert.strictEqual(controller.isOutroActive(), false);
+
+        // Even after duration becomes valid
+        fixture.video.duration = 1576;
+        fixture.video.dispatchEvent('durationchange');
+
+        assert.strictEqual(fixture.skipOutroBtn.hidden, true);
+        assert.strictEqual(controller.isOutroActive(), false);
+    });
+
 });

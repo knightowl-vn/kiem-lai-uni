@@ -282,6 +282,10 @@
         var nextUpPrompt = context.querySelector('#screenPlayerNextUpPrompt');
         var nextUpDismissBtn = context.querySelector('#screenPlayerNextUpDismissBtn');
         var skipOutroBtn = context.querySelector('#screenPlayerSkipOutroBtn');
+        var nextOutroLink = context.querySelector('#screenPlayerNextOutroLink');
+
+        var LABEL_SKIP_OUTRO = 'Bỏ qua phần kết';
+        var LABEL_NEXT_EPISODE = 'Tập tiếp theo';
 
         var posterEl = context.querySelector('#screenPlayerPoster')
             || context.querySelector('.screen-player-poster');
@@ -332,6 +336,40 @@
             outroStartSeconds >= 0 &&
             (outroEndSeconds === null || outroEndSeconds > outroStartSeconds)
         );
+
+        var rawNextUrl = (opts && opts.nextUrl !== undefined)
+            ? opts.nextUrl
+            : (playerWrap && typeof playerWrap.getAttribute === 'function' ? playerWrap.getAttribute('data-next-url') : null);
+        var rawNextLabel = (opts && opts.nextLabel !== undefined)
+            ? opts.nextLabel
+            : (playerWrap && typeof playerWrap.getAttribute === 'function' ? playerWrap.getAttribute('data-next-label') : null);
+
+        var nextUrl = (rawNextUrl !== null && rawNextUrl !== undefined) ? String(rawNextUrl).trim() : '';
+        if (!nextUrl && nextOutroLink && typeof nextOutroLink.getAttribute === 'function') {
+            var linkHref = nextOutroLink.getAttribute('href');
+            if (linkHref) {
+                nextUrl = String(linkHref).trim();
+            }
+        }
+        if (!nextUrl) {
+            var fallbackLink = context && typeof context.querySelector === 'function'
+                ? (context.querySelector('#screenPlayerNextUpLink') || context.querySelector('#screenPlayerNextEpBtn'))
+                : null;
+            if (fallbackLink && typeof fallbackLink.getAttribute === 'function') {
+                var fHref = fallbackLink.getAttribute('href');
+                if (fHref) {
+                    nextUrl = String(fHref).trim();
+                }
+            }
+        }
+
+        var nextLabel = (rawNextLabel !== null && rawNextLabel !== undefined) ? String(rawNextLabel).trim() : '';
+
+        var hasNext = (opts && opts.hasNext !== undefined)
+            ? Boolean(opts.hasNext)
+            : ((playerWrap && typeof playerWrap.getAttribute === 'function' && playerWrap.getAttribute('data-has-next') !== null)
+                ? (playerWrap.getAttribute('data-has-next') === 'true')
+                : Boolean(nextUrl && nextUrl.length > 0));
 
         var storage = opts.storage !== undefined
             ? opts.storage
@@ -1260,8 +1298,104 @@
         }
 
         // =====================================================================
-        // Next Episode Near-End Suggestion
+        // Next Episode Near-End Suggestion & Contextual Outro Action
+        // (MS-08G3-UX02-C2.1 & MS-08G3-UX02-C3)
         // =====================================================================
+
+        function hasBoundedAfterCredit(dur) {
+            return Boolean(
+                isOutroValid &&
+                outroEndSeconds !== null &&
+                dur !== null &&
+                dur > 0 &&
+                outroEndSeconds < (dur - 0.5)
+            );
+        }
+
+        function isOutroAtVideoEnd(dur) {
+            if (!isOutroValid) {
+                return false;
+            }
+            if (outroEndSeconds === null) {
+                return true;
+            }
+            return Boolean(dur !== null && dur > 0 && outroEndSeconds >= (dur - 0.5));
+        }
+
+        function getContextualOutroMode(customDur) {
+            if (!isOutroValid) {
+                return null;
+            }
+            var dur = (customDur !== undefined) ? customDur : getEffectiveDuration();
+            if (hasBoundedAfterCredit(dur)) {
+                return 'SEEK_AFTER_OUTRO';
+            }
+            if (isOutroAtVideoEnd(dur)) {
+                if (hasNext && nextUrl) {
+                    return 'NAVIGATE_NEXT';
+                }
+                return 'SEEK_VIDEO_END';
+            }
+            if (outroEndSeconds !== null) {
+                return 'SEEK_AFTER_OUTRO';
+            }
+            if (hasNext && nextUrl) {
+                return 'NAVIGATE_NEXT';
+            }
+            return 'SEEK_VIDEO_END';
+        }
+
+        function isCurrentTimeInOutro(cur, dur) {
+            if (!isOutroValid) {
+                return false;
+            }
+            if (video.ended) {
+                return false;
+            }
+            if (dur !== null && dur > 0 && outroStartSeconds >= dur) {
+                return false;
+            }
+            if (outroEndSeconds !== null && dur !== null && dur > 0 && outroEndSeconds > dur) {
+                return false;
+            }
+            if (outroEndSeconds !== null) {
+                return (cur >= outroStartSeconds && cur < outroEndSeconds);
+            }
+            if (dur !== null && dur > 0) {
+                return (cur >= outroStartSeconds && cur < dur);
+            }
+            return (cur >= outroStartSeconds);
+        }
+
+        function updateActionElementLabel(el, label, action) {
+            if (!el) {
+                return;
+            }
+            el.setAttribute('aria-label', label);
+            el.setAttribute('title', label);
+            if (action) {
+                el.setAttribute('data-action', action);
+            }
+            var span = (typeof el.querySelector === 'function') ? el.querySelector('span') : null;
+            if (span) {
+                span.textContent = label;
+            } else {
+                el.textContent = label;
+            }
+        }
+
+        function navigateToNextEpisode() {
+            if (!nextUrl) {
+                return;
+            }
+            if (opts && typeof opts.navigate === 'function') {
+                opts.navigate(nextUrl);
+                return;
+            }
+            if (typeof window !== 'undefined' && window && window.location) {
+                window.location.href = nextUrl;
+            }
+        }
 
         function evaluateNextUpPrompt() {
             if (!nextUpPrompt || nextUpDismissed) {
@@ -1277,13 +1411,13 @@
             // When a valid bounded Outro is followed by after-credit content,
             // suppress the floating near-end Next Up suggestion during playback
             // so after-credit scenes remain completely unobstructed.
-            var hasBoundedAfterCredit = Boolean(
-                isOutroValid &&
-                outroEndSeconds !== null &&
-                dur !== null &&
-                outroEndSeconds < dur
-            );
-            if (hasBoundedAfterCredit) {
+            if (hasBoundedAfterCredit(dur)) {
+                setElementHidden(nextUpPrompt, true);
+                return;
+            }
+
+            // Suppress floating Next Up prompt whenever contextual Outro action is active/visible
+            if (isCurrentTimeInOutro(cur, dur) || (skipOutroBtn && !skipOutroBtn.hidden) || (nextOutroLink && !nextOutroLink.hidden)) {
                 setElementHidden(nextUpPrompt, true);
                 return;
             }
@@ -1303,52 +1437,73 @@
             setElementHidden(nextUpPrompt, true);
         }
 
-        // =====================================================================
-        // Contextual Manual Skip Outro Action (MS-08G3-UX02-C2.1)
-        // =====================================================================
-
         function evaluateSkipOutroAction() {
-            if (!skipOutroBtn) {
-                return;
-            }
-            if (!isOutroValid) {
-                setElementHidden(skipOutroBtn, true);
-                return;
-            }
             var dur = getEffectiveDuration();
             var cur = getCurrentTimeSafe();
+            var inOutro = isCurrentTimeInOutro(cur, dur);
 
-            // Suppress if start is at or beyond duration
-            if (dur !== null && dur > 0 && outroStartSeconds >= dur) {
-                setElementHidden(skipOutroBtn, true);
+            if (!inOutro) {
+                if (skipOutroBtn) {
+                    setElementHidden(skipOutroBtn, true);
+                }
+                if (nextOutroLink) {
+                    setElementHidden(nextOutroLink, true);
+                }
+                evaluateNextUpPrompt();
                 return;
             }
 
-            // Suppress if bounded outro end exceeds duration
-            if (outroEndSeconds !== null && dur !== null && dur > 0 && outroEndSeconds > dur) {
-                setElementHidden(skipOutroBtn, true);
-                return;
-            }
+            var mode = getContextualOutroMode(dur);
 
-            if (video.ended) {
-                setElementHidden(skipOutroBtn, true);
-                return;
-            }
-
-            var inOutro = false;
-            if (outroEndSeconds !== null) {
-                // Case A: Bounded Outro [start, end)
-                inOutro = (cur >= outroStartSeconds && cur < outroEndSeconds);
-            } else {
-                // Case B: Unbounded Outro [start, videoEnd)
-                if (dur !== null && dur > 0) {
-                    inOutro = (cur >= outroStartSeconds && cur < dur);
+            if (mode === 'NAVIGATE_NEXT') {
+                if (nextOutroLink) {
+                    updateActionElementLabel(nextOutroLink, LABEL_NEXT_EPISODE, 'navigate-next');
+                    setElementHidden(nextOutroLink, false);
+                    if (skipOutroBtn) {
+                        setElementHidden(skipOutroBtn, true);
+                    }
+                } else if (skipOutroBtn) {
+                    updateActionElementLabel(skipOutroBtn, LABEL_NEXT_EPISODE, 'navigate-next');
+                    setElementHidden(skipOutroBtn, false);
+                }
+            } else if (mode === 'SEEK_AFTER_OUTRO') {
+                if (nextOutroLink) {
+                    setElementHidden(nextOutroLink, true);
+                }
+                if (skipOutroBtn) {
+                    updateActionElementLabel(skipOutroBtn, LABEL_SKIP_OUTRO, 'skip-outro');
+                    setElementHidden(skipOutroBtn, false);
+                }
+            } else if (mode === 'SEEK_VIDEO_END') {
+                // When contextual mode is SEEK_VIDEO_END, the action must only be available
+                // if a positive, finite, safe effective duration can be determined.
+                // If duration is unknown, hide the action to avoid presenting an inert control.
+                if (dur !== null && isFinite(dur) && dur > 0) {
+                    if (nextOutroLink) {
+                        setElementHidden(nextOutroLink, true);
+                    }
+                    if (skipOutroBtn) {
+                        updateActionElementLabel(skipOutroBtn, LABEL_SKIP_OUTRO, 'skip-outro');
+                        setElementHidden(skipOutroBtn, false);
+                    }
                 } else {
-                    inOutro = (cur >= outroStartSeconds);
+                    if (skipOutroBtn) {
+                        setElementHidden(skipOutroBtn, true);
+                    }
+                    if (nextOutroLink) {
+                        setElementHidden(nextOutroLink, true);
+                    }
+                }
+            } else {
+                if (skipOutroBtn) {
+                    setElementHidden(skipOutroBtn, true);
+                }
+                if (nextOutroLink) {
+                    setElementHidden(nextOutroLink, true);
                 }
             }
 
-            setElementHidden(skipOutroBtn, !inOutro);
+            evaluateNextUpPrompt();
         }
 
         function onSkipOutroClick(e) {
@@ -1362,16 +1517,19 @@
                 return;
             }
             var dur = getEffectiveDuration();
+            var mode = getContextualOutroMode(dur);
 
-            if (outroEndSeconds !== null) {
-                // Case A: Explicit bounded Outro end -> seek to end timestamp
+            if (mode === 'NAVIGATE_NEXT') {
+                navigateToNextEpisode();
+                return;
+            }
+
+            if (mode === 'SEEK_AFTER_OUTRO') {
                 if (dur !== null && dur > 0 && outroEndSeconds > dur) {
-                    // Suppress unsafe seek past playable duration
                     return;
                 }
                 seekTo(outroEndSeconds);
-            } else {
-                // Case B: Outro end omitted -> seek safely to video end
+            } else if (mode === 'SEEK_VIDEO_END') {
                 if (dur !== null && dur > 0) {
                     seekTo(dur);
                 } else if (typeof video.duration === 'number' && isFinite(video.duration) && video.duration > 0) {
@@ -1379,6 +1537,39 @@
                 }
             }
             evaluateSkipOutroAction();
+        }
+
+        function onNextOutroLinkClick(e) {
+            if (opts && typeof opts.navigate === 'function') {
+                if (e && typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+                if (e && typeof e.stopPropagation === 'function') {
+                    e.stopPropagation();
+                }
+                navigateToNextEpisode();
+            } else {
+                if (e && typeof e.stopPropagation === 'function') {
+                    e.stopPropagation();
+                }
+            }
+        }
+
+        function onNextOutroLinkKeyDown(e) {
+            if (!e) {
+                return;
+            }
+            var key = e.key || '';
+            if (key === ' ' || key === 'Spacebar' || key === 'Space') {
+                if (typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+                if (typeof nextOutroLink.click === 'function') {
+                    nextOutroLink.click();
+                } else {
+                    navigateToNextEpisode();
+                }
+            }
         }
 
         // =====================================================================
@@ -1628,6 +1819,8 @@
             if (!hasRenderedVideoFrame && (hasPlayedOrSeeked || (typeof video.currentTime === 'number' && video.currentTime > 0)) && isVideoFrameReady(video)) {
                 hidePoster();
             }
+            evaluateSkipOutroAction();
+            evaluateNextUpPrompt();
         }
 
         function onSeeked() {
@@ -1635,6 +1828,7 @@
                 hidePoster();
             }
             evaluateSkipOutroAction();
+            evaluateNextUpPrompt();
         }
 
         function onLoadedMetadata() {
@@ -1655,6 +1849,7 @@
             }
             updateTimeline();
             evaluateSkipOutroAction();
+            evaluateNextUpPrompt();
         }
 
         function onTimeUpdate() {
@@ -1667,8 +1862,8 @@
             }
             updateTimeline();
             saveProgressThrottled();
-            evaluateNextUpPrompt();
             evaluateSkipOutroAction();
+            evaluateNextUpPrompt();
         }
 
         function onProgress() {
@@ -1681,14 +1876,15 @@
                 hideResumeModal();
             }
             evaluateSkipOutroAction();
+            evaluateNextUpPrompt();
         }
 
         function onEnded() {
             syncPlayState(false);
             setBuffering(false);
             clearSavedProgress();
-            evaluateNextUpPrompt();
             evaluateSkipOutroAction();
+            evaluateNextUpPrompt();
         }
 
         function onVolumeChange() {
@@ -1915,6 +2111,10 @@
         if (skipOutroBtn && typeof skipOutroBtn.addEventListener === 'function') {
             skipOutroBtn.addEventListener('click', onSkipOutroClick);
         }
+        if (nextOutroLink && typeof nextOutroLink.addEventListener === 'function') {
+            nextOutroLink.addEventListener('click', onNextOutroLinkClick);
+            nextOutroLink.addEventListener('keydown', onNextOutroLinkKeyDown);
+        }
         if (playerWrap && typeof playerWrap.addEventListener === 'function') {
             playerWrap.addEventListener('keydown', handleKeyDown);
             playerWrap.addEventListener('mousemove', wakeControls);
@@ -2063,6 +2263,10 @@
             if (skipOutroBtn && typeof skipOutroBtn.removeEventListener === 'function') {
                 skipOutroBtn.removeEventListener('click', onSkipOutroClick);
             }
+            if (nextOutroLink && typeof nextOutroLink.removeEventListener === 'function') {
+                nextOutroLink.removeEventListener('click', onNextOutroLinkClick);
+                nextOutroLink.removeEventListener('keydown', onNextOutroLinkKeyDown);
+            }
             if (playerWrap && typeof playerWrap.removeEventListener === 'function') {
                 playerWrap.removeEventListener('keydown', handleKeyDown);
                 playerWrap.removeEventListener('mousemove', wakeControls);
@@ -2104,8 +2308,15 @@
             nextEpBtn: nextEpBtn,
             nextUpPrompt: nextUpPrompt,
             skipOutroBtn: skipOutroBtn,
+            nextOutroLink: nextOutroLink,
             evaluateSkipOutroAction: evaluateSkipOutroAction,
-            isOutroActive: function () { return skipOutroBtn ? !skipOutroBtn.hidden : false; },
+            getContextualOutroMode: getContextualOutroMode,
+            isOutroActive: function () {
+                return Boolean(
+                    (skipOutroBtn && !skipOutroBtn.hidden) ||
+                    (nextOutroLink && !nextOutroLink.hidden)
+                );
+            },
             showError: showError,
             hideError: hideError,
             handleRetry: handleRetry,

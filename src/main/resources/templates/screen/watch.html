@@ -177,18 +177,32 @@
                     </button>
                 </div>
 
-                <!-- Contextual Manual Skip Outro Action (MS-08G3-UX02-C2.1) -->
+                <!-- Contextual Manual Skip Outro & Next Episode Actions (MS-08G3-UX02-C2.1 & C3) -->
                 <button type="button"
                         class="screen-player-skip-outro-btn"
                         id="screenPlayerSkipOutroBtn"
-                        aria-label="Bỏ qua Outro"
+                        aria-label="Bỏ qua phần kết"
+                        title="Bỏ qua phần kết"
                         hidden>
-                    <span>Bỏ qua Outro</span>
+                    <span>Bỏ qua phần kết</span>
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <polygon points="5 4 15 12 5 20 5 4"></polygon>
                         <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
                     </svg>
                 </button>
+                <a th:if="${watchView.hasNext()}"
+                   th:href="${watchView.nextWatchUrl()}"
+                   class="screen-player-skip-outro-btn screen-player-next-outro-link"
+                   id="screenPlayerNextOutroLink"
+                   aria-label="Tập tiếp theo"
+                   title="Tập tiếp theo"
+                   hidden>
+                    <span>Tập tiếp theo</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                        <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+                    </svg>
+                </a>
 
                 <!-- Custom Modern Player Control Bar (MS-08G2-UX01) -->
                 <div class="screen-player-controls" id="screenPlayerControls" aria-label="Điều khiển phát video">

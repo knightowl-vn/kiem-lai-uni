@@ -3321,8 +3321,9 @@ a.screen-comment-origin-badge:focus-visible {
     color: #ffffff;
 }
 
-/* Contextual Manual Skip Outro Action (MS-08G3-UX02-C2.1) */
-.screen-player-skip-outro-btn {
+/* Contextual Manual Skip Outro & Next Episode Actions (MS-08G3-UX02-C2.1 & C3) */
+.screen-player-skip-outro-btn,
+.screen-player-next-outro-link {
     position: absolute;
     right: 14px;
     bottom: 68px;
@@ -3341,28 +3342,33 @@ a.screen-comment-origin-badge:focus-visible {
     font-size: 13px;
     font-weight: 700;
     line-height: 1.25;
+    text-decoration: none;
     cursor: pointer;
     transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
     user-select: none;
 }
 
-.screen-player-skip-outro-btn:hover {
+.screen-player-skip-outro-btn:hover,
+.screen-player-next-outro-link:hover {
     background: rgba(30, 41, 59, 0.96);
     border-color: rgba(147, 197, 253, 0.7);
     color: #93c5fd;
     transform: translateY(-1px);
 }
 
-.screen-player-skip-outro-btn:active {
+.screen-player-skip-outro-btn:active,
+.screen-player-next-outro-link:active {
     transform: translateY(0);
 }
 
-.screen-player-skip-outro-btn:focus-visible {
+.screen-player-skip-outro-btn:focus-visible,
+.screen-player-next-outro-link:focus-visible {
     outline: 2px solid #93c5fd;
     outline-offset: 2px;
 }
 
-.screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn {
+.screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn,
+.screen-player-next-up:not([hidden]) ~ .screen-player-next-outro-link {
     bottom: 126px;
 }
 

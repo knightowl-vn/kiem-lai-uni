@@ -168,13 +168,15 @@ class PublicScreenWatchViewRenderingTest {
                 .andExpect(content().string(containsString("data-entry-id=\"" + entryId + "\"")))
                 .andExpect(content().string(containsString("data-entry-label=\"Tập 2\"")))
                 .andExpect(content().string(containsString("data-video-src=\"/media/assets/" + videoAssetId + "/content\"")))
-                // MS-08G3-UX02-C2.1: Outro boundary dataset and Skip Outro button
+                // MS-08G3-UX02-C2.1 & C3: Outro boundary dataset, Skip Outro button and Next Outro link
                 .andExpect(content().string(containsString("data-has-outro=\"true\"")))
                 .andExpect(content().string(containsString("data-outro-start-seconds=\"1300\"")))
                 .andExpect(content().string(containsString("data-outro-end-seconds=\"1400\"")))
                 .andExpect(content().string(containsString("id=\"screenPlayerSkipOutroBtn\"")))
                 .andExpect(content().string(containsString("class=\"screen-player-skip-outro-btn\"")))
-                .andExpect(content().string(containsString("Bỏ qua Outro")))
+                .andExpect(content().string(containsString("Bỏ qua phần kết")))
+                .andExpect(content().string(containsString("id=\"screenPlayerNextOutroLink\"")))
+                .andExpect(content().string(containsString("Tập tiếp theo")))
                 // MS-08G2-UX01-P1: Pre-playback poster stage image layer & integrated 10s seek icons
                 .andExpect(content().string(containsString("id=\"screenPlayerPoster\"")))
                 .andExpect(content().string(containsString("id=\"screenPlayerPosterImg\"")))
