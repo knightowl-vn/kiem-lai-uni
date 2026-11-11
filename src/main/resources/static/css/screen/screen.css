@@ -3326,7 +3326,7 @@ a.screen-comment-origin-badge:focus-visible {
 .screen-player-next-outro-link {
     position: absolute;
     right: 14px;
-    bottom: 68px;
+    bottom: 78px;
     z-index: 5;
     display: inline-flex;
     align-items: center;
@@ -3369,7 +3369,7 @@ a.screen-comment-origin-badge:focus-visible {
 
 .screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn,
 .screen-player-next-up:not([hidden]) ~ .screen-player-next-outro-link {
-    bottom: 126px;
+    bottom: 136px;
 }
 
 /* ==========================================================================
@@ -3480,15 +3480,19 @@ a.screen-comment-origin-badge:focus-visible {
         padding: 6px 10px;
     }
 
-    .screen-player-skip-outro-btn {
+    .screen-player-skip-outro-btn,
+    .screen-player-next-outro-link {
         right: 8px;
-        bottom: 56px;
+        bottom: 76px;
+        right: max(8px, env(safe-area-inset-right));
+        bottom: max(76px, calc(72px + env(safe-area-inset-bottom)));
         padding: 6px 12px;
         font-size: 12px;
     }
 
-    .screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn {
-        bottom: 104px;
+    .screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn,
+    .screen-player-next-up:not([hidden]) ~ .screen-player-next-outro-link {
+        bottom: 116px;
     }
 
     /* Compact Settings Menu to prevent clipping on 16:9 stage heights */
@@ -3668,6 +3672,21 @@ a.screen-comment-origin-badge:focus-visible {
             max-height: 140px;
             overflow-y: auto;
             padding: 6px 8px;
+        }
+
+        .screen-player-skip-outro-btn,
+        .screen-player-next-outro-link {
+            right: 8px;
+            bottom: 76px;
+            right: max(8px, env(safe-area-inset-right));
+            bottom: max(76px, calc(72px + env(safe-area-inset-bottom)));
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .screen-player-next-up:not([hidden]) ~ .screen-player-skip-outro-btn,
+        .screen-player-next-up:not([hidden]) ~ .screen-player-next-outro-link {
+            bottom: 116px;
         }
     }
 }
