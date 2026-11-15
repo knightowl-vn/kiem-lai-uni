@@ -275,6 +275,11 @@ function createUX01Fixture(customAttrs = {}) {
         ? customAttrs.videoReadyState
         : (customAttrs.videoCurrentTime !== undefined && customAttrs.videoCurrentTime > 0 ? 2 : 0);
     video.playbackRate = 1;
+    video.buffered = customAttrs.buffered !== undefined ? customAttrs.buffered : {
+        length: 1,
+        start: () => 0,
+        end: () => (customAttrs.videoDuration !== undefined ? customAttrs.videoDuration : 1576)
+    };
     video.load = () => { video._loadCalled = (video._loadCalled || 0) + 1; };
     video.play = () => {
         video._playCalled = (video._playCalled || 0) + 1;
@@ -291,6 +296,8 @@ function createUX01Fixture(customAttrs = {}) {
     };
 
     const buffering = createMockElement('div', { id: 'screenPlayerBuffering', class: 'screen-player-buffering', hidden: '' });
+    const bufferingText = createMockElement('span', { id: 'screenPlayerBufferingText', class: 'screen-player-buffering-text' }, 'Đang tải video...');
+    buffering.appendChild(bufferingText);
     const seekFeedback = createMockElement('div', { id: 'screenPlayerSeekFeedback', class: 'screen-player-seek-feedback', hidden: '' });
     const seekFeedbackText = createMockElement('span', { id: 'screenPlayerSeekFeedbackText' }, '10 giây');
     seekFeedback.appendChild(seekFeedbackText);
@@ -467,6 +474,7 @@ function createUX01Fixture(customAttrs = {}) {
         poster,
         posterImg,
         buffering,
+        bufferingText,
         seekFeedback,
         seekFeedbackText,
         bigPlayBtn,
@@ -3310,6 +3318,821 @@ describe('ScreenPlayer — Prevent Inert Outro Skip Action When Video Duration I
 
         assert.strictEqual(fixture.skipOutroBtn.hidden, true);
         assert.strictEqual(controller.isOutroActive(), false);
+    });
+
+    // =========================================================================
+    // MS-08G3-UX02-QA02-P1: Smooth Initial Video Playback — Intent-Driven Buffer Preparation
+    // =========================================================================
+
+    describe('ScreenPlayer — Intent-Driven Buffer Preparation (MS-08G3-UX02-QA02-P1)', () => {
+
+        test('P1-1. Click Play with adequate forward buffer (>= 1.5s) starts immediately without entering PREPARING', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 5.0 // 5s buffered ahead >= 1.5s threshold
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+
+            // Click play button
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            // Direct start without entering PREPARING
+            assert.strictEqual(fixture.video._playCalled, 1);
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.buffering.hidden, true);
+            assert.strictEqual(fixture.buffering.classList.contains('screen-player-buffering--preparing'), false);
+        });
+
+        test('P1-2. Click Play with insufficient forward buffer (< 1.5s) enters PREPARING state, displays "Đang chuẩn bị video…", video remains paused', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.31 // only 0.31s forward buffer < 1.5s
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 1000 });
+
+            // Click play button
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            // Must enter PREPARING state
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.video._playCalled, 0, 'video.play() must NOT be called before buffer is ready');
+            assert.strictEqual(fixture.video.paused, true, 'video must remain paused during preparation');
+            assert.strictEqual(fixture.buffering.hidden, false, 'buffering overlay must be visible');
+            assert.strictEqual(fixture.buffering.classList.contains('screen-player-buffering--preparing'), true, 'must have preparing class');
+            assert.strictEqual(fixture.bufferingText.textContent, 'Đang chuẩn bị video…');
+            assert.strictEqual(fixture.poster.hidden, false, 'poster must remain visible');
+        });
+
+        test('P1-3. Buffer becomes sufficient during PREPARING: playback begins once, transitions to PLAYING, hides preparation UI', async () => {
+            let bufferEnd = 0.31;
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => bufferEnd
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 1000 });
+
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.video._playCalled, 0);
+
+            // Buffer expands over network to 2.5s
+            bufferEnd = 2.5;
+            fixture.video.dispatchEvent('progress');
+            await Promise.resolve();
+
+            // Playback should now be triggered
+            assert.strictEqual(fixture.video._playCalled, 1, 'video.play() called once buffer reached 2.5s');
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.buffering.hidden, true, 'buffering indicator hidden');
+            assert.strictEqual(fixture.buffering.classList.contains('screen-player-buffering--preparing'), false);
+        });
+
+        test('P1-4. Startup fallback timeout: safe recovery to playback without permanent spinner', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2
+                }
+            });
+            // Short timeout for fast deterministic test
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 40 });
+
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Wait for fallback timeout to expire
+            await new Promise(resolve => setTimeout(resolve, 60));
+
+            // Graceful fallback: playback is attempted, not stuck in spinner
+            assert.strictEqual(fixture.video._playCalled, 1, 'video.play() attempted on timeout fallback');
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.buffering.hidden, true);
+        });
+
+        test('P1-5. Buffer never advances while paused: timeout fallback initiates playback without deadlock', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 0,
+                    start: () => 0,
+                    end: () => 0
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 30 });
+
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Buffer remains 0 (browser does not download while paused)
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Safe fallback called
+            assert.strictEqual(fixture.video._playCalled, 1);
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+        });
+
+        test('P1-6. play() Promise rejects with NotAllowedError: resets to IDLE, hides preparation UI, restores Big Play button for fresh gesture', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2
+                }
+            });
+            fixture.video.play = () => {
+                fixture.video._playCalled = (fixture.video._playCalled || 0) + 1;
+                const err = new Error('play() failed because the user didn\'t interact with the document first.');
+                err.name = 'NotAllowedError';
+                return Promise.reject(err);
+            };
+
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 30 });
+
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Must reset to IDLE and restore big play button
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.buffering.hidden, true);
+            assert.strictEqual(fixture.bigPlayBtn.hidden, false, 'Big play button must be restored for fresh user gesture');
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster must remain visible');
+        });
+
+        test('P1-7. Repeated clicks during PREPARING do not cause duplicate playback attempts', async () => {
+            let bufferEnd = 0.2;
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => bufferEnd
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 500 });
+
+            // First click initiates PREPARING
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Second play attempt while preparing does not trigger concurrent play()
+            controller.playVideo();
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.video._playCalled, 0, 'Should not trigger concurrent play()');
+
+            // Buffer arrives
+            bufferEnd = 3.0;
+            fixture.video.dispatchEvent('progress');
+            await Promise.resolve();
+
+            // Play called exactly once
+            assert.strictEqual(fixture.video._playCalled, 1);
+        });
+
+        test('P1-8. User presses Pause / toggles play during PREPARING: cancels pending startup, returns to IDLE, video never starts', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 100 });
+
+            // Click play -> enters PREPARING
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Click play/pause button again -> cancels preparation
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.buffering.hidden, true);
+            assert.strictEqual(fixture.bigPlayBtn.hidden, false);
+
+            // Wait past the timeout to ensure cancelled timer does not fire play()
+            await new Promise(resolve => setTimeout(resolve, 150));
+            assert.strictEqual(fixture.video._playCalled, 0, 'video.play() must NOT be called after cancellation');
+            assert.strictEqual(fixture.video.paused, true);
+        });
+
+        test('P1-9. Player destroy() during PREPARING cleans up all timers and listeners, no stale callbacks', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 50 });
+
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            controller.destroy();
+
+            await new Promise(resolve => setTimeout(resolve, 80));
+            assert.strictEqual(fixture.video._playCalled, 0, 'No play call after destroy');
+        });
+
+        test('P1-10. Media error during PREPARING cancels preparation and surfaces error container', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 500 });
+
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Network error occurs
+            fixture.video.error = { code: 2 };
+            fixture.video.dispatchEvent('error');
+
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.buffering.hidden, true);
+            assert.strictEqual(fixture.errorContainer.hidden, false, 'Error container must be shown');
+            assert.strictEqual(fixture.video._playCalled, 0);
+        });
+
+        test('P1-11. Strict No Hidden Playback invariant: during PREPARING, video.paused remains true, currentTime does not advance, no audio emitted', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.4
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 500 });
+
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Verify strict non-playback state
+            assert.strictEqual(fixture.video.paused, true, 'video.paused must be true');
+            assert.strictEqual(fixture.video.currentTime, 0, 'currentTime must not advance');
+            assert.strictEqual(fixture.video.muted, false, 'muted state must not be manipulated as a hidden audio trick');
+            assert.strictEqual(fixture.poster.hidden, false, 'poster must remain visible');
+        });
+
+        test('P1-12. canplay event fired without adequate forward buffer does not falsely terminate PREPARING or hide poster', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.35 // insufficient forward buffer
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 500 });
+
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Browser fires canplay while buffer is only 0.35s
+            fixture.video.dispatchEvent('canplay');
+            await Promise.resolve();
+
+            // Must NOT terminate preparing or hide poster
+            assert.strictEqual(controller.getStartupState(), 'PREPARING', 'canplay alone must not bypass buffer check');
+            assert.strictEqual(fixture.poster.hidden, false, 'poster remains visible');
+            assert.strictEqual(fixture.video._playCalled, 0);
+        });
+
+        test('P1-13. Resume candidate prompt: selecting "Xem tiếp" at 600s checks forward buffer around 600s, not 0s', async () => {
+            const storage = createMemoryStorage({
+                [ScreenPlayer.STORAGE_KEY_PREFIX + 'entry-ep-1']: JSON.stringify({
+                    entryId: 'entry-ep-1',
+                    videoSrc: '/media/assets/123/content',
+                    positionSeconds: 600,
+                    durationSeconds: 1576,
+                    updatedAt: Date.now()
+                })
+            });
+
+            // Buffer only exists at 0-5s, none at 600s
+            const fixture = createUX01Fixture({
+                entryId: 'entry-ep-1',
+                videoDuration: 1576,
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 5.0
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { storage, startupTimeoutMs: 500 });
+
+            // Resume modal is shown
+            assert.strictEqual(fixture.resumeModal.hidden, false);
+
+            // Click "Xem tiếp"
+            fixture.resumeConfirmBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            // Video sought to 600s and enters PREPARING for 600s target
+            assert.strictEqual(fixture.video.currentTime, 600);
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.video._playCalled, 0);
+
+            // Now buffer at 600s arrives: [600, 603] -> 3s forward buffer
+            fixture.video.buffered = {
+                length: 2,
+                start: (i) => (i === 0 ? 0 : 600),
+                end: (i) => (i === 0 ? 5.0 : 603.0)
+            };
+            fixture.video.dispatchEvent('progress');
+            await Promise.resolve();
+
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.video._playCalled, 1);
+        });
+
+        test('P1-14. Seeking during PREPARING updates target position safely', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 500 });
+
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // Seek forward +10s
+            fixture.forwardBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(fixture.video.currentTime, 10);
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+        });
+
+        test('P1-15. Subsequent play/pause cycles after initial playback bypass the preparation gate', async () => {
+            let bufferEnd = 2.0;
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => bufferEnd
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            // First play: adequate buffer -> starts playing
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.video._playCalled, 1);
+
+            // User pauses
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(fixture.video.paused, true);
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+
+            // Buffer happens to drop below threshold
+            bufferEnd = 0.5;
+
+            // User clicks play again: normal resume, does NOT re-trigger PREPARING gate
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            assert.strictEqual(fixture.video._playCalled, 2, 'play() called immediately on subsequent play');
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.buffering.hidden, true);
+        });
+
+        test('P1-16. Forward buffer calculation safely handles null buffered, empty ranges, NaN, Infinity, negative values, and fragmented ranges', () => {
+            const fixture = createUX01Fixture();
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            // Null buffered
+            fixture.video.buffered = null;
+            assert.strictEqual(controller.getForwardBuffer(0), 0);
+
+            // Empty ranges
+            fixture.video.buffered = { length: 0 };
+            assert.strictEqual(controller.getForwardBuffer(0), 0);
+
+            // Fragmented ranges: [0, 1.2], [50, 58], [100, 104]
+            fixture.video.buffered = {
+                length: 3,
+                start: (i) => [0, 50, 100][i],
+                end: (i) => [1.2, 58, 104][i]
+            };
+            assert.strictEqual(Math.round(controller.getForwardBuffer(0) * 10) / 10, 1.2);
+            assert.strictEqual(controller.getForwardBuffer(25), 0);
+            assert.strictEqual(Math.round(controller.getForwardBuffer(50) * 10) / 10, 8.0);
+            assert.strictEqual(Math.round(controller.getForwardBuffer(52) * 10) / 10, 6.0);
+            assert.strictEqual(controller.getForwardBuffer(60), 0);
+            assert.strictEqual(Math.round(controller.getForwardBuffer(100) * 10) / 10, 4.0);
+
+            // NaN, Infinity, negative
+            assert.strictEqual(controller.getForwardBuffer(NaN), 1.2); // falls back to video.currentTime (0)
+            assert.strictEqual(controller.getForwardBuffer(Infinity), 0);
+            assert.strictEqual(controller.getForwardBuffer(-5), 1.2); // clamped or falls back
+        });
+
+    });
+
+    // =========================================================================
+    // MS-08G3-UX02-QA02-P1-SR01: Lifecycle, Poster Visibility & Cancellation Safety
+    // =========================================================================
+
+    describe('ScreenPlayer — Lifecycle, Poster Visibility & Cancellation Safety (MS-08G3-UX02-QA02-P1-SR01)', () => {
+
+        test('SR01-A. Defect A: seeked event during PREPARING must NOT hide poster while paused with insufficient buffer', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.3
+                },
+                videoReadyState: 2
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 1000 });
+
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster must be visible during PREPARING');
+
+            // Seek to 600s while preparing
+            controller.seekTo(600);
+            fixture.video.currentTime = 600;
+
+            // Dispatch seeked
+            fixture.video.dispatchEvent('seeked');
+            await Promise.resolve();
+
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster MUST remain visible during PREPARING even after seeked event');
+        });
+
+        test('SR01-B. Race B: stale play() Promise resolving after user pause must NOT overwrite IDLE or trigger playing UI', async () => {
+            let resolvePlayPromise;
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 5.0
+                }
+            });
+            fixture.video.play = () => {
+                fixture.video._playCalled = (fixture.video._playCalled || 0) + 1;
+                return new Promise((resolve) => {
+                    resolvePlayPromise = resolve;
+                });
+            };
+
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(fixture.video._playCalled, 1);
+            assert.strictEqual(controller.getStartupState(), 'STARTING');
+
+            // User pauses while play() is pending
+            controller.pauseVideo();
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), false);
+
+            // Stale play promise fulfills
+            resolvePlayPromise();
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 10));
+
+            assert.strictEqual(controller.getStartupState(), 'IDLE', 'Startup state must remain IDLE after pause');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), false, 'Wrap must not have is-playing class after pause');
+        });
+
+        test('SR01-C. Risk C: canceling preparation reverts preload attribute to pre-preparation setting', async () => {
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2
+                }
+            });
+            fixture.video.preload = 'metadata';
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 1000 });
+
+            assert.strictEqual(fixture.video.preload, 'metadata');
+
+            // Click play -> enters PREPARING -> sets preload = 'auto'
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.video.preload, 'auto');
+
+            // User cancels preparation
+            controller.pauseVideo();
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+
+            assert.strictEqual(fixture.video.preload, 'metadata', 'video.preload must be restored to previous setting upon cancellation');
+        });
+
+        test('SR01-D. Play Promise rejects after newer successful Play: old rejection does not overwrite newer state', async () => {
+            let rejectFirstPlay;
+            let callCount = 0;
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 5.0
+                }
+            });
+            const origPlay = fixture.video.play;
+            fixture.video.play = () => {
+                callCount++;
+                if (callCount === 1) {
+                    return new Promise((_, reject) => {
+                        rejectFirstPlay = reject;
+                    });
+                }
+                return origPlay();
+            };
+
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            // First play attempt
+            controller.playVideo();
+            assert.strictEqual(controller.getStartupState(), 'STARTING');
+
+            // Newer play attempt is made
+            controller.playVideo();
+            await Promise.resolve();
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+
+            // Stale first play promise rejects
+            const staleErr = new Error('Old aborted request');
+            staleErr.name = 'AbortError';
+            rejectFirstPlay(staleErr);
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 10));
+
+            // State must remain PLAYING, not overwritten by stale rejection
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), true);
+        });
+
+        test('SR01-E. Play Promise fulfills after destroy(): old controller does not mutate destroyed player', async () => {
+            let resolvePlay;
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 5.0
+                }
+            });
+            fixture.video.play = () => {
+                return new Promise((resolve) => {
+                    resolvePlay = resolve;
+                });
+            };
+
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            controller.playVideo();
+            assert.strictEqual(controller.getStartupState(), 'STARTING');
+
+            controller.destroy();
+
+            resolvePlay();
+            await Promise.resolve();
+            await new Promise(r => setTimeout(r, 10));
+
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), false);
+        });
+
+        test('SR01-F. Cancel preparation then Play again: no deadlock or duplicate Play', async () => {
+            let bufferEnd = 0.2;
+            const fixture = createUX01Fixture({
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => bufferEnd
+                }
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { startupTimeoutMs: 1000 });
+
+            // 1. Enter PREPARING
+            fixture.bigPlayBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+
+            // 2. Cancel
+            controller.pauseVideo();
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.buffering.hidden, true);
+
+            // 3. Buffer arrives while paused
+            bufferEnd = 3.0;
+            fixture.video.buffered = {
+                length: 1,
+                start: () => 0,
+                end: () => bufferEnd
+            };
+
+            // 4. Play again -> should start immediately
+            fixture.playPauseBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            assert.strictEqual(fixture.video._playCalled, 1);
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), true);
+        });
+
+        test('SR01-G. Resume at 600s: seek events do not prematurely dismiss poster during preparation', async () => {
+            const storage = createMemoryStorage({
+                [ScreenPlayer.STORAGE_KEY_PREFIX + 'entry-ep-1']: JSON.stringify({
+                    entryId: 'entry-ep-1',
+                    videoSrc: '/media/assets/123/content',
+                    positionSeconds: 600,
+                    durationSeconds: 1576,
+                    updatedAt: Date.now()
+                })
+            });
+
+            const fixture = createUX01Fixture({
+                entryId: 'entry-ep-1',
+                videoDuration: 1576,
+                buffered: {
+                    length: 1,
+                    start: () => 0,
+                    end: () => 0.2 // no buffer at 600s
+                },
+                videoReadyState: 2
+            });
+            const controller = ScreenPlayer.init(fixture.doc, { storage, startupTimeoutMs: 1000 });
+
+            // Confirm resume
+            fixture.resumeConfirmBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            await Promise.resolve();
+
+            assert.strictEqual(controller.getStartupState(), 'PREPARING');
+            assert.strictEqual(fixture.video.currentTime, 600);
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster must remain visible on resume PREPARING');
+
+            // Native seeked fires
+            fixture.video.dispatchEvent('seeked');
+            await Promise.resolve();
+
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster MUST still be visible after seeked during resume PREPARING');
+
+            // Buffer at 600s arrives
+            fixture.video.buffered = {
+                length: 2,
+                start: (i) => (i === 0 ? 0 : 600),
+                end: (i) => (i === 0 ? 0.2 : 605.0)
+            };
+            fixture.video.dispatchEvent('progress');
+            await Promise.resolve();
+
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.video._playCalled, 1);
+        });
+
+    });
+
+    // =========================================================================
+    // MS-08G3-UX02-QA02-P1-SR02: Correct Late Native Media Events After Rapid Play/Pause
+    // =========================================================================
+
+    describe('ScreenPlayer — Late Native Media Events After Rapid Play/Pause (MS-08G3-UX02-QA02-P1-SR02)', () => {
+
+        test('SR02-1. Play then immediate Pause with queued play/playing/pause: final state stays IDLE and poster remains visible', async () => {
+            const fixture = createUX01Fixture();
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster must initially be visible');
+
+            // User triggers play then immediately pauses before native media tasks finish
+            controller.playVideo();
+            controller.pauseVideo();
+
+            assert.strictEqual(fixture.video.paused, true, 'Video must be paused');
+
+            // Simulate Chromium dispatching queued native events from earlier gesture
+            fixture.video.dispatchEvent('play');
+            fixture.video.dispatchEvent('playing');
+            fixture.video.dispatchEvent('timeupdate');
+            fixture.video.dispatchEvent('pause');
+            await Promise.resolve();
+
+            // Acceptance contract A: Late playing must not dismiss poster or activate playing state
+            assert.strictEqual(controller.getStartupState(), 'IDLE', 'Startup state must remain IDLE');
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster MUST remain visible when initial playback was canceled');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), false, 'Player wrap must not have is-playing class');
+        });
+
+        test('SR02-2. Play -> Pause -> Play with queued old pause event: newer playback intent is not invalidated', async () => {
+            const fixture = createUX01Fixture();
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            // 1. Initial play
+            controller.playVideo();
+            // 2. Rapid pause
+            controller.pauseVideo();
+            // 3. Newer valid play gesture
+            controller.playVideo();
+
+            assert.strictEqual(fixture.video.paused, false, 'Video must be unpaused for newer play gesture');
+
+            // Old queued pause event arrives from step 2
+            fixture.video.dispatchEvent('pause');
+            await Promise.resolve();
+
+            // Acceptance contract C: Old queued pause must NOT invalidate the newer play attempt
+            assert.notStrictEqual(controller.getStartupState(), 'IDLE', 'Startup state must not be reset to IDLE by stale pause');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), true, 'Player wrap must maintain playing UI for newer attempt');
+
+            // Native playing event arrives for newer play attempt
+            fixture.video.dispatchEvent('playing');
+            await Promise.resolve();
+
+            assert.strictEqual(controller.getStartupState(), 'PLAYING', 'Startup state must be PLAYING');
+            assert.strictEqual(fixture.poster.hidden, true, 'Poster must be hidden on genuine playback');
+        });
+
+        test('SR02-3. Queued play event after cancellation: does not transition to STARTING or enable is-playing UI', async () => {
+            const fixture = createUX01Fixture();
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            controller.playVideo();
+            controller.pauseVideo();
+
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), false);
+
+            // Obsolete native play event arrives while paused
+            fixture.video.dispatchEvent('play');
+            await Promise.resolve();
+
+            // Acceptance contract B: Obsolete play event must be ignored
+            assert.strictEqual(controller.getStartupState(), 'IDLE', 'Startup state must remain IDLE');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), false, 'is-playing class must not be added');
+        });
+
+        test('SR02-4. canplay event after canceled startup: does not dismiss poster while paused with hasInitialPlaybackOccurred=false', async () => {
+            const fixture = createUX01Fixture({
+                videoReadyState: 4
+            });
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            assert.strictEqual(fixture.poster.hidden, false);
+
+            // Start then cancel
+            controller.playVideo();
+            controller.pauseVideo();
+
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.video.paused, true);
+            assert.strictEqual(fixture.poster.hidden, false);
+
+            // Stale play event arrived
+            fixture.video.dispatchEvent('play');
+
+            // Browser fires canplay while paused before initial playback has occurred
+            fixture.video.dispatchEvent('canplay');
+            await Promise.resolve();
+
+            // Acceptance contract D: canplay must not hide poster when initial playback was canceled
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster MUST remain visible after canplay when paused and unplayed');
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+        });
+
+        test('SR02-5. Valid native playing event during genuine playback: normal recovery and poster removal', async () => {
+            const fixture = createUX01Fixture();
+            const controller = ScreenPlayer.init(fixture.doc);
+
+            assert.strictEqual(fixture.poster.hidden, false);
+
+            controller.playVideo();
+            assert.strictEqual(fixture.video.paused, false);
+
+            // Native playing arrives while active playback is occurring
+            fixture.video.dispatchEvent('playing');
+            await Promise.resolve();
+
+            // Legitimate recovery
+            assert.strictEqual(controller.getStartupState(), 'PLAYING');
+            assert.strictEqual(fixture.poster.hidden, true, 'Poster must be hidden on active playback');
+            assert.strictEqual(fixture.wrap.classList.contains('is-playing'), true);
+        });
+
     });
 
 });

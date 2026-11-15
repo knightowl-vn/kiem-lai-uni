@@ -2812,6 +2812,42 @@ a.screen-comment-origin-badge:focus-visible {
     }
 }
 
+/* Intent-Driven Buffer Preparation Pill (MS-08G3-UX02-QA02-P1) */
+.screen-player-buffering.screen-player-buffering--preparing {
+    width: auto;
+    height: auto;
+    min-height: 48px;
+    padding: 10px 20px;
+    border-radius: 999px;
+    background: rgba(12, 15, 22, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    gap: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+}
+
+.screen-player-buffering.screen-player-buffering--preparing .screen-player-buffering-text {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    clip: auto !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: #f1f5f9;
+    letter-spacing: 0.01em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .screen-player-spinner {
+        animation: none;
+        opacity: 0.85;
+    }
+}
+
 /* Seek Feedback Badge (Double-tap / Keyboard jump) */
 .screen-player-seek-feedback {
     position: absolute;

@@ -213,10 +213,37 @@
         var controlsContainer = context.querySelector('#screenPlayerControls')
             || context.querySelector('.screen-player-controls');
         var bufferingEl = context.querySelector('#screenPlayerBuffering');
+        var bufferingTextEl = context.querySelector('#screenPlayerBufferingText')
+            || (bufferingEl && bufferingEl.querySelector ? bufferingEl.querySelector('.screen-player-buffering-text') : null);
         var seekFeedbackEl = context.querySelector('#screenPlayerSeekFeedback');
         var seekFeedbackTextEl = context.querySelector('#screenPlayerSeekFeedbackText')
             || (seekFeedbackEl && seekFeedbackEl.querySelector ? seekFeedbackEl.querySelector('span') : null);
         var bigPlayBtn = context.querySelector('#screenPlayerBigPlayBtn');
+
+        var initialBufferThreshold = (typeof opts.initialBufferThreshold === 'number' && opts.initialBufferThreshold >= 0)
+            ? opts.initialBufferThreshold
+            : 1.5;
+        var startupTimeoutMs = (typeof opts.startupTimeoutMs === 'number' && opts.startupTimeoutMs > 0)
+            ? opts.startupTimeoutMs
+            : 2000;
+
+        var StartupState = {
+            IDLE: 'IDLE',
+            PREPARING: 'PREPARING',
+            STARTING: 'STARTING',
+            PLAYING: 'PLAYING',
+            FAILED_OR_CANCELLED: 'FAILED_OR_CANCELLED'
+        };
+        var startupState = StartupState.IDLE;
+        var hasInitialPlaybackOccurred = false;
+        var prepareTimeoutTimer = null;
+        var prepareCheckTimer = null;
+        var activePreparationTargetPos = 0;
+        var onPrepareProgressHandler = null;
+        var onPrepareCanPlayHandler = null;
+        var playAttemptSeq = 0;
+        var previousPreload = (video && video.preload) ? video.preload : 'metadata';
+        var isDestroyed = false;
 
         var playPauseBtn = context.querySelector('#screenPlayerPlayPauseBtn');
         var playIcon = playPauseBtn && playPauseBtn.querySelector ? playPauseBtn.querySelector('.screen-player-icon--play') : null;
@@ -377,6 +404,7 @@
         var nowFn = typeof opts.now === 'function' ? opts.now : function () { return Date.now(); };
 
         var retrySeq = 0;
+        var lastPlaybackIntent = null; // 'play' | 'pause' | null
         var hasPlayedOrSeeked = false;
         var hasRenderedVideoFrame = false;
         var lastFailedPosterUrl = null;
@@ -461,6 +489,8 @@
         // =====================================================================
 
         function showError(customMessage) {
+            playAttemptSeq++;
+            cancelPreparation('error');
             var msg = customMessage || getErrorMessage(video.error);
             if (errorMessageEl) {
                 errorMessageEl.textContent = msg;
@@ -475,6 +505,8 @@
 
         function handleRetry() {
             var thisRetry = ++retrySeq;
+            playAttemptSeq++;
+            cancelPreparation('retry');
             hideError();
 
             var restorePos = lastKnownPosition > 0 ? lastKnownPosition : getCurrentTimeSafe();
@@ -503,6 +535,7 @@
 
             if (typeof video.play === 'function') {
                 try {
+                    lastPlaybackIntent = 'play';
                     var playPromise = video.play();
                     if (playPromise && typeof playPromise.catch === 'function') {
                         var chained = playPromise;
@@ -556,6 +589,9 @@
         }
 
         function hidePoster() {
+            if (startupState === StartupState.PREPARING) {
+                return;
+            }
             hasRenderedVideoFrame = true;
             if (posterEl) {
                 setElementHidden(posterEl, true);
@@ -613,7 +649,16 @@
         }
 
         function onRecovery() {
+            if (isDestroyed || !video) {
+                return;
+            }
+            if (lastPlaybackIntent === 'pause' && video.paused === true) {
+                return;
+            }
             retrySeq++;
+            cleanupPreparationListeners();
+            startupState = StartupState.PLAYING;
+            hasInitialPlaybackOccurred = true;
             hideError();
             hidePoster();
             setBuffering(false);
@@ -629,11 +674,82 @@
         }
 
         // =====================================================================
-        // Play / Pause & Buffering State
+        // Play / Pause, Startup Gate & Buffering State (MS-08G3-UX02-QA02-P1)
         // =====================================================================
 
-        function setBuffering(isBuffering) {
-            setElementHidden(bufferingEl, !isBuffering);
+        function getForwardBuffer(targetPos) {
+            if (!video || !video.buffered) {
+                return 0;
+            }
+            var pos;
+            if (typeof targetPos === 'number') {
+                if (!isFinite(targetPos) || isNaN(targetPos)) {
+                    if (targetPos === Infinity || targetPos === -Infinity) {
+                        return 0;
+                    }
+                    pos = (typeof video.currentTime === 'number' && isFinite(video.currentTime) && video.currentTime >= 0)
+                        ? video.currentTime
+                        : 0;
+                } else if (targetPos < 0) {
+                    pos = 0;
+                } else {
+                    pos = targetPos;
+                }
+            } else if (typeof video.currentTime === 'number' && isFinite(video.currentTime) && video.currentTime >= 0) {
+                pos = video.currentTime;
+            } else {
+                pos = 0;
+            }
+            try {
+                var ranges = video.buffered;
+                var count = (ranges && typeof ranges.length === 'number') ? ranges.length : 0;
+                for (var i = 0; i < count; i++) {
+                    var start = ranges.start(i);
+                    var end = ranges.end(i);
+                    if (typeof start === 'number' && typeof end === 'number' && isFinite(start) && isFinite(end)) {
+                        // Small tolerance (0.25s) for audio/video interleaving start offset
+                        var effectiveStart = (pos === 0) ? Math.min(start, 0.25) : start;
+                        if (pos >= (effectiveStart - 0.25) && pos < end) {
+                            return Math.max(0, end - pos);
+                        }
+                    }
+                }
+            } catch (e) {
+                return 0;
+            }
+            return 0;
+        }
+
+        function setBuffering(isBuffering, isPreparing) {
+            if (!bufferingEl) {
+                return;
+            }
+            if (isBuffering) {
+                if (isPreparing) {
+                    if (bufferingEl.classList) {
+                        bufferingEl.classList.add('screen-player-buffering--preparing');
+                    }
+                    if (bufferingTextEl) {
+                        bufferingTextEl.textContent = 'Đang chuẩn bị video…';
+                    }
+                } else {
+                    if (bufferingEl.classList) {
+                        bufferingEl.classList.remove('screen-player-buffering--preparing');
+                    }
+                    if (bufferingTextEl) {
+                        bufferingTextEl.textContent = 'Đang tải video...';
+                    }
+                }
+                setElementHidden(bufferingEl, false);
+            } else {
+                if (bufferingEl.classList) {
+                    bufferingEl.classList.remove('screen-player-buffering--preparing');
+                }
+                if (bufferingTextEl) {
+                    bufferingTextEl.textContent = 'Đang tải video...';
+                }
+                setElementHidden(bufferingEl, true);
+            }
         }
 
         function syncPlayState(isPlaying) {
@@ -652,32 +768,225 @@
             }
             setElementHidden(playIcon, isPlaying);
             setElementHidden(pauseIcon, !isPlaying);
-            setElementHidden(bigPlayBtn, isPlaying);
+            setElementHidden(bigPlayBtn, isPlaying || startupState === StartupState.PREPARING);
         }
 
-        function playVideo() {
-            if (typeof video.play !== 'function') {
-                return;
+        function cleanupPreparationListeners() {
+            if (prepareTimeoutTimer) {
+                clearTimeout(prepareTimeoutTimer);
+                prepareTimeoutTimer = null;
             }
-            try {
-                var p = video.play();
-                if (p && typeof p.then === 'function') {
-                    p.then(function () {
-                        hasPlayedOrSeeked = true;
-                        syncPlayState(true);
-                    }, function () {
-                        syncPlayState(false);
-                    });
-                } else {
-                    hasPlayedOrSeeked = true;
-                    syncPlayState(true);
+            if (prepareCheckTimer) {
+                clearInterval(prepareCheckTimer);
+                prepareCheckTimer = null;
+            }
+            if (video && typeof video.removeEventListener === 'function') {
+                if (onPrepareProgressHandler) {
+                    video.removeEventListener('progress', onPrepareProgressHandler);
+                    onPrepareProgressHandler = null;
                 }
-            } catch (err) {
+                if (onPrepareCanPlayHandler) {
+                    video.removeEventListener('canplay', onPrepareCanPlayHandler);
+                    onPrepareCanPlayHandler = null;
+                }
+            }
+        }
+
+        function cancelPreparation(reason) {
+            if (reason === 'user_pause') {
+                lastPlaybackIntent = 'pause';
+            }
+            cleanupPreparationListeners();
+            playAttemptSeq++;
+            if (startupState === StartupState.PREPARING) {
+                startupState = StartupState.IDLE;
+                if (video && previousPreload && video.preload !== previousPreload) {
+                    try { video.preload = previousPreload; } catch (e) {}
+                }
+                setBuffering(false);
+                setElementHidden(bigPlayBtn, false);
                 syncPlayState(false);
             }
         }
 
+        function handlePlayFailure(err) {
+            var isNotAllowed = err && (err.name === 'NotAllowedError');
+            var isAbort = err && (err.name === 'AbortError');
+
+            if (isNotAllowed) {
+                startupState = StartupState.IDLE;
+                setBuffering(false);
+                setElementHidden(bigPlayBtn, false);
+                setElementHidden(posterEl, false);
+                syncPlayState(false);
+            } else if (isAbort) {
+                startupState = StartupState.IDLE;
+                setBuffering(false);
+                syncPlayState(false);
+            } else {
+                startupState = StartupState.FAILED_OR_CANCELLED;
+                setBuffering(false);
+                syncPlayState(false);
+            }
+        }
+
+        function executePlay() {
+            if (isDestroyed || !video || typeof video.play !== 'function') {
+                return;
+            }
+            if (startupState === StartupState.PLAYING && video.paused === false) {
+                return;
+            }
+            lastPlaybackIntent = 'play';
+            var thisAttempt = ++playAttemptSeq;
+            cleanupPreparationListeners();
+            startupState = StartupState.STARTING;
+            setBuffering(false);
+            setElementHidden(bigPlayBtn, true);
+
+            try {
+                var p = video.play();
+                if (p && typeof p.then === 'function') {
+                    p.then(function () {
+                        if (thisAttempt !== playAttemptSeq || isDestroyed) {
+                            return;
+                        }
+                        if (video.paused === true) {
+                            startupState = StartupState.IDLE;
+                            syncPlayState(false);
+                            return;
+                        }
+                        startupState = StartupState.PLAYING;
+                        hasInitialPlaybackOccurred = true;
+                        hasPlayedOrSeeked = true;
+                        syncPlayState(true);
+                    }, function (err) {
+                        if (thisAttempt !== playAttemptSeq || isDestroyed) {
+                            return;
+                        }
+                        handlePlayFailure(err);
+                    });
+                } else {
+                    if (thisAttempt !== playAttemptSeq || isDestroyed) {
+                        return;
+                    }
+                    if (video.paused === true) {
+                        startupState = StartupState.IDLE;
+                        syncPlayState(false);
+                        return;
+                    }
+                    startupState = StartupState.PLAYING;
+                    hasInitialPlaybackOccurred = true;
+                    hasPlayedOrSeeked = true;
+                    syncPlayState(true);
+                }
+            } catch (err) {
+                if (thisAttempt === playAttemptSeq && !isDestroyed) {
+                    handlePlayFailure(err);
+                }
+            }
+        }
+
+        function requestPlayback(targetPosition) {
+            if (isDestroyed || !video || typeof video.play !== 'function') {
+                return;
+            }
+            lastPlaybackIntent = 'play';
+
+            var intendedPos;
+            if (typeof targetPosition === 'number' && isFinite(targetPosition) && targetPosition >= 0) {
+                intendedPos = targetPosition;
+            } else if (typeof video.currentTime === 'number' && isFinite(video.currentTime) && video.currentTime >= 0) {
+                intendedPos = video.currentTime;
+            } else {
+                intendedPos = 0;
+            }
+
+            // Normal subsequent resume/unpause after initial startup bypasses preparation gate
+            if (hasInitialPlaybackOccurred) {
+                executePlay();
+                return;
+            }
+
+            // If already in PREPARING
+            if (startupState === StartupState.PREPARING) {
+                if (Math.abs(activePreparationTargetPos - intendedPos) > 0.5) {
+                    activePreparationTargetPos = intendedPos;
+                    if (typeof video.currentTime === 'number' && Math.abs(video.currentTime - intendedPos) > 0.5) {
+                        try { video.currentTime = intendedPos; } catch (e) {}
+                    }
+                }
+                return;
+            }
+
+            activePreparationTargetPos = intendedPos;
+            var forwardBuffer = getForwardBuffer(intendedPos);
+
+            // Case B: Forward buffer is already sufficient (>= initialBufferThreshold)
+            if (forwardBuffer >= initialBufferThreshold) {
+                executePlay();
+                return;
+            }
+
+            // Case C: Insufficient forward buffer -> enter PREPARING state
+            startupState = StartupState.PREPARING;
+
+            // Signal browser to buffer forward
+            if (video.preload !== 'auto') {
+                previousPreload = video.preload || 'metadata';
+                try { video.preload = 'auto'; } catch (e) {}
+            }
+            if (intendedPos > 0 && typeof video.currentTime === 'number' && Math.abs(video.currentTime - intendedPos) > 0.5) {
+                try { video.currentTime = intendedPos; } catch (e) {}
+            }
+
+            setBuffering(true, true);
+            setElementHidden(bigPlayBtn, true);
+
+            function checkBufferReadiness() {
+                if (startupState !== StartupState.PREPARING) {
+                    return;
+                }
+                var currentBuffer = getForwardBuffer(activePreparationTargetPos);
+                if (currentBuffer >= initialBufferThreshold) {
+                    cleanupPreparationListeners();
+                    executePlay();
+                }
+            }
+
+            onPrepareProgressHandler = function () {
+                checkBufferReadiness();
+            };
+            onPrepareCanPlayHandler = function () {
+                checkBufferReadiness();
+            };
+
+            if (typeof video.addEventListener === 'function') {
+                video.addEventListener('progress', onPrepareProgressHandler);
+                video.addEventListener('canplay', onPrepareCanPlayHandler);
+            }
+
+            prepareCheckTimer = setInterval(checkBufferReadiness, 40);
+
+            prepareTimeoutTimer = setTimeout(function () {
+                if (startupState === StartupState.PREPARING) {
+                    cleanupPreparationListeners();
+                    executePlay();
+                }
+            }, startupTimeoutMs);
+        }
+
+        function playVideo(targetPosition) {
+            requestPlayback(targetPosition);
+        }
+
         function pauseVideo() {
+            lastPlaybackIntent = 'pause';
+            playAttemptSeq++;
+            if (startupState === StartupState.PREPARING) {
+                cancelPreparation('user_pause');
+                return;
+            }
             if (typeof video.pause === 'function') {
                 try {
                     video.pause();
@@ -685,10 +994,15 @@
                     // Ignore pause error
                 }
             }
+            startupState = StartupState.IDLE;
             syncPlayState(false);
         }
 
         function togglePlay() {
+            if (startupState === StartupState.PREPARING) {
+                pauseVideo();
+                return;
+            }
             var isCurrentlyPaused = (typeof video.paused === 'boolean') ? video.paused : true;
             if (playerWrap && playerWrap.classList && playerWrap.classList.contains('is-playing') && typeof video.paused !== 'boolean') {
                 isCurrentlyPaused = false;
@@ -740,6 +1054,9 @@
             }
             hasPlayedOrSeeked = true;
             lastKnownPosition = clamped;
+            if (startupState === StartupState.PREPARING) {
+                activePreparationTargetPos = clamped;
+            }
             updateTimeline();
             evaluateSkipOutroAction();
             return clamped;
@@ -1280,7 +1597,7 @@
                 seekTo(targetPos);
                 pendingSeekPosition = targetPos;
             }
-            playVideo();
+            playVideo(targetPos);
         }
 
         function handleResumeReset(e) {
@@ -1294,7 +1611,7 @@
             lastKnownPosition = 0;
             clearSavedProgress();
             seekTo(0);
-            playVideo();
+            playVideo(0);
         }
 
         // =====================================================================
@@ -1792,7 +2109,19 @@
         // =====================================================================
 
         function onPlay() {
+            if (isDestroyed || !video) {
+                return;
+            }
+            if (lastPlaybackIntent === 'pause' && video.paused === true) {
+                return;
+            }
+            if (video.paused === false) {
+                lastPlaybackIntent = 'play';
+            }
             hasPlayedOrSeeked = true;
+            if (startupState !== StartupState.PLAYING && startupState !== StartupState.STARTING) {
+                startupState = StartupState.STARTING;
+            }
             // First-frame visibility: poster is NOT hidden here.
             // It remains visible while buffering until decodable frame is ready (playing, loadeddata while playing, or timeupdate).
             syncPlayState(true);
@@ -1805,17 +2134,42 @@
         }
 
         function onPause() {
-            syncPlayState(false);
-            setBuffering(false);
+            if (isDestroyed || !video) {
+                return;
+            }
+            if (lastPlaybackIntent === 'play' && video.paused === false) {
+                return;
+            }
+            if (video.paused === true) {
+                lastPlaybackIntent = 'pause';
+            }
+            playAttemptSeq++;
+            if (startupState !== StartupState.PREPARING) {
+                startupState = StartupState.IDLE;
+                syncPlayState(false);
+                setBuffering(false);
+            }
             saveProgressImmediate();
         }
 
         function onWaiting() {
-            setBuffering(true);
+            if (startupState === StartupState.PREPARING) {
+                setBuffering(true, true);
+            } else {
+                setBuffering(true, false);
+            }
         }
 
         function onCanPlay() {
+            if (startupState === StartupState.PREPARING) {
+                return;
+            }
             setBuffering(false);
+            if (!hasInitialPlaybackOccurred && (lastPlaybackIntent === 'pause' || (video && video.paused === true && lastPlaybackIntent !== 'play'))) {
+                evaluateSkipOutroAction();
+                evaluateNextUpPrompt();
+                return;
+            }
             if (!hasRenderedVideoFrame && (hasPlayedOrSeeked || (typeof video.currentTime === 'number' && video.currentTime > 0)) && isVideoFrameReady(video)) {
                 hidePoster();
             }
@@ -1824,6 +2178,11 @@
         }
 
         function onSeeked() {
+            if (startupState === StartupState.PREPARING) {
+                evaluateSkipOutroAction();
+                evaluateNextUpPrompt();
+                return;
+            }
             if (!hasRenderedVideoFrame && (hasPlayedOrSeeked || (typeof video.currentTime === 'number' && video.currentTime > 0)) && isVideoFrameReady(video)) {
                 hidePoster();
             }
@@ -2295,6 +2654,9 @@
             if (playerWrap && playerWrap.classList) {
                 playerWrap.classList.remove('is-enhanced');
             }
+            playAttemptSeq++;
+            isDestroyed = true;
+            cancelPreparation('destroy');
             video._screenPlayerController = null;
         }
 
@@ -2317,6 +2679,10 @@
                     (nextOutroLink && !nextOutroLink.hidden)
                 );
             },
+            getStartupState: function () { return startupState; },
+            getForwardBuffer: function (pos) { return getForwardBuffer(pos); },
+            playVideo: playVideo,
+            pauseVideo: pauseVideo,
             showError: showError,
             hideError: hideError,
             handleRetry: handleRetry,
