@@ -601,7 +601,7 @@
             <header class="screen-discussion-header">
                 <div class="screen-discussion-heading-row">
                     <h2 id="screenDiscussionHeading" class="screen-discussion-title">Bình luận</h2>
-                    <span class="screen-discussion-count-badge" id="screenDiscussionCountBadge" aria-live="polite">0 bình luận</span>
+                    <span class="screen-discussion-count-badge" id="screenDiscussionCountBadge" aria-live="polite">Đang tải...</span>
                 </div>
             </header>
 
@@ -629,7 +629,32 @@
             <div id="screenDiscussionStatus" class="screen-discussion-status" role="status" aria-live="polite"></div>
 
             <!-- Thread List -->
-            <div id="screenDiscussionThreadList" class="screen-discussion-thread-list" role="feed" aria-busy="false" aria-label="Danh sách bình luận"></div>
+            <div id="screenDiscussionThreadList" class="screen-discussion-thread-list" role="feed" aria-busy="true" aria-label="Danh sách bình luận">
+                <div class="screen-discussion-skeleton" id="screenDiscussionSkeleton" aria-hidden="true">
+                    <div class="screen-comment-skeleton-item">
+                        <div class="screen-comment-skeleton-avatar"></div>
+                        <div class="screen-comment-skeleton-content">
+                            <div class="screen-comment-skeleton-meta">
+                                <div class="screen-comment-skeleton-name"></div>
+                                <div class="screen-comment-skeleton-date"></div>
+                            </div>
+                            <div class="screen-comment-skeleton-line screen-comment-skeleton-line--long"></div>
+                            <div class="screen-comment-skeleton-line screen-comment-skeleton-line--medium"></div>
+                        </div>
+                    </div>
+                    <div class="screen-comment-skeleton-item">
+                        <div class="screen-comment-skeleton-avatar"></div>
+                        <div class="screen-comment-skeleton-content">
+                            <div class="screen-comment-skeleton-meta">
+                                <div class="screen-comment-skeleton-name"></div>
+                                <div class="screen-comment-skeleton-date"></div>
+                            </div>
+                            <div class="screen-comment-skeleton-line screen-comment-skeleton-line--long"></div>
+                            <div class="screen-comment-skeleton-line screen-comment-skeleton-line--short"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- Load More Container -->
             <div class="screen-discussion-footer" id="screenDiscussionFooter" hidden>

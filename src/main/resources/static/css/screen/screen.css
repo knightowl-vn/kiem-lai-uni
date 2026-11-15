@@ -1610,12 +1610,97 @@ html[data-theme="dark"] .screen-detail-hero.has-backdrop .screen-detail-poster-p
 }
 
 .screen-discussion-status--error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
     padding: 16px 20px;
     border: 1px solid rgba(220, 53, 69, 0.3);
     border-radius: 10px;
     background: rgba(220, 53, 69, 0.08);
     color: #dc3545;
     font-weight: 500;
+}
+
+.screen-discussion-retry-btn {
+    align-self: center;
+    font-size: 13px;
+    padding: 6px 16px;
+    cursor: pointer;
+}
+
+/* Discussion Skeleton Loading States */
+.screen-discussion-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+}
+
+.screen-comment-skeleton-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 1.25rem;
+    box-sizing: border-box;
+}
+
+.screen-comment-skeleton-item + .screen-comment-skeleton-item {
+    border-top: 1px solid var(--border-color);
+}
+
+.screen-comment-skeleton-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--surface-secondary, rgba(128, 128, 128, 0.15));
+    flex-shrink: 0;
+}
+
+.screen-comment-skeleton-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+.screen-comment-skeleton-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.screen-comment-skeleton-name {
+    width: 90px;
+    height: 14px;
+    border-radius: 4px;
+    background: var(--surface-secondary, rgba(128, 128, 128, 0.15));
+}
+
+.screen-comment-skeleton-date {
+    width: 60px;
+    height: 12px;
+    border-radius: 4px;
+    background: var(--surface-secondary, rgba(128, 128, 128, 0.1));
+}
+
+.screen-comment-skeleton-line {
+    height: 12px;
+    border-radius: 4px;
+    background: var(--surface-secondary, rgba(128, 128, 128, 0.12));
+}
+
+.screen-comment-skeleton-line--long {
+    width: 85%;
+}
+
+.screen-comment-skeleton-line--medium {
+    width: 65%;
+}
+
+.screen-comment-skeleton-line--short {
+    width: 45%;
 }
 
 .screen-discussion-status--success {

@@ -62,6 +62,8 @@
     let renderedRootIds = new Set();
     let threadCount = 0;
     let commentCount = 0;
+    let hasLoadedAuthoritativeCount = false;
+    let lastFailedRequest = null;
 
     // Tracked Event Listeners for Idempotent Teardown
     let rootComposerSubmitListener = null;
@@ -293,6 +295,8 @@
         renderedRootIds.clear();
         threadCount = 0;
         commentCount = 0;
+        hasLoadedAuthoritativeCount = false;
+        lastFailedRequest = null;
         injectedFetch = null;
         injectedConfirm = null;
         injectedReportModal = null;
@@ -507,11 +511,113 @@
      * Formats comment count label (e.g. '3 bình luận').
      */
     function formatCommentCount(count) {
+        if (count === null || count === undefined || count === 'pending') {
+            return 'Đang tải...';
+        }
+        if (count === 'error' || count === 'failed') {
+            return 'Chưa tải được';
+        }
         const num = Number(count);
         if (!Number.isSafeInteger(num) || num < 0) {
             return '0 bình luận';
         }
         return num + ' bình luận';
+    }
+
+    /**
+     * Renders lightweight comment skeleton placeholders.
+     */
+    function renderSkeleton(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return null;
+
+        const container = d.createElement('div');
+        container.className = 'screen-discussion-skeleton';
+        container.id = 'screenDiscussionSkeleton';
+        container.setAttribute('aria-hidden', 'true');
+
+        for (let i = 0; i < 2; i++) {
+            const item = d.createElement('div');
+            item.className = 'screen-comment-skeleton-item';
+
+            const avatar = d.createElement('div');
+            avatar.className = 'screen-comment-skeleton-avatar';
+            item.appendChild(avatar);
+
+            const content = d.createElement('div');
+            content.className = 'screen-comment-skeleton-content';
+
+            const meta = d.createElement('div');
+            meta.className = 'screen-comment-skeleton-meta';
+
+            const name = d.createElement('div');
+            name.className = 'screen-comment-skeleton-name';
+            meta.appendChild(name);
+
+            const date = d.createElement('div');
+            date.className = 'screen-comment-skeleton-date';
+            meta.appendChild(date);
+
+            content.appendChild(meta);
+
+            const lineLong = d.createElement('div');
+            lineLong.className = 'screen-comment-skeleton-line screen-comment-skeleton-line--long';
+            content.appendChild(lineLong);
+
+            const lineSecond = d.createElement('div');
+            lineSecond.className = 'screen-comment-skeleton-line ' + (i === 0 ? 'screen-comment-skeleton-line--medium' : 'screen-comment-skeleton-line--short');
+            content.appendChild(lineSecond);
+
+            item.appendChild(content);
+            container.appendChild(item);
+        }
+
+        return container;
+    }
+
+    /**
+     * Ensures the skeleton placeholder is visible in the thread list container.
+     */
+    function showSkeleton(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const els = getElements(d);
+        if (!els.threadListEl) return;
+        if (!els.threadListEl.querySelector('.screen-discussion-skeleton')) {
+            clearElement(els.threadListEl);
+            const skeleton = renderSkeleton(d);
+            if (skeleton) {
+                els.threadListEl.appendChild(skeleton);
+            }
+        }
+    }
+
+    /**
+     * Renders a load error status with a usable Retry button.
+     */
+    function renderDiscussionLoadError(container, message, doc, page = 0, append = false, sort = currentSort) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!container) return;
+        clearElement(container);
+        container.className = 'screen-discussion-status screen-discussion-status--error wiki-discussion-status wiki-discussion-status--error';
+
+        if (d && typeof d.createElement === 'function') {
+            const msgSpan = d.createElement('span');
+            msgSpan.className = 'screen-discussion-status-msg';
+            msgSpan.textContent = message;
+            container.appendChild(msgSpan);
+
+            const retryBtn = d.createElement('button');
+            retryBtn.type = 'button';
+            retryBtn.className = 'screen-comment-btn screen-comment-btn--secondary screen-discussion-retry-btn';
+            retryBtn.setAttribute('data-action', 'retry-discussion-load');
+            retryBtn.setAttribute('data-retry-page', String(page));
+            retryBtn.setAttribute('data-retry-append', append ? 'true' : 'false');
+            retryBtn.setAttribute('data-retry-sort', sort || currentSort);
+            retryBtn.textContent = 'Thử lại';
+            container.appendChild(retryBtn);
+        } else {
+            container.textContent = message;
+        }
     }
 
     /**
@@ -673,6 +779,12 @@
 
         const cached = sortCaches.get(currentSort);
         if (cached && Array.isArray(cached.threads)) {
+            // Invalidate any in-flight requests from a previous sort
+            ++loadToken;
+            isLoading = false;
+            hasLoadedAuthoritativeCount = true;
+            lastFailedRequest = null;
+
             const els = getElements(d);
             currentPage = cached.page;
             hasNext = cached.hasNext;
@@ -681,7 +793,10 @@
             currentThreads = cached.threads.slice();
             renderedRootIds.clear();
 
+            updateCountBadge(commentCount, d);
+
             if (els.threadListEl) {
+                els.threadListEl.setAttribute('aria-busy', 'false');
                 clearElement(els.threadListEl);
                 currentThreads.forEach(t => {
                     const threadEl = renderThread(t, d);
@@ -693,6 +808,9 @@
             }
             if (els.footerEl) {
                 els.footerEl.hidden = !hasNext;
+            }
+            if (els.loadMoreBtnEl) {
+                els.loadMoreBtnEl.disabled = false;
             }
             if (els.statusEl) {
                 clearElement(els.statusEl);
@@ -1246,6 +1364,7 @@
                 if (data && typeof data.commentCount === 'number') {
                     commentCount = data.commentCount;
                     threadCount = data.threadCount;
+                    hasLoadedAuthoritativeCount = true;
                     updateCountBadge(commentCount, doc);
                 }
             }
@@ -1682,10 +1801,20 @@
             els.threadListEl.setAttribute('aria-busy', 'true');
         }
 
-        if (!append && els.statusEl) {
+        if (!append) {
+            showSkeleton(d);
+        }
+
+        if (!hasLoadedAuthoritativeCount && !append) {
+            updateCountBadge('pending', d);
+        }
+
+        if (els.statusEl) {
             clearElement(els.statusEl);
             els.statusEl.className = 'screen-discussion-status wiki-discussion-status';
-            els.statusEl.textContent = 'Đang tải thảo luận...';
+            if (!append) {
+                els.statusEl.textContent = 'Đang tải thảo luận...';
+            }
         }
 
         if (els.loadMoreBtnEl) {
@@ -1703,10 +1832,15 @@
             }
 
             if (!response || response.status !== 200) {
+                if (!hasLoadedAuthoritativeCount) {
+                    updateCountBadge('error', d);
+                }
+                if (!append && els.threadListEl) {
+                    clearElement(els.threadListEl);
+                }
+                lastFailedRequest = { page: page, append: append, sort: currentSort };
                 if (els.statusEl) {
-                    clearElement(els.statusEl);
-                    els.statusEl.className = 'screen-discussion-status screen-discussion-status--error wiki-discussion-status wiki-discussion-status--error';
-                    els.statusEl.textContent = 'Không thể tải bình luận. Vui lòng thử lại sau.';
+                    renderDiscussionLoadError(els.statusEl, 'Không thể tải bình luận. Vui lòng thử lại sau.', d, page, append, currentSort);
                 }
                 if (pendingDeepLink) {
                     pendingDeepLink = null;
@@ -1725,6 +1859,8 @@
             hasNext = Boolean(data.hasNext);
             threadCount = data.threadCount || 0;
             commentCount = data.commentCount || 0;
+            hasLoadedAuthoritativeCount = true;
+            lastFailedRequest = null;
 
             updateCountBadge(commentCount, d);
 
@@ -1807,10 +1943,15 @@
             }
         } catch (err) {
             if (currentToken !== loadToken) return;
+            if (!hasLoadedAuthoritativeCount) {
+                updateCountBadge('error', d);
+            }
+            if (!append && els.threadListEl) {
+                clearElement(els.threadListEl);
+            }
+            lastFailedRequest = { page: page, append: append, sort: currentSort };
             if (els.statusEl) {
-                clearElement(els.statusEl);
-                els.statusEl.className = 'screen-discussion-status screen-discussion-status--error wiki-discussion-status wiki-discussion-status--error';
-                els.statusEl.textContent = 'Lỗi kết nối khi tải thảo luận. Vui lòng thử lại sau.';
+                renderDiscussionLoadError(els.statusEl, 'Lỗi kết nối khi tải thảo luận. Vui lòng thử lại sau.', d, page, append, currentSort);
             }
             if (pendingDeepLink) {
                 pendingDeepLink = null;
@@ -3655,6 +3796,24 @@
             sortClickListener = function (e) {
                 const target = e.target;
                 if (!target || typeof target.closest !== 'function') return;
+                const retryBtn = target.closest('[data-action="retry-discussion-load"]');
+                if (retryBtn) {
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    if (isLoading) return;
+
+                    const retrySort = retryBtn.getAttribute('data-retry-sort') || (lastFailedRequest && lastFailedRequest.sort);
+                    if (retrySort && retrySort !== currentSort) {
+                        return; // Ignore stale retry from another sort
+                    }
+
+                    const rawPage = retryBtn.getAttribute('data-retry-page');
+                    const rawAppend = retryBtn.getAttribute('data-retry-append');
+                    const retryPage = (rawPage !== null && rawPage !== '') ? Number(rawPage) : (lastFailedRequest ? lastFailedRequest.page : 0);
+                    const retryAppend = (rawAppend !== null && rawAppend !== '') ? (rawAppend === 'true') : (lastFailedRequest ? lastFailedRequest.append : false);
+
+                    loadDiscussionFeed(retryPage, retryAppend, currentDoc, true);
+                    return;
+                }
                 const sortBtn = target.closest('[data-action="change-comment-sort"]');
                 if (sortBtn) {
                     if (typeof e.preventDefault === 'function') e.preventDefault();
@@ -3731,6 +3890,7 @@
         clearDiscussionStatus: clearDiscussionStatus,
         renderThread: renderThread,
         renderComment: renderComment,
+        renderSkeleton: renderSkeleton,
         formatTimestamp: formatTimestamp,
         formatCommentCount: formatCommentCount,
         isCommentEdited: isCommentEdited,
@@ -3774,7 +3934,9 @@
                 activeEditRootCommentId: activeEditRootCommentId,
                 activeEditHasUserTyped: activeEditHasUserTyped,
                 pendingDeepLink: pendingDeepLink,
-                highlightedElement: highlightedElement
+                highlightedElement: highlightedElement,
+                hasLoadedAuthoritativeCount: hasLoadedAuthoritativeCount,
+                lastFailedRequest: lastFailedRequest
             };
         },
         setFetchImplementation: function (fn) {
