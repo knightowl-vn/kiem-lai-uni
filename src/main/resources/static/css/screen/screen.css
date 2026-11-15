@@ -2696,7 +2696,6 @@ a.screen-comment-origin-badge:focus-visible {
 
 /* Progressive enhancement gate: hide custom overlays until JS initializes */
 .screen-watch-player-wrap:not(.is-enhanced) .screen-player-controls,
-.screen-watch-player-wrap:not(.is-enhanced) .screen-player-poster,
 .screen-watch-player-wrap:not(.is-enhanced) .screen-player-big-play,
 .screen-watch-player-wrap:not(.is-enhanced) .screen-player-buffering,
 .screen-watch-player-wrap:not(.is-enhanced) .screen-player-seek-feedback,

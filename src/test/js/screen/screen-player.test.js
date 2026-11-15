@@ -4135,4 +4135,221 @@ describe('ScreenPlayer — Prevent Inert Outro Skip Action When Video Duration I
 
     });
 
+    // =========================================================================
+    // MS-08G3-UX02-QA02-P1-UXF1: Persist Audio Preferences & Poster First Paint
+    // =========================================================================
+
+    describe('ScreenPlayer — Audio Preference Persistence & Poster First Paint (MS-08G3-UX02-QA02-P1-UXF1)', () => {
+
+        test('UXF1-1. Initial defaults without preferences: volume 1, muted false, no unwanted storage writes', () => {
+            const storage = createMemoryStorage();
+            const fixture = createUX01Fixture();
+            const controller = ScreenPlayer.init(fixture.doc, { storage });
+
+            assert.strictEqual(fixture.video.volume, 1);
+            assert.strictEqual(fixture.video.muted, false);
+            assert.strictEqual(storage.getItem(ScreenPlayer.AUDIO_STORAGE_KEY), null, 'No storage write on initial default load');
+            assert.strictEqual(fixture.muteBtn.getAttribute('aria-label'), 'Tắt tiếng');
+            assert.strictEqual(fixture.volumeSlider.value, '1');
+            assert.strictEqual(fixture.volumeIcon.hidden, false);
+            assert.strictEqual(fixture.mutedIcon.hidden, true);
+        });
+
+        test('UXF1-2. Mute persists across reinitialization: player restores muted state', () => {
+            const storage = createMemoryStorage();
+            const fixture1 = createUX01Fixture();
+            const controller1 = ScreenPlayer.init(fixture1.doc, { storage });
+
+            // User mutes
+            fixture1.muteBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+            assert.strictEqual(fixture1.video.muted, true);
+
+            const savedRaw = storage.getItem(ScreenPlayer.AUDIO_STORAGE_KEY);
+            assert.ok(savedRaw, 'Audio preference must be stored');
+            const saved = JSON.parse(savedRaw);
+            assert.strictEqual(saved.muted, true);
+            assert.strictEqual(saved.volume, 1);
+
+            // F5 reinitialization with new DOM fixture but same storage
+            const fixture2 = createUX01Fixture();
+            const controller2 = ScreenPlayer.init(fixture2.doc, { storage });
+
+            assert.strictEqual(fixture2.video.muted, true, 'Muted state must be restored on reinitialization');
+            assert.strictEqual(fixture2.muteBtn.getAttribute('aria-label'), 'Bật tiếng');
+            assert.strictEqual(fixture2.volumeSlider.value, '0');
+            assert.strictEqual(fixture2.volumeIcon.hidden, true);
+            assert.strictEqual(fixture2.mutedIcon.hidden, false);
+        });
+
+        test('UXF1-3. Volume persists across reinitialization: player restores 40% volume', () => {
+            const storage = createMemoryStorage();
+            const fixture1 = createUX01Fixture();
+            const controller1 = ScreenPlayer.init(fixture1.doc, { storage });
+
+            // User sets volume to 40%
+            fixture1.volumeSlider.value = '0.4';
+            fixture1.volumeSlider.dispatchEvent({ type: 'input' });
+
+            assert.strictEqual(fixture1.video.volume, 0.4);
+            assert.strictEqual(fixture1.video.muted, false);
+
+            const savedRaw = storage.getItem(ScreenPlayer.AUDIO_STORAGE_KEY);
+            assert.ok(savedRaw);
+            const saved = JSON.parse(savedRaw);
+            assert.strictEqual(saved.volume, 0.4);
+            assert.strictEqual(saved.muted, false);
+
+            // F5 reinitialization
+            const fixture2 = createUX01Fixture();
+            const controller2 = ScreenPlayer.init(fixture2.doc, { storage });
+
+            assert.strictEqual(fixture2.video.volume, 0.4, 'Volume 0.4 must be restored');
+            assert.strictEqual(fixture2.video.muted, false);
+            assert.strictEqual(fixture2.volumeSlider.value, '0.4');
+            assert.strictEqual(fixture2.muteBtn.getAttribute('aria-label'), 'Tắt tiếng');
+        });
+
+        test('UXF1-4. Volume 40% + Muted persists: player restores muted with volume 0.4, unmuting returns to 0.4', () => {
+            const storage = createMemoryStorage();
+            const fixture1 = createUX01Fixture();
+            const controller1 = ScreenPlayer.init(fixture1.doc, { storage });
+
+            // Set volume to 0.4, then mute
+            fixture1.volumeSlider.value = '0.4';
+            fixture1.volumeSlider.dispatchEvent({ type: 'input' });
+            fixture1.muteBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+            assert.strictEqual(fixture1.video.volume, 0.4);
+            assert.strictEqual(fixture1.video.muted, true);
+
+            const saved = JSON.parse(storage.getItem(ScreenPlayer.AUDIO_STORAGE_KEY));
+            assert.strictEqual(saved.volume, 0.4);
+            assert.strictEqual(saved.muted, true);
+
+            // F5 reinitialization
+            const fixture2 = createUX01Fixture();
+            const controller2 = ScreenPlayer.init(fixture2.doc, { storage });
+
+            assert.strictEqual(fixture2.video.volume, 0.4);
+            assert.strictEqual(fixture2.video.muted, true);
+            assert.strictEqual(fixture2.volumeSlider.value, '0');
+            assert.strictEqual(fixture2.muteBtn.getAttribute('aria-label'), 'Bật tiếng');
+
+            // User clicks unmute
+            fixture2.muteBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+            assert.strictEqual(fixture2.video.muted, false);
+            assert.strictEqual(fixture2.video.volume, 0.4, 'Unmuting must restore previously selected 40% volume, not 100%');
+            assert.strictEqual(fixture2.volumeSlider.value, '0.4');
+            assert.strictEqual(fixture2.muteBtn.getAttribute('aria-label'), 'Tắt tiếng');
+        });
+
+        test('UXF1-5. Stored preference applies across episode navigation (global browser storage key)', () => {
+            const storage = createMemoryStorage({
+                [ScreenPlayer.AUDIO_STORAGE_KEY]: JSON.stringify({ volume: 0.65, muted: true })
+            });
+
+            // Episode 1
+            const fixtureEp1 = createUX01Fixture({ entryId: 'ep-1' });
+            ScreenPlayer.init(fixtureEp1.doc, { storage });
+            assert.strictEqual(fixtureEp1.video.volume, 0.65);
+            assert.strictEqual(fixtureEp1.video.muted, true);
+
+            // Episode 2 in same browser
+            const fixtureEp2 = createUX01Fixture({ entryId: 'ep-2' });
+            ScreenPlayer.init(fixtureEp2.doc, { storage });
+            assert.strictEqual(fixtureEp2.video.volume, 0.65);
+            assert.strictEqual(fixtureEp2.video.muted, true);
+        });
+
+        test('UXF1-6. Corrupt JSON or invalid values in storage safely fall back to defaults without throwing', () => {
+            const storage = createMemoryStorage({
+                [ScreenPlayer.AUDIO_STORAGE_KEY]: 'corrupt{{json'
+            });
+
+            const fixture = createUX01Fixture();
+            assert.doesNotThrow(() => {
+                ScreenPlayer.init(fixture.doc, { storage });
+            });
+            assert.strictEqual(fixture.video.volume, 1);
+            assert.strictEqual(fixture.video.muted, false);
+
+            // Out-of-range values in storage
+            storage.setItem(ScreenPlayer.AUDIO_STORAGE_KEY, JSON.stringify({ volume: 3.5, muted: 'not-bool' }));
+            const fixture2 = createUX01Fixture();
+            ScreenPlayer.init(fixture2.doc, { storage });
+            assert.strictEqual(fixture2.video.volume, 1, 'Out of range volume must clamp to 1');
+            assert.strictEqual(fixture2.video.muted, false, 'Invalid muted must default to false');
+        });
+
+        test('UXF1-7. Storage throws or is unavailable: player initializes cleanly with defaults', () => {
+            const faultyStorage = {
+                getItem() { throw new Error('SecurityError: localStorage blocked'); },
+                setItem() { throw new Error('QuotaExceededError'); }
+            };
+
+            const fixture = createUX01Fixture();
+            let controller;
+            assert.doesNotThrow(() => {
+                controller = ScreenPlayer.init(fixture.doc, { storage: faultyStorage });
+            });
+            assert.strictEqual(fixture.video.volume, 1);
+            assert.strictEqual(fixture.video.muted, false);
+
+            // Mute and volume changes do not crash even if storage throws
+            assert.doesNotThrow(() => {
+                fixture.muteBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+                fixture.volumeSlider.value = '0.7';
+                fixture.volumeSlider.dispatchEvent({ type: 'input' });
+            });
+        });
+
+        test('UXF1-8. Preference restoration does not trigger playVideo() or autoplay', () => {
+            const storage = createMemoryStorage({
+                [ScreenPlayer.AUDIO_STORAGE_KEY]: JSON.stringify({ volume: 0.5, muted: true })
+            });
+
+            const fixture = createUX01Fixture();
+            const controller = ScreenPlayer.init(fixture.doc, { storage });
+
+            assert.strictEqual(fixture.video._playCalled, 0, 'No play() call during preference restoration');
+            assert.strictEqual(controller.getStartupState(), 'IDLE');
+            assert.strictEqual(fixture.video.paused, true);
+        });
+
+        test('UXF1-9. Mobile/read-only volume property: graceful degradation without breaking mute state', () => {
+            const storage = createMemoryStorage({
+                [ScreenPlayer.AUDIO_STORAGE_KEY]: JSON.stringify({ volume: 0.4, muted: true })
+            });
+
+            const fixture = createUX01Fixture();
+            // Simulate iOS Safari read-only volume
+            Object.defineProperty(fixture.video, 'volume', {
+                get: () => 1,
+                set: () => { throw new TypeError('volume is read-only on iOS'); },
+                configurable: true
+            });
+
+            assert.doesNotThrow(() => {
+                ScreenPlayer.init(fixture.doc, { storage });
+            });
+            assert.strictEqual(fixture.video.muted, true, 'Mute must still restore cleanly when volume is read-only');
+        });
+
+        test('UXF1-10. Poster first paint: CSS progressive enhancement gate does NOT suppress screen-player-poster', () => {
+            const fs = require('fs');
+            const path = require('path');
+            const cssPath = path.resolve(__dirname, '../../../main/resources/static/css/screen/screen.css');
+            const cssContent = fs.readFileSync(cssPath, 'utf8');
+
+            const hasSuppressedPosterRule = /\.screen-watch-player-wrap:not\(\.is-enhanced\)[^{]*\.screen-player-poster/.test(cssContent);
+            assert.strictEqual(hasSuppressedPosterRule, false, 'screen-player-poster must NOT be hidden by :not(.is-enhanced) gate');
+
+            // Poster is initially visible in DOM fixture before enhancement
+            const fixture = createUX01Fixture();
+            assert.strictEqual(fixture.poster.hidden, false, 'Poster element must be visible before enhancement');
+        });
+
+    });
+
 });

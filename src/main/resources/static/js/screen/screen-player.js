@@ -28,6 +28,7 @@
     var ALLOWED_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
     var STORAGE_KEY_PREFIX = 'kiemlai.screen.watchProgress.v1:';
     var SPEED_STORAGE_KEY = 'kiemlai.screen.playbackSpeed.v1';
+    var AUDIO_STORAGE_KEY = 'kiemlai.screen.audioPreference.v1';
     var RESUME_MIN_SECONDS = 30;
     var RESUME_END_MARGIN_SECONDS = 30;
     var SAVE_THROTTLE_MS = 5000;
@@ -405,6 +406,7 @@
 
         var retrySeq = 0;
         var lastPlaybackIntent = null; // 'play' | 'pause' | null
+        var isRestoringAudio = false;
         var hasPlayedOrSeeked = false;
         var hasRenderedVideoFrame = false;
         var lastFailedPosterUrl = null;
@@ -1148,8 +1150,83 @@
             }
         }
 
+        function saveAudioPreference() {
+            if (!storage || typeof storage.setItem !== 'function' || isRestoringAudio) {
+                return;
+            }
+            try {
+                var vol = (video && typeof video.volume === 'number' && isFinite(video.volume))
+                    ? Math.min(1, Math.max(0, video.volume))
+                    : 1;
+                var isMuted = video ? Boolean(video.muted) : false;
+                var payload = JSON.stringify({
+                    volume: Math.round(vol * 100) / 100,
+                    muted: isMuted
+                });
+                storage.setItem(AUDIO_STORAGE_KEY, payload);
+            } catch (e) {
+                // Ignore storage quota or security errors
+            }
+        }
+
+        function initAudioPreferences() {
+            if (!video) {
+                return;
+            }
+            var restoredVolume = null;
+            var restoredMuted = null;
+
+            if (storage && typeof storage.getItem === 'function') {
+                try {
+                    var raw = storage.getItem(AUDIO_STORAGE_KEY);
+                    if (raw) {
+                        var data = JSON.parse(raw);
+                        if (data && typeof data === 'object') {
+                            if (typeof data.volume === 'number' && isFinite(data.volume)) {
+                                restoredVolume = Math.min(1, Math.max(0, data.volume));
+                            }
+                            if (typeof data.muted === 'boolean') {
+                                restoredMuted = data.muted;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Corrupt JSON or blocked storage - fallback safely
+                }
+            }
+
+            isRestoringAudio = true;
+            try {
+                if (restoredVolume !== null) {
+                    try {
+                        video.volume = restoredVolume;
+                    } catch (volErr) {}
+                }
+                if (restoredMuted !== null) {
+                    try {
+                        video.muted = restoredMuted;
+                    } catch (muteErr) {}
+                }
+            } finally {
+                isRestoringAudio = false;
+            }
+
+            syncVolumeUI();
+        }
+
         function toggleMute() {
-            video.muted = !video.muted;
+            if (!video) {
+                return;
+            }
+            if (video.muted) {
+                video.muted = false;
+                if (typeof video.volume === 'number' && video.volume === 0) {
+                    video.volume = 0.4;
+                }
+            } else {
+                video.muted = true;
+            }
+            saveAudioPreference();
             syncVolumeUI();
         }
 
@@ -1159,8 +1236,15 @@
                 return;
             }
             var clamped = Math.min(1, Math.max(0, num));
-            video.volume = clamped;
-            video.muted = (clamped === 0);
+            try {
+                video.volume = clamped;
+            } catch (e) {}
+            if (clamped > 0 && video.muted) {
+                video.muted = false;
+            } else if (clamped === 0) {
+                video.muted = true;
+            }
+            saveAudioPreference();
             syncVolumeUI();
         }
 
@@ -2247,6 +2331,7 @@
         }
 
         function onVolumeChange() {
+            saveAudioPreference();
             syncVolumeUI();
         }
 
@@ -2495,7 +2580,7 @@
         // Initialize UI State
         initSavedSpeed();
         initPipSupport();
-        syncVolumeUI();
+        initAudioPreferences();
         updateTimeline();
         evaluateInitialResume();
         evaluateSkipOutroAction();
@@ -2731,6 +2816,7 @@
         ALLOWED_SPEEDS: ALLOWED_SPEEDS,
         STORAGE_KEY_PREFIX: STORAGE_KEY_PREFIX,
         SPEED_STORAGE_KEY: SPEED_STORAGE_KEY,
+        AUDIO_STORAGE_KEY: AUDIO_STORAGE_KEY,
         MEDIA_ERR_ABORTED: MEDIA_ERR_ABORTED,
         MEDIA_ERR_NETWORK: MEDIA_ERR_NETWORK,
         MEDIA_ERR_DECODE: MEDIA_ERR_DECODE,
