@@ -288,8 +288,8 @@ public record PublicScreenWatchView(
     /**
      * Resolves the primary visual stage image for player poster and stage background:
      * - Returns episode thumbnail (variant w600) if present;
-     * - Else falls back to title landscape backdrop (variant w1200) if present;
-     * - Else falls back to title portrait poster (variant w600) if present;
+     * - Else falls back to title landscape backdrop (canonical content) if present;
+     * - Else falls back to title portrait poster (canonical content) if present;
      * - Else returns null.
      */
     public String displayStageImageUrl() {
@@ -297,10 +297,10 @@ public record PublicScreenWatchView(
             return MediaDeliveryUrlSupport.variantUrl(thumbnailMediaAssetId, 600);
         }
         if (backdropMediaAssetId != null) {
-            return MediaDeliveryUrlSupport.variantUrl(backdropMediaAssetId, 1200);
+            return MediaDeliveryUrlSupport.contentUrl(backdropMediaAssetId);
         }
         if (posterMediaAssetId != null) {
-            return MediaDeliveryUrlSupport.variantUrl(posterMediaAssetId, 600);
+            return MediaDeliveryUrlSupport.contentUrl(posterMediaAssetId);
         }
         return null;
     }

@@ -294,9 +294,9 @@ class PublicScreenWatchViewRenderingTest {
 
         mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-1"))
                 .andExpect(status().isOk())
-                // Visual stage backdrop image rendered with backdrop variant w1200 URL and fallback
+                // MS-08G3-UX02-QA02-P3-IMG01: Visual stage backdrop image rendered with canonical content URL and fallback
                 .andExpect(content().string(containsString("screen-watch-stage-backdrop-img")))
-                .andExpect(content().string(containsString("src=\"/media/assets/" + backdropId + "/variants/w1200\"")))
+                .andExpect(content().string(containsString("src=\"/media/assets/" + backdropId + "/content\"")))
                 .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + backdropId + "/content\"")))
                 .andExpect(content().string(containsString("screen-watch-stage-foreground-img--landscape")))
                 // Ensure small portrait poster is NOT rendered over the landscape backdrop
@@ -326,13 +326,46 @@ class PublicScreenWatchViewRenderingTest {
 
         mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-1"))
                 .andExpect(status().isOk())
-                // Visual stage backdrop image rendered with poster variant URL
+                // MS-08G3-UX02-QA02-P3-IMG01: Visual stage backdrop image rendered with canonical poster content URL
                 .andExpect(content().string(containsString("screen-watch-stage-backdrop-img")))
-                .andExpect(content().string(containsString("src=\"/media/assets/" + posterId + "/variants/w600\"")))
+                .andExpect(content().string(containsString("src=\"/media/assets/" + posterId + "/content\"")))
                 .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + posterId + "/content\"")))
                 .andExpect(content().string(containsString("screen-watch-stage-foreground-img--portrait")))
                 .andExpect(content().string(containsString("onerror=\"if (!this.getAttribute('data-tried-fallback')")))
                 .andExpect(content().string(containsString("Video chưa sẵn sàng")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: Playable watch stage renders canonical backdrop content URL for both img and native video poster when thumbnail is missing")
+    void shouldRenderPlayableWatchStageWithBackdropContentUrlWhenThumbnailIsMissing() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        UUID entryId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        UUID videoAssetId = UUID.randomUUID();
+
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
+                titleId, "kiem-lai-1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, entryId, "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1: Xuất Thế", null, 1440L, null,
+                true, "/media/assets/" + videoAssetId + "/content", "video/mp4",
+                null, null, List.of()
+        );
+
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-1")).thenReturn(watchDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-1"))
+                .andExpect(status().isOk())
+                // MS-08G3-UX02-QA02-P3-IMG01: Pre-playback poster image points directly to canonical content URL
+                .andExpect(content().string(containsString("id=\"screenPlayerPoster\"")))
+                .andExpect(content().string(containsString("id=\"screenPlayerPosterImg\"")))
+                .andExpect(content().string(containsString("src=\"/media/assets/" + backdropId + "/content\"")))
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + backdropId + "/content\"")))
+                .andExpect(content().string(containsString("data-secondary-fallback-src=\"/media/assets/" + posterId + "/content\"")))
+                // Native video poster points to the exact same canonical content URL
+                .andExpect(content().string(containsString("poster=\"/media/assets/" + backdropId + "/content\"")));
     }
 
     @Test

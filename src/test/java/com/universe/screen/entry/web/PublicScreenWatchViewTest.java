@@ -157,7 +157,8 @@ class PublicScreenWatchViewTest {
         assertThat(view.hasStageImage()).isTrue();
         assertThat(view.isStageImageLandscape()).isTrue();
         assertThat(view.isStageImagePortrait()).isFalse();
-        assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/variants/w1200");
+        // MS-08G3-UX02-QA02-P3-IMG01: Uses canonical original-content URL to eliminate broken-variant 404
+        assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
         assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
         assertThat(view.secondaryFallbackStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
     }
@@ -183,9 +184,61 @@ class PublicScreenWatchViewTest {
         assertThat(view.hasStageImage()).isTrue();
         assertThat(view.isStageImagePortrait()).isTrue();
         assertThat(view.isStageImageLandscape()).isFalse();
-        assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/variants/w600");
+        // MS-08G3-UX02-QA02-P3-IMG01: Uses canonical original-content URL to avoid assuming w600 exists
+        assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
         assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
         assertThat(view.secondaryFallbackStageImageUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("IMG01: Primary and fallback URLs are identical for backdrop stage without loop risk; secondary fallback is available")
+    void stageImagePrimaryAndFallbackIdenticalForBackdropWithoutLoopRisk() {
+        UUID backdropId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+
+        PublicScreenWatchDTO dto = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1440L, null,
+                false, null, null,
+                null, null, List.of()
+        );
+
+        PublicScreenWatchView view = PublicScreenWatchView.fromDTO(dto);
+
+        // Primary stage image matches fallback content URL exactly
+        assertThat(view.displayStageImageUrl()).isEqualTo(view.fallbackStageImageUrl());
+        assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
+
+        // Secondary fallback is safely pointed to title poster content
+        assertThat(view.secondaryFallbackStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+        assertThat(view.secondaryFallbackStageImageUrl()).isNotEqualTo(view.displayStageImageUrl());
+    }
+
+    @Test
+    @DisplayName("IMG01: Poster-only stage uses content URL while displayPosterUrl preserves w300 contract")
+    void posterOnlyStagePreservesSeparateDisplayPosterUrlContract() {
+        UUID posterId = UUID.randomUUID();
+
+        PublicScreenWatchDTO dto = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, null, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1440L, null,
+                false, null, null,
+                null, null, List.of()
+        );
+
+        PublicScreenWatchView view = PublicScreenWatchView.fromDTO(dto);
+
+        // Stage image uses canonical content URL
+        assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+        assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+
+        // Separate poster helper preserves existing w300 variant contract
+        assertThat(view.displayPosterUrl()).isEqualTo("/media/assets/" + posterId + "/variants/w300");
+        assertThat(view.fallbackPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
     }
 
     @Test

@@ -621,6 +621,14 @@
             var normFallback = normalizePath(fallbackSrc);
             var normSecondary = normalizePath(secondarySrc);
 
+            // If the primary image is already the canonical fallback URL, mark fallback as already evaluated
+            if (normFallback && normFallback === normCurrent) {
+                triedFallback = 'true';
+                if (typeof posterImgEl.setAttribute === 'function') {
+                    posterImgEl.setAttribute('data-tried-fallback', 'true');
+                }
+            }
+
             if (!triedFallback && normFallback && normFallback !== normCurrent) {
                 if (typeof posterImgEl.setAttribute === 'function') {
                     posterImgEl.setAttribute('data-tried-fallback', 'true');

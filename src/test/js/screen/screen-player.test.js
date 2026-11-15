@@ -1756,6 +1756,29 @@ describe('ScreenPlayer — Modern Player UX, Resume Watching & Next Episode (MS-
         assert.strictEqual(fixture.video._playCalled, 1);
     });
 
+    test('UX01-P1-IMG01. Primary stage URL identical to fallback URL skips to secondary fallback without looping', () => {
+        const fixture = createUX01Fixture({
+            videoDuration: 1576,
+            posterSrc: '/media/assets/backdrop-asset-1/content',
+            posterFallbackSrc: '/media/assets/backdrop-asset-1/content',
+            posterSecondarySrc: '/media/assets/poster-asset-1/content'
+        });
+        ScreenPlayer.init(fixture.doc);
+
+        assert.strictEqual(fixture.posterImg.src, '/media/assets/backdrop-asset-1/content');
+
+        // First error on canonical content skips identical fallback and routes directly to secondary fallback
+        fixture.posterImg.dispatchEvent({ type: 'error' });
+
+        assert.strictEqual(fixture.posterImg.src, '/media/assets/poster-asset-1/content');
+        assert.strictEqual(fixture.posterImg.getAttribute('data-tried-secondary'), 'true');
+        assert.strictEqual(fixture.video.poster, '/media/assets/poster-asset-1/content');
+
+        // Subsequent failure of secondary fallback hides image gracefully without infinite loop
+        fixture.posterImg.dispatchEvent({ type: 'error' });
+        assert.strictEqual(fixture.posterImg.style.display, 'none');
+    });
+
     test('UX01-P1-5. First-frame visibility: play preserves poster, playing hides poster, subsequent pause, buffer, and seek keep it hidden', () => {
         const fixture = createUX01Fixture({ videoDuration: 1576 });
         const controller = ScreenPlayer.init(fixture.doc);
