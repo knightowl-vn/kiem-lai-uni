@@ -78,7 +78,10 @@ import com.universe.media.domain.MediaVisibility;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -1080,5 +1083,31 @@ public class MediaFacade implements MediaContract {
             return Optional.empty();
         }
         return resolveMediaPublicImageDeliveryUrlUseCase.execute(assetId, variantKey, fallbackToSource);
+    }
+
+    @Override
+    public Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, Integer targetWidth) {
+        return resolvePublicImageDeliveryUrls(assetIds, targetWidth, false);
+    }
+
+    @Override
+    public Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, String variantKey) {
+        return resolvePublicImageDeliveryUrls(assetIds, variantKey, false);
+    }
+
+    @Override
+    public Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, Integer targetWidth, boolean fallbackToSource) {
+        if (resolveMediaPublicImageDeliveryUrlUseCase == null) {
+            return Collections.emptyMap();
+        }
+        return resolveMediaPublicImageDeliveryUrlUseCase.executeBatch(assetIds, targetWidth, fallbackToSource);
+    }
+
+    @Override
+    public Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, String variantKey, boolean fallbackToSource) {
+        if (resolveMediaPublicImageDeliveryUrlUseCase == null) {
+            return Collections.emptyMap();
+        }
+        return resolveMediaPublicImageDeliveryUrlUseCase.executeBatch(assetIds, variantKey, fallbackToSource);
     }
 }

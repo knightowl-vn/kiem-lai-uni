@@ -23,7 +23,10 @@ import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalRespon
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -438,5 +441,56 @@ public interface MediaContract extends MediaStreamingContract {
      */
     default Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, String variantKey, boolean fallbackToSource) {
         return Optional.empty();
+    }
+
+    /**
+     * Resolves approved direct Cloudinary delivery URLs for a batch of ACTIVE and PUBLIC image assets or variants,
+     * validated against their exact current version and approved Cloudinary domain.
+     *
+     * @param assetIds collection of media asset IDs
+     * @param targetWidth optional target width in pixels (e.g. 300 for w300 variant), or null for source image
+     * @return map of eligible asset IDs to their direct public HTTPS URLs
+     */
+    default Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, Integer targetWidth) {
+        return resolvePublicImageDeliveryUrls(assetIds, targetWidth, false);
+    }
+
+    /**
+     * Resolves approved direct Cloudinary delivery URLs for a batch of ACTIVE and PUBLIC image assets or variants,
+     * validated against their exact current version and approved Cloudinary domain.
+     *
+     * @param assetIds collection of media asset IDs
+     * @param variantKey optional variant key (e.g. "w300"), or null for source image
+     * @return map of eligible asset IDs to their direct public HTTPS URLs
+     */
+    default Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, String variantKey) {
+        return resolvePublicImageDeliveryUrls(assetIds, variantKey, false);
+    }
+
+    /**
+     * Resolves approved direct Cloudinary delivery URLs for a batch of ACTIVE and PUBLIC image assets or variants,
+     * with optional fallback to source image URL if the requested variant is missing.
+     *
+     * @param assetIds collection of media asset IDs
+     * @param targetWidth optional target width in pixels (e.g. 300 for w300 variant), or null for source image
+     * @param fallbackToSource whether to fall back to current version source URL if target variant is missing
+     * @return map of eligible asset IDs to their direct public HTTPS URLs
+     */
+    default Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, Integer targetWidth, boolean fallbackToSource) {
+        String variantKey = targetWidth != null ? "w" + targetWidth : null;
+        return resolvePublicImageDeliveryUrls(assetIds, variantKey, fallbackToSource);
+    }
+
+    /**
+     * Resolves approved direct Cloudinary delivery URLs for a batch of ACTIVE and PUBLIC image assets or variants,
+     * with optional fallback to source image URL if the requested variant is missing.
+     *
+     * @param assetIds collection of media asset IDs
+     * @param variantKey optional variant key (e.g. "w300"), or null for source image
+     * @param fallbackToSource whether to fall back to current version source URL if target variant is missing
+     * @return map of eligible asset IDs to their direct public HTTPS URLs
+     */
+    default Map<UUID, String> resolvePublicImageDeliveryUrls(Collection<UUID> assetIds, String variantKey, boolean fallbackToSource) {
+        return Collections.emptyMap();
     }
 }

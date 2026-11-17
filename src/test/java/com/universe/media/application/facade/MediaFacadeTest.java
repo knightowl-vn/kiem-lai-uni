@@ -65,6 +65,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.io.ByteArrayInputStream;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -942,5 +944,53 @@ class MediaFacadeTest {
                 .contains("https://res.cloudinary.com/test/backdrop.jpg");
         assertThat(facadeWithResolve.resolvePublicImageDeliveryUrl(ASSET_ID, "w1200", true))
                 .contains("https://res.cloudinary.com/test/backdrop.jpg");
+    }
+
+    @Test
+    @DisplayName("resolvePublicImageDeliveryUrls returns empty map when use case is null")
+    void shouldReturnEmptyMapWhenBatchResolveUseCaseIsNull() {
+        assertThat(facade.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), 300)).isEmpty();
+        assertThat(facade.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), "w300")).isEmpty();
+        assertThat(facade.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), 300, true)).isEmpty();
+        assertThat(facade.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), "w300", true)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("resolvePublicImageDeliveryUrls delegates to use case when configured")
+    void shouldDelegateBatchToResolveUseCaseWhenConfigured() {
+        com.universe.media.application.image.ResolveMediaPublicImageDeliveryUrlUseCase mockUseCase =
+                mock(com.universe.media.application.image.ResolveMediaPublicImageDeliveryUrlUseCase.class);
+        Map<UUID, String> expectedMap = Map.of(ASSET_ID, "https://res.cloudinary.com/test/w300.jpg");
+        when(mockUseCase.executeBatch(List.of(ASSET_ID), 300, false)).thenReturn(expectedMap);
+        when(mockUseCase.executeBatch(List.of(ASSET_ID), "w300", false)).thenReturn(expectedMap);
+        when(mockUseCase.executeBatch(List.of(ASSET_ID), 300, true)).thenReturn(expectedMap);
+        when(mockUseCase.executeBatch(List.of(ASSET_ID), "w300", true)).thenReturn(expectedMap);
+
+        MediaFacade facadeWithResolve = new MediaFacade(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                mockUseCase
+        );
+
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), 300))
+                .isEqualTo(expectedMap);
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), "w300"))
+                .isEqualTo(expectedMap);
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), 300, true))
+                .isEqualTo(expectedMap);
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), "w300", true))
+                .isEqualTo(expectedMap);
     }
 }

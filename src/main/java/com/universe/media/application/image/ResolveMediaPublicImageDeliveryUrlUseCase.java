@@ -3,6 +3,7 @@ package com.universe.media.application.image;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
+import com.universe.media.application.ports.MediaPublicImageBatchDeliveryQueryPort;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaAssetVersion;
@@ -13,14 +14,22 @@ import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Authoritative use case for resolving approved direct Cloudinary delivery URLs
@@ -50,15 +59,112 @@ public class ResolveMediaPublicImageDeliveryUrlUseCase {
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
     private final MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort;
+    private final MediaPublicImageBatchDeliveryQueryPort mediaPublicImageBatchDeliveryQueryPort;
+
+    @Autowired
+    public ResolveMediaPublicImageDeliveryUrlUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
+            MediaPublicImageBatchDeliveryQueryPort mediaPublicImageBatchDeliveryQueryPort
+    ) {
+        this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
+        this.mediaAssetVersionRepositoryPort = Objects.requireNonNull(mediaAssetVersionRepositoryPort, "MediaAssetVersionRepositoryPort cannot be null.");
+        this.mediaImageVariantRepositoryPort = Objects.requireNonNull(mediaImageVariantRepositoryPort, "MediaImageVariantRepositoryPort cannot be null.");
+        this.mediaPublicImageBatchDeliveryQueryPort = mediaPublicImageBatchDeliveryQueryPort;
+    }
 
     public ResolveMediaPublicImageDeliveryUrlUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
             MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort
     ) {
-        this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
-        this.mediaAssetVersionRepositoryPort = Objects.requireNonNull(mediaAssetVersionRepositoryPort, "MediaAssetVersionRepositoryPort cannot be null.");
-        this.mediaImageVariantRepositoryPort = Objects.requireNonNull(mediaImageVariantRepositoryPort, "MediaImageVariantRepositoryPort cannot be null.");
+        this(mediaAssetRepositoryPort, mediaAssetVersionRepositoryPort, mediaImageVariantRepositoryPort, null);
+    }
+
+    public Map<UUID, String> executeBatch(Collection<UUID> assetIds, Integer targetWidth) {
+        return executeBatch(assetIds, targetWidth, false);
+    }
+
+    public Map<UUID, String> executeBatch(Collection<UUID> assetIds, String variantKey) {
+        return executeBatch(assetIds, variantKey, false);
+    }
+
+    public Map<UUID, String> executeBatch(Collection<UUID> assetIds, Integer targetWidth, boolean fallbackToSource) {
+        String variantKey = targetWidth != null ? "w" + targetWidth : null;
+        return executeBatch(assetIds, variantKey, fallbackToSource);
+    }
+
+    public Map<UUID, String> executeBatch(Collection<UUID> assetIds, String variantKey, boolean fallbackToSource) {
+        if (assetIds == null || assetIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Set<UUID> distinctIds = assetIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (distinctIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        if (mediaPublicImageBatchDeliveryQueryPort == null) {
+            throw new IllegalStateException("MediaPublicImageBatchDeliveryQueryPort is not configured or available.");
+        }
+
+        String normalizedVariantKey = (variantKey != null && !variantKey.isBlank())
+                ? variantKey.trim().toLowerCase(Locale.ROOT)
+                : null;
+
+        List<MediaPublicImageBatchDeliveryQueryPort.MediaPublicImageBatchDeliveryRow> rows =
+                mediaPublicImageBatchDeliveryQueryPort.findEligibleBatchDeliveryRows(distinctIds, normalizedVariantKey);
+
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<UUID, String> resultMap = new LinkedHashMap<>();
+
+        for (MediaPublicImageBatchDeliveryQueryPort.MediaPublicImageBatchDeliveryRow row : rows) {
+            if (row == null || row.assetId() == null) {
+                continue;
+            }
+            if (!distinctIds.contains(row.assetId())) {
+                continue;
+            }
+            if (row.mediaType() != MediaType.IMAGE
+                    || row.status() != MediaAssetStatus.ACTIVE
+                    || row.visibility() != MediaVisibility.PUBLIC
+                    || row.currentVersionNumber() != row.versionNumber()
+                    || !CLOUDINARY_PROVIDER_ID.equals(row.storageProviderId())) {
+                continue;
+            }
+
+            String candidateUrl = null;
+            if (normalizedVariantKey != null) {
+                boolean hasVariantPublicUrl = row.isVariantPresent()
+                        && row.variantPublicUrl() != null
+                        && !row.variantPublicUrl().isBlank();
+                if (hasVariantPublicUrl) {
+                    candidateUrl = row.variantPublicUrl();
+                } else if (fallbackToSource) {
+                    candidateUrl = row.versionPublicUrl();
+                } else {
+                    continue;
+                }
+            } else {
+                candidateUrl = row.versionPublicUrl();
+            }
+
+            if (candidateUrl == null || candidateUrl.isBlank()) {
+                continue;
+            }
+
+            Optional<String> validatedUrl = validateCloudinaryPublicUrl(candidateUrl);
+            validatedUrl.ifPresent(url -> resultMap.put(row.assetId(), url));
+        }
+
+        return Collections.unmodifiableMap(resultMap);
     }
 
     public Optional<String> execute(UUID assetId, Integer targetWidth) {
