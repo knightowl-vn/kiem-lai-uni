@@ -389,4 +389,28 @@ public interface MediaContract extends MediaStreamingContract {
     default MediaAssetStreamDTO openRangeStream(UUID assetId, long startInclusive, long length) {
         throw new UnsupportedOperationException("openRangeStream is not supported by this MediaContract implementation.");
     }
+
+    /**
+     * Resolves an approved direct Cloudinary delivery URL for an ACTIVE and PUBLIC image asset or variant,
+     * validated against its exact current version and approved Cloudinary domain.
+     *
+     * @param assetId ID of the media asset
+     * @param targetWidth optional target width in pixels (e.g. 600 for w600 variant), or null for source image
+     * @return Optional containing the direct public HTTPS URL if eligible, empty otherwise
+     */
+    default Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, Integer targetWidth) {
+        return Optional.empty();
+    }
+
+    /**
+     * Resolves an approved direct Cloudinary delivery URL for an ACTIVE and PUBLIC image asset or variant,
+     * validated against its exact current version and approved Cloudinary domain.
+     *
+     * @param assetId ID of the media asset
+     * @param variantKey optional variant key (e.g. "w600"), or null for source image
+     * @return Optional containing the direct public HTTPS URL if eligible, empty otherwise
+     */
+    default Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, String variantKey) {
+        return Optional.empty();
+    }
 }

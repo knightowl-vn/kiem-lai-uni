@@ -5,6 +5,7 @@ import com.universe.screen.application.dto.ScreenPlaybackDeliveryInfo;
 import com.universe.screen.application.exceptions.PublishedScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
+import com.universe.screen.application.ports.ScreenStageImageDeliveryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
@@ -45,6 +46,9 @@ class GetPublicScreenWatchUseCaseTest {
     @Mock
     private ScreenVideoDeliveryPort videoDeliveryPort;
 
+    @Mock
+    private ScreenStageImageDeliveryPort stageImageDeliveryPort;
+
     private GetPublicScreenWatchUseCase useCase;
 
     private final Instant now = Instant.parse("2026-11-05T12:00:00Z");
@@ -54,7 +58,8 @@ class GetPublicScreenWatchUseCaseTest {
         useCase = new GetPublicScreenWatchUseCase(
                 titleRepositoryPort,
                 entryRepositoryPort,
-                videoDeliveryPort
+                videoDeliveryPort,
+                stageImageDeliveryPort
         );
     }
 
@@ -540,6 +545,179 @@ class GetPublicScreenWatchUseCaseTest {
             assertThat(result.hasEffectiveOutro()).isFalse();
             assertThat(result.effectiveOutroStartSeconds()).isNull();
             assertThat(result.effectiveOutroEndSeconds()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("QA02-P3-IMG02-P1: Stage Image Direct Delivery Acceleration Tests")
+    class StageImageDirectDeliveryTests {
+
+        @Test
+        @DisplayName("Scenario A: Entry has thumbnail -> resolves accelerated w600 variant direct delivery URL")
+        void scenarioA_entryThumbnailAccelerated() {
+            UUID titleId = UUID.randomUUID();
+            UUID entryId = UUID.randomUUID();
+            UUID thumbnailId = UUID.randomUUID();
+            UUID backdropId = UUID.randomUUID();
+            UUID posterId = UUID.randomUUID();
+            String directCloudinaryUrl = "https://res.cloudinary.com/test-cloud/image/upload/v12345/w_600/thumbnail.jpg";
+
+            ScreenTitle title = new ScreenTitle(
+                    titleId, "kiem-lai-1", "Kiếm Lai 1", null, "Synopsis",
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                    posterId, backdropId, ScreenPublicationStatus.PUBLISHED, now, now, now,
+                    12, null, 2026, "VN", null, null, null
+            );
+            ScreenEntry entry = new ScreenEntry(
+                    entryId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                    null, thumbnailId, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(entry));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(entry));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(entry));
+            when(stageImageDeliveryPort.resolvePublicImageUrl(thumbnailId, 600))
+                    .thenReturn(Optional.of(directCloudinaryUrl));
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.thumbnailMediaAssetId()).isEqualTo(thumbnailId);
+            assertThat(result.directStageImageUrl()).isEqualTo(directCloudinaryUrl);
+            verify(stageImageDeliveryPort).resolvePublicImageUrl(thumbnailId, 600);
+        }
+
+        @Test
+        @DisplayName("Scenario B: Entry has thumbnail but direct delivery is ineligible -> directStageImageUrl is null (clean fallback)")
+        void scenarioB_entryThumbnailIneligibleFallsBackCleanly() {
+            UUID titleId = UUID.randomUUID();
+            UUID entryId = UUID.randomUUID();
+            UUID thumbnailId = UUID.randomUUID();
+
+            ScreenTitle title = new ScreenTitle(
+                    titleId, "kiem-lai-1", "Kiếm Lai 1", null, "Synopsis",
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                    null, null, ScreenPublicationStatus.PUBLISHED, now, now, now,
+                    12, null, 2026, "VN", null, null, null
+            );
+            ScreenEntry entry = new ScreenEntry(
+                    entryId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                    null, thumbnailId, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(entry));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(entry));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(entry));
+            when(stageImageDeliveryPort.resolvePublicImageUrl(thumbnailId, 600))
+                    .thenReturn(Optional.empty());
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.thumbnailMediaAssetId()).isEqualTo(thumbnailId);
+            assertThat(result.directStageImageUrl()).isNull();
+            verify(stageImageDeliveryPort).resolvePublicImageUrl(thumbnailId, 600);
+        }
+
+        @Test
+        @DisplayName("Scenario C: Entry has no thumbnail, title has backdrop -> resolves canonical backdrop direct delivery URL")
+        void scenarioC_noThumbnailWithBackdropResolvesDirectBackdrop() {
+            UUID titleId = UUID.randomUUID();
+            UUID entryId = UUID.randomUUID();
+            UUID backdropId = UUID.randomUUID();
+            UUID posterId = UUID.randomUUID();
+            String directBackdropUrl = "https://res.cloudinary.com/test-cloud/image/upload/v12345/backdrop.jpg";
+
+            ScreenTitle title = new ScreenTitle(
+                    titleId, "kiem-lai-1", "Kiếm Lai 1", null, "Synopsis",
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                    posterId, backdropId, ScreenPublicationStatus.PUBLISHED, now, now, now,
+                    12, null, 2026, "VN", null, null, null
+            );
+            ScreenEntry entry = new ScreenEntry(
+                    entryId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                    null, null, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(entry));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(entry));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(entry));
+            when(stageImageDeliveryPort.resolvePublicImageUrl(backdropId, null))
+                    .thenReturn(Optional.of(directBackdropUrl));
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.thumbnailMediaAssetId()).isNull();
+            assertThat(result.backdropMediaAssetId()).isEqualTo(backdropId);
+            assertThat(result.directStageImageUrl()).isEqualTo(directBackdropUrl);
+            verify(stageImageDeliveryPort).resolvePublicImageUrl(backdropId, null);
+        }
+
+        @Test
+        @DisplayName("Scenario D: Entry has no thumbnail and title has no backdrop, but title has poster -> resolves direct poster URL")
+        void scenarioD_noThumbnailNoBackdropWithPosterResolvesDirectPoster() {
+            UUID titleId = UUID.randomUUID();
+            UUID entryId = UUID.randomUUID();
+            UUID posterId = UUID.randomUUID();
+            String directPosterUrl = "https://res.cloudinary.com/test-cloud/image/upload/v12345/poster.jpg";
+
+            ScreenTitle title = new ScreenTitle(
+                    titleId, "kiem-lai-1", "Kiếm Lai 1", null, "Synopsis",
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                    posterId, null, ScreenPublicationStatus.PUBLISHED, now, now, now,
+                    12, null, 2026, "VN", null, null, null
+            );
+            ScreenEntry entry = new ScreenEntry(
+                    entryId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                    null, null, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(entry));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(entry));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(entry));
+            when(stageImageDeliveryPort.resolvePublicImageUrl(posterId, null))
+                    .thenReturn(Optional.of(directPosterUrl));
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.thumbnailMediaAssetId()).isNull();
+            assertThat(result.backdropMediaAssetId()).isNull();
+            assertThat(result.posterMediaAssetId()).isEqualTo(posterId);
+            assertThat(result.directStageImageUrl()).isEqualTo(directPosterUrl);
+            verify(stageImageDeliveryPort).resolvePublicImageUrl(posterId, null);
+        }
+
+        @Test
+        @DisplayName("Scenario F: No stage candidate images exist -> directStageImageUrl is null without port invocation")
+        void scenarioF_noStageCandidatesProducesNullDirectUrl() {
+            UUID titleId = UUID.randomUUID();
+            UUID entryId = UUID.randomUUID();
+
+            ScreenTitle title = new ScreenTitle(
+                    titleId, "kiem-lai-1", "Kiếm Lai 1", null, "Synopsis",
+                    ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                    null, null, ScreenPublicationStatus.PUBLISHED, now, now, now,
+                    12, null, 2026, "VN", null, null, null
+            );
+            ScreenEntry entry = new ScreenEntry(
+                    entryId, titleId, "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", "Synopsis",
+                    null, null, 1440L, ScreenPublicationStatus.PUBLISHED, now, now, now
+            );
+
+            when(titleRepositoryPort.findPublishedBySlug("kiem-lai-1")).thenReturn(Optional.of(title));
+            when(entryRepositoryPort.findPublishedByTitleIdAndSlug(titleId, "tap-1")).thenReturn(Optional.of(entry));
+            when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of(entry));
+            when(entryRepositoryPort.findPublishedEpisodesByTitleId(titleId)).thenReturn(List.of(entry));
+
+            PublicScreenWatchDTO result = useCase.execute("kiem-lai-1", "tap-1");
+
+            assertThat(result.thumbnailMediaAssetId()).isNull();
+            assertThat(result.backdropMediaAssetId()).isNull();
+            assertThat(result.posterMediaAssetId()).isNull();
+            assertThat(result.directStageImageUrl()).isNull();
+            verifyNoInteractions(stageImageDeliveryPort);
         }
     }
 }

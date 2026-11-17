@@ -237,6 +237,45 @@ class PublicScreenWatchViewRenderingTest {
 
     @Test
     @WithAnonymousUser
+    @DisplayName("SSR: Renders watch page with accelerated direct Cloudinary stage image URL while preserving fallbacks")
+    void shouldRenderWatchPageWithAcceleratedDirectStageImageUrl() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        UUID entryId = UUID.randomUUID();
+        UUID videoAssetId = UUID.randomUUID();
+        UUID thumbnailId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        String directCloudinaryUrl = "https://res.cloudinary.com/demo/image/upload/v123456/w_600/thumbnail.jpg";
+
+        PublicScreenWatchDTO watchDTO = new PublicScreenWatchDTO(
+                titleId, "kiem-lai-1", "Kiếm Lai Phần 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, entryId, "tap-2", ScreenEntryType.EPISODE, 2,
+                "Tập 2: Phong Vân", "Tóm tắt tập 2", 1440L, thumbnailId,
+                true, "/media/assets/" + videoAssetId + "/content", "video/mp4",
+                null, null, List.of(),
+                10L, 100L, true,
+                1300L, 1400L, true,
+                directCloudinaryUrl
+        );
+
+        when(getPublicScreenWatchUseCase.execute("kiem-lai-1", "tap-2")).thenReturn(watchDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-1/watch/tap-2"))
+                .andExpect(status().isOk())
+                // Native HTML5 video poster directly accelerated
+                .andExpect(content().string(containsString("poster=\"" + directCloudinaryUrl + "\"")))
+                // Stage poster image directly accelerated
+                .andExpect(content().string(containsString("id=\"screenPlayerPosterImg\"")))
+                .andExpect(content().string(containsString("src=\"" + directCloudinaryUrl + "\"")))
+                // Primary canonical fallback is preserved
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + thumbnailId + "/content\"")))
+                // Secondary fallback is preserved
+                .andExpect(content().string(containsString("data-secondary-fallback-src=\"/media/assets/" + backdropId + "/content\"")));
+    }
+
+    @Test
+    @WithAnonymousUser
     @DisplayName("SSR: Unplayable watch stage renders episode thumbnail image when present")
     void shouldRenderUnavailableStageWithThumbnailImage() throws Exception {
         UUID titleId = UUID.randomUUID();

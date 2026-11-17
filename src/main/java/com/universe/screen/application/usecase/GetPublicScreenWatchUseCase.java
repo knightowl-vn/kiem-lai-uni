@@ -6,6 +6,7 @@ import com.universe.screen.application.dto.ScreenPlaybackDeliveryInfo;
 import com.universe.screen.application.exceptions.PublishedScreenEntryNotFoundException;
 import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
+import com.universe.screen.application.ports.ScreenStageImageDeliveryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.EffectiveScreenTimeline;
@@ -13,6 +14,7 @@ import com.universe.screen.domain.ScreenEntry;
 import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.domain.ScreenTitle;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,15 +44,27 @@ public class GetPublicScreenWatchUseCase {
     private final ScreenTitleRepositoryPort titleRepositoryPort;
     private final ScreenEntryRepositoryPort entryRepositoryPort;
     private final ScreenVideoDeliveryPort videoDeliveryPort;
+    private final ScreenStageImageDeliveryPort stageImageDeliveryPort;
 
     public GetPublicScreenWatchUseCase(
             ScreenTitleRepositoryPort titleRepositoryPort,
             ScreenEntryRepositoryPort entryRepositoryPort,
             ScreenVideoDeliveryPort videoDeliveryPort
     ) {
+        this(titleRepositoryPort, entryRepositoryPort, videoDeliveryPort, (assetId, targetWidth) -> Optional.empty());
+    }
+
+    @Autowired
+    public GetPublicScreenWatchUseCase(
+            ScreenTitleRepositoryPort titleRepositoryPort,
+            ScreenEntryRepositoryPort entryRepositoryPort,
+            ScreenVideoDeliveryPort videoDeliveryPort,
+            ScreenStageImageDeliveryPort stageImageDeliveryPort
+    ) {
         this.titleRepositoryPort = Objects.requireNonNull(titleRepositoryPort, "ScreenTitleRepositoryPort cannot be null.");
         this.entryRepositoryPort = Objects.requireNonNull(entryRepositoryPort, "ScreenEntryRepositoryPort cannot be null.");
         this.videoDeliveryPort = Objects.requireNonNull(videoDeliveryPort, "ScreenVideoDeliveryPort cannot be null.");
+        this.stageImageDeliveryPort = Objects.requireNonNull(stageImageDeliveryPort, "ScreenStageImageDeliveryPort cannot be null.");
     }
 
     public PublicScreenWatchDTO execute(String titleSlug, String entrySlug) {
@@ -116,6 +130,22 @@ public class GetPublicScreenWatchUseCase {
 
         EffectiveScreenTimeline effectiveTimeline = entry.resolveEffectiveTimeline(title);
 
+        // 4. Stage image accelerated direct delivery resolution
+        String directStageImageUrl = null;
+        if (entry.getThumbnailMediaAssetId() != null) {
+            directStageImageUrl = stageImageDeliveryPort
+                    .resolvePublicImageUrl(entry.getThumbnailMediaAssetId(), 600)
+                    .orElse(null);
+        } else if (title.getBackdropMediaAssetId() != null) {
+            directStageImageUrl = stageImageDeliveryPort
+                    .resolvePublicImageUrl(title.getBackdropMediaAssetId(), null)
+                    .orElse(null);
+        } else if (title.getPosterMediaAssetId() != null) {
+            directStageImageUrl = stageImageDeliveryPort
+                    .resolvePublicImageUrl(title.getPosterMediaAssetId(), null)
+                    .orElse(null);
+        }
+
         return new PublicScreenWatchDTO(
                 title.getId(),
                 title.getSlug(),
@@ -143,7 +173,8 @@ public class GetPublicScreenWatchUseCase {
                 effectiveTimeline.hasIntro(),
                 effectiveTimeline.outroStartSeconds(),
                 effectiveTimeline.outroEndSeconds(),
-                effectiveTimeline.hasOutro()
+                effectiveTimeline.hasOutro(),
+                directStageImageUrl
         );
     }
 

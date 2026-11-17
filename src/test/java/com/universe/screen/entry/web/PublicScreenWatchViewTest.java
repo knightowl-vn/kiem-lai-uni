@@ -135,6 +135,61 @@ class PublicScreenWatchViewTest {
     }
 
     @Test
+    @DisplayName("QA02-P3-IMG02-P1: Stage image uses accelerated direct delivery URL when present while preserving canonical fallbacks")
+    void stageImageUsesDirectDeliveryUrlWhenPresentWhilePreservingFallbacks() {
+        UUID thumbnailId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        String directUrl = "https://res.cloudinary.com/test-cloud/image/upload/v12345/w_600/thumb.jpg";
+
+        PublicScreenWatchDTO dto = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1440L, thumbnailId,
+                false, null, null,
+                null, null, List.of(),
+                null, null, false,
+                null, null, false,
+                directUrl
+        );
+
+        PublicScreenWatchView view = PublicScreenWatchView.fromDTO(dto);
+
+        assertThat(view.hasStageImage()).isTrue();
+        assertThat(view.directStageImageUrl()).isEqualTo(directUrl);
+        assertThat(view.displayStageImageUrl()).isEqualTo(directUrl);
+        // Canonical fallbacks strictly preserved
+        assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + thumbnailId + "/content");
+        assertThat(view.secondaryFallbackStageImageUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
+    }
+
+    @Test
+    @DisplayName("QA02-P3-IMG02-P1: Stage image falls back to Spring Boot variant URL when direct delivery URL is blank")
+    void stageImageFallsBackWhenDirectDeliveryUrlIsBlank() {
+        UUID thumbnailId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+
+        PublicScreenWatchDTO dto = new PublicScreenWatchDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, UUID.randomUUID(), "tap-1", ScreenEntryType.EPISODE, 1,
+                "Tập 1", null, 1440L, thumbnailId,
+                false, null, null,
+                null, null, List.of(),
+                null, null, false,
+                null, null, false,
+                "   "
+        );
+
+        PublicScreenWatchView view = PublicScreenWatchView.fromDTO(dto);
+
+        assertThat(view.displayStageImageUrl()).isEqualTo("/media/assets/" + thumbnailId + "/variants/w600");
+        assertThat(view.fallbackStageImageUrl()).isEqualTo("/media/assets/" + thumbnailId + "/content");
+    }
+
+    @Test
     @DisplayName("Stage image falls back to title backdrop when entry thumbnail is missing")
     void stageImageFallsBackToBackdropWhenThumbnailMissing() {
         UUID backdropId = UUID.randomUUID();

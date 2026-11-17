@@ -20,6 +20,7 @@ import com.universe.media.application.asset.MediaAssetCurrentMetadataResult;
 import com.universe.media.application.asset.MediaAssetVersionContentResult;
 import com.universe.media.application.asset.MediaAssetVersionSnapshotResult;
 import com.universe.media.application.asset.MediaVersionItemResult;
+import com.universe.media.application.image.ResolveMediaPublicImageDeliveryUrlUseCase;
 import com.universe.media.application.asset.OpenMediaAssetVersionContentQuery;
 import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetCommand;
@@ -70,6 +71,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -892,5 +894,47 @@ class MediaFacadeTest {
         assertThatThrownBy(() -> facadeWithInspect.lockAndInspectAsset(null, MediaTypeDTO.VIDEO))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Asset ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("resolvePublicImageDeliveryUrl returns empty when use case is null")
+    void shouldReturnEmptyWhenResolveUseCaseIsNull() {
+        Optional<String> resultByWidth = facade.resolvePublicImageDeliveryUrl(ASSET_ID, 600);
+        Optional<String> resultByKey = facade.resolvePublicImageDeliveryUrl(ASSET_ID, "w600");
+
+        assertThat(resultByWidth).isEmpty();
+        assertThat(resultByKey).isEmpty();
+    }
+
+    @Test
+    @DisplayName("resolvePublicImageDeliveryUrl delegates to use case when configured")
+    void shouldDelegateToResolveUseCaseWhenConfigured() {
+        com.universe.media.application.image.ResolveMediaPublicImageDeliveryUrlUseCase mockUseCase =
+                mock(com.universe.media.application.image.ResolveMediaPublicImageDeliveryUrlUseCase.class);
+        when(mockUseCase.execute(ASSET_ID, 600)).thenReturn(Optional.of("https://res.cloudinary.com/test/w600.jpg"));
+        when(mockUseCase.execute(ASSET_ID, "w600")).thenReturn(Optional.of("https://res.cloudinary.com/test/w600.jpg"));
+
+        MediaFacade facadeWithResolve = new MediaFacade(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                mockUseCase
+        );
+
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrl(ASSET_ID, 600))
+                .contains("https://res.cloudinary.com/test/w600.jpg");
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrl(ASSET_ID, "w600"))
+                .contains("https://res.cloudinary.com/test/w600.jpg");
     }
 }

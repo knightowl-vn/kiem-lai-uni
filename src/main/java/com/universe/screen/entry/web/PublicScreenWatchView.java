@@ -44,7 +44,8 @@ public record PublicScreenWatchView(
         boolean hasEffectiveIntro,
         Long effectiveOutroStartSeconds,
         Long effectiveOutroEndSeconds,
-        boolean hasEffectiveOutro
+        boolean hasEffectiveOutro,
+        String directStageImageUrl
 ) {
 
     public PublicScreenWatchView {
@@ -58,6 +59,70 @@ public record PublicScreenWatchView(
         Objects.requireNonNull(entryType, "Entry type cannot be null.");
         Objects.requireNonNull(entryTitle, "Entry title cannot be null.");
         playlist = playlist != null ? List.copyOf(playlist) : List.of();
+    }
+
+    /**
+     * Backward-compatible convenience constructor omitting directStageImageUrl.
+     */
+    public PublicScreenWatchView(
+            UUID titleId,
+            String titleSlug,
+            String titleDisplayName,
+            ScreenStructure titleStructure,
+            ScreenPresentation titlePresentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            UUID entryId,
+            String entrySlug,
+            ScreenEntryType entryType,
+            Integer entryNumber,
+            String entryTitle,
+            String entrySynopsis,
+            Long durationSeconds,
+            UUID thumbnailMediaAssetId,
+            boolean isPlayable,
+            String videoDeliveryUrl,
+            String videoMimeType,
+            PublicScreenEntryView previousEntry,
+            PublicScreenEntryView nextEntry,
+            List<PublicScreenEntryView> playlist,
+            Long effectiveIntroStartSeconds,
+            Long effectiveIntroEndSeconds,
+            boolean hasEffectiveIntro,
+            Long effectiveOutroStartSeconds,
+            Long effectiveOutroEndSeconds,
+            boolean hasEffectiveOutro
+    ) {
+        this(
+                titleId,
+                titleSlug,
+                titleDisplayName,
+                titleStructure,
+                titlePresentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                entryId,
+                entrySlug,
+                entryType,
+                entryNumber,
+                entryTitle,
+                entrySynopsis,
+                durationSeconds,
+                thumbnailMediaAssetId,
+                isPlayable,
+                videoDeliveryUrl,
+                videoMimeType,
+                previousEntry,
+                nextEntry,
+                playlist,
+                effectiveIntroStartSeconds,
+                effectiveIntroEndSeconds,
+                hasEffectiveIntro,
+                effectiveOutroStartSeconds,
+                effectiveOutroEndSeconds,
+                hasEffectiveOutro,
+                null
+        );
     }
 
     /**
@@ -209,7 +274,8 @@ public record PublicScreenWatchView(
                 dto.hasEffectiveIntro(),
                 dto.effectiveOutroStartSeconds(),
                 dto.effectiveOutroEndSeconds(),
-                dto.hasEffectiveOutro()
+                dto.hasEffectiveOutro(),
+                dto.directStageImageUrl()
         );
     }
 
@@ -287,12 +353,16 @@ public record PublicScreenWatchView(
 
     /**
      * Resolves the primary visual stage image for player poster and stage background:
-     * - Returns episode thumbnail (variant w600) if present;
+     * - Returns direct public image delivery URL (e.g. accelerated Cloudinary URL) if available;
+     * - Else returns episode thumbnail (variant w600) if present;
      * - Else falls back to title landscape backdrop (canonical content) if present;
      * - Else falls back to title portrait poster (canonical content) if present;
      * - Else returns null.
      */
     public String displayStageImageUrl() {
+        if (directStageImageUrl != null && !directStageImageUrl.isBlank()) {
+            return directStageImageUrl;
+        }
         if (thumbnailMediaAssetId != null) {
             return MediaDeliveryUrlSupport.variantUrl(thumbnailMediaAssetId, 600);
         }
