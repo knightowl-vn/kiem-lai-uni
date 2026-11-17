@@ -8,6 +8,7 @@ import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundEx
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseMembershipRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
+import com.universe.screen.application.ports.ScreenStageImageDeliveryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
@@ -50,8 +51,8 @@ public class GetPublicScreenTitleDetailUseCase {
     private final ScreenFranchiseMembershipRepositoryPort franchiseMembershipRepositoryPort;
     private final ScreenFranchiseRepositoryPort franchiseRepositoryPort;
     private final ScreenVideoDeliveryPort videoDeliveryPort;
+    private final ScreenStageImageDeliveryPort stageImageDeliveryPort;
 
-    @Autowired
     public GetPublicScreenTitleDetailUseCase(
             ScreenTitleRepositoryPort titleRepositoryPort,
             ScreenEntryRepositoryPort entryRepositoryPort,
@@ -59,11 +60,31 @@ public class GetPublicScreenTitleDetailUseCase {
             ScreenFranchiseRepositoryPort franchiseRepositoryPort,
             ScreenVideoDeliveryPort videoDeliveryPort
     ) {
+        this(
+                titleRepositoryPort,
+                entryRepositoryPort,
+                franchiseMembershipRepositoryPort,
+                franchiseRepositoryPort,
+                videoDeliveryPort,
+                (assetId, targetWidth) -> Optional.empty()
+        );
+    }
+
+    @Autowired
+    public GetPublicScreenTitleDetailUseCase(
+            ScreenTitleRepositoryPort titleRepositoryPort,
+            ScreenEntryRepositoryPort entryRepositoryPort,
+            ScreenFranchiseMembershipRepositoryPort franchiseMembershipRepositoryPort,
+            ScreenFranchiseRepositoryPort franchiseRepositoryPort,
+            ScreenVideoDeliveryPort videoDeliveryPort,
+            ScreenStageImageDeliveryPort stageImageDeliveryPort
+    ) {
         this.titleRepositoryPort = Objects.requireNonNull(titleRepositoryPort, "ScreenTitleRepositoryPort cannot be null.");
         this.entryRepositoryPort = Objects.requireNonNull(entryRepositoryPort, "ScreenEntryRepositoryPort cannot be null.");
         this.franchiseMembershipRepositoryPort = Objects.requireNonNull(franchiseMembershipRepositoryPort, "ScreenFranchiseMembershipRepositoryPort cannot be null.");
         this.franchiseRepositoryPort = Objects.requireNonNull(franchiseRepositoryPort, "ScreenFranchiseRepositoryPort cannot be null.");
         this.videoDeliveryPort = Objects.requireNonNull(videoDeliveryPort, "ScreenVideoDeliveryPort cannot be null.");
+        this.stageImageDeliveryPort = Objects.requireNonNull(stageImageDeliveryPort, "ScreenStageImageDeliveryPort cannot be null.");
     }
 
     public PublicScreenTitleDetailDTO execute(String titleSlug) {
@@ -118,6 +139,20 @@ public class GetPublicScreenTitleDetailUseCase {
 
         Integer averageDurationMinutes = calculateAverageDurationMinutes(title.getStructure(), publishedEntries);
 
+        String directPosterUrl = null;
+        if (title.getPosterMediaAssetId() != null) {
+            directPosterUrl = stageImageDeliveryPort
+                    .resolvePublicImageUrl(title.getPosterMediaAssetId(), 300, true)
+                    .orElse(null);
+        }
+
+        String directBackdropUrl = null;
+        if (title.getBackdropMediaAssetId() != null) {
+            directBackdropUrl = stageImageDeliveryPort
+                    .resolvePublicImageUrl(title.getBackdropMediaAssetId(), 1200, true)
+                    .orElse(null);
+        }
+
         return new PublicScreenTitleDetailDTO(
                 title.getId(),
                 title.getSlug(),
@@ -139,7 +174,9 @@ public class GetPublicScreenTitleDetailUseCase {
                 title.getOriginalAuthor(),
                 title.getDirector(),
                 title.getProductionStudio(),
-                averageDurationMinutes
+                averageDurationMinutes,
+                directPosterUrl,
+                directBackdropUrl
         );
     }
 

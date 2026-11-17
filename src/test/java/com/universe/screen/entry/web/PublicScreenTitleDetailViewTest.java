@@ -22,7 +22,7 @@ class PublicScreenTitleDetailViewTest {
     private final Instant now = Instant.parse("2026-11-01T10:00:00Z");
 
     @Test
-    @DisplayName("Should resolve poster and backdrop delivery URLs")
+    @DisplayName("Should fallback to canonical content URLs when direct URLs are absent (avoids unverified variant 404s)")
     void shouldResolvePosterAndBackdropUrls() {
         UUID posterId = UUID.randomUUID();
         UUID backdropId = UUID.randomUUID();
@@ -33,9 +33,69 @@ class PublicScreenTitleDetailViewTest {
         );
         PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(dto);
 
-        assertThat(view.displayPosterUrl()).isEqualTo("/media/assets/" + posterId + "/variants/w300");
+        assertThat(view.displayPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
         assertThat(view.fallbackPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
-        assertThat(view.displayBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/variants/w1200");
+        assertThat(view.displayBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
+        assertThat(view.fallbackBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
+        assertThat(view.hasBackdrop()).isTrue();
+    }
+
+    @Test
+    @DisplayName("C1: When direct poster URL is absent, displayPosterUrl returns canonical content URL and never unverified w300")
+    void shouldFallbackToCanonicalContentWhenDirectPosterUrlAbsent() {
+        UUID posterId = UUID.randomUUID();
+        PublicScreenTitleDetailDTO dto = new PublicScreenTitleDetailDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, null, now, null, null, List.of(), null,
+                null, null, null, null, null, null, null,
+                null, null
+        );
+        PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(dto);
+
+        assertThat(view.displayPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+        assertThat(view.displayPosterUrl()).doesNotContain("/variants/w300");
+        assertThat(view.fallbackPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+    }
+
+    @Test
+    @DisplayName("C1: When direct backdrop URL is absent, displayBackdropUrl returns canonical content URL and never unverified w1200")
+    void shouldFallbackToCanonicalContentWhenDirectBackdropUrlAbsent() {
+        UUID backdropId = UUID.randomUUID();
+        PublicScreenTitleDetailDTO dto = new PublicScreenTitleDetailDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, backdropId, now, null, null, List.of(), null,
+                null, null, null, null, null, null, null,
+                null, null
+        );
+        PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(dto);
+
+        assertThat(view.displayBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
+        assertThat(view.displayBackdropUrl()).doesNotContain("/variants/w1200");
+        assertThat(view.fallbackBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
+    }
+
+    @Test
+    @DisplayName("Should prefer direct accelerated URLs when present and preserve canonical content fallbacks")
+    void shouldPreferDirectUrlsWhenPresent() {
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        String directPoster = "https://res.cloudinary.com/kiemlai/image/upload/c_scale,w_300/screen/poster/p.webp";
+        String directBackdrop = "https://res.cloudinary.com/kiemlai/image/upload/c_scale,w_1200/screen/backdrop/b.webp";
+
+        PublicScreenTitleDetailDTO dto = new PublicScreenTitleDetailDTO(
+                UUID.randomUUID(), "kiem-lai-1", "Kiếm Lai 1", "剑来",
+                "Tóm tắt", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, now, 12, 24, List.of(), null,
+                null, null, null, null, null, null, null,
+                directPoster, directBackdrop
+        );
+        PublicScreenTitleDetailView view = PublicScreenTitleDetailView.fromDTO(dto);
+
+        assertThat(view.displayPosterUrl()).isEqualTo(directPoster);
+        assertThat(view.fallbackPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+        assertThat(view.displayBackdropUrl()).isEqualTo(directBackdrop);
         assertThat(view.fallbackBackdropUrl()).isEqualTo("/media/assets/" + backdropId + "/content");
         assertThat(view.hasBackdrop()).isTrue();
     }

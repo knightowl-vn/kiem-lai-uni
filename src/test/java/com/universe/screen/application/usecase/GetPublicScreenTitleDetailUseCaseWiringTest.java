@@ -5,6 +5,7 @@ import com.universe.screen.application.dto.ScreenPlaybackDeliveryInfo;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseMembershipRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
+import com.universe.screen.application.ports.ScreenStageImageDeliveryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
@@ -38,6 +39,7 @@ class GetPublicScreenTitleDetailUseCaseWiringTest {
     private final ScreenFranchiseMembershipRepositoryPort franchiseMembershipRepositoryPort = mock(ScreenFranchiseMembershipRepositoryPort.class);
     private final ScreenFranchiseRepositoryPort franchiseRepositoryPort = mock(ScreenFranchiseRepositoryPort.class);
     private final ScreenVideoDeliveryPort videoDeliveryPort = mock(ScreenVideoDeliveryPort.class);
+    private final ScreenStageImageDeliveryPort stageImageDeliveryPort = mock(ScreenStageImageDeliveryPort.class);
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(GetPublicScreenTitleDetailUseCase.class)
@@ -45,7 +47,8 @@ class GetPublicScreenTitleDetailUseCaseWiringTest {
             .withBean(ScreenEntryRepositoryPort.class, () -> entryRepositoryPort)
             .withBean(ScreenFranchiseMembershipRepositoryPort.class, () -> franchiseMembershipRepositoryPort)
             .withBean(ScreenFranchiseRepositoryPort.class, () -> franchiseRepositoryPort)
-            .withBean(ScreenVideoDeliveryPort.class, () -> videoDeliveryPort);
+            .withBean(ScreenVideoDeliveryPort.class, () -> videoDeliveryPort)
+            .withBean(ScreenStageImageDeliveryPort.class, () -> stageImageDeliveryPort);
 
     @Test
     @DisplayName("Spring DI resolves @Autowired 5-argument constructor and injects real ScreenVideoDeliveryPort bean")
@@ -150,7 +153,27 @@ class GetPublicScreenTitleDetailUseCaseWiringTest {
                 .withBean(ScreenEntryRepositoryPort.class, () -> entryRepositoryPort)
                 .withBean(ScreenFranchiseMembershipRepositoryPort.class, () -> franchiseMembershipRepositoryPort)
                 .withBean(ScreenFranchiseRepositoryPort.class, () -> franchiseRepositoryPort)
+                .withBean(ScreenStageImageDeliveryPort.class, () -> stageImageDeliveryPort)
                 // Intentionally missing ScreenVideoDeliveryPort
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .isInstanceOf(UnsatisfiedDependencyException.class)
+                            .hasRootCauseInstanceOf(NoSuchBeanDefinitionException.class);
+                });
+    }
+
+    @Test
+    @DisplayName("Spring DI fails bean creation when ScreenStageImageDeliveryPort is missing from context")
+    void shouldFailContextInitializationWhenScreenStageImageDeliveryPortMissing() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(GetPublicScreenTitleDetailUseCase.class)
+                .withBean(ScreenTitleRepositoryPort.class, () -> titleRepositoryPort)
+                .withBean(ScreenEntryRepositoryPort.class, () -> entryRepositoryPort)
+                .withBean(ScreenFranchiseMembershipRepositoryPort.class, () -> franchiseMembershipRepositoryPort)
+                .withBean(ScreenFranchiseRepositoryPort.class, () -> franchiseRepositoryPort)
+                .withBean(ScreenVideoDeliveryPort.class, () -> videoDeliveryPort)
+                // Intentionally missing ScreenStageImageDeliveryPort
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())

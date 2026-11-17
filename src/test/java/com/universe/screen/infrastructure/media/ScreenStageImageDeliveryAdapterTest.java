@@ -38,6 +38,18 @@ class ScreenStageImageDeliveryAdapterTest {
     }
 
     @Test
+    @DisplayName("Delegates to MediaContract with fallbackToSource when direct delivery is enabled")
+    void shouldDelegateToMediaContractWithFallbackToSourceWhenEnabled() {
+        ScreenStageImageDeliveryAdapter adapter = new ScreenStageImageDeliveryAdapter(mediaContract, true);
+        when(mediaContract.resolvePublicImageDeliveryUrl(ASSET_ID, 1200, true)).thenReturn(Optional.of(DIRECT_URL));
+
+        Optional<String> result = adapter.resolvePublicImageUrl(ASSET_ID, 1200, true);
+
+        assertThat(result).isPresent().contains(DIRECT_URL);
+        verify(mediaContract).resolvePublicImageDeliveryUrl(ASSET_ID, 1200, true);
+    }
+
+    @Test
     @DisplayName("Returns empty and skips MediaContract call when asset ID is null")
     void shouldReturnEmptyWhenAssetIdIsNull() {
         ScreenStageImageDeliveryAdapter adapter = new ScreenStageImageDeliveryAdapter(mediaContract, true);

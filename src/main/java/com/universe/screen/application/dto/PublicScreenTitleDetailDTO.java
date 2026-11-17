@@ -36,7 +36,9 @@ public record PublicScreenTitleDetailDTO(
         String originalAuthor,
         String director,
         String productionStudio,
-        Integer averageDurationMinutes
+        Integer averageDurationMinutes,
+        String directPosterUrl,
+        String directBackdropUrl
 ) {
 
     public PublicScreenTitleDetailDTO {
@@ -47,6 +49,59 @@ public record PublicScreenTitleDetailDTO(
         Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
         entries = entries == null ? List.of() : List.copyOf(entries);
         franchises = franchises == null ? List.of() : List.copyOf(franchises);
+    }
+
+    /**
+     * Backward-compatible constructor without direct image URLs.
+     */
+    public PublicScreenTitleDetailDTO(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Instant publishedAt,
+            Integer latestPublishedEpisodeNumber,
+            Integer totalEpisodeCount,
+            List<PublicScreenEntryDTO> entries,
+            List<PublicScreenFranchiseDTO> franchises,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            Integer averageDurationMinutes
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                publishedAt,
+                latestPublishedEpisodeNumber,
+                totalEpisodeCount,
+                entries,
+                franchises,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                averageDurationMinutes,
+                null,
+                null
+        );
     }
 
     /**

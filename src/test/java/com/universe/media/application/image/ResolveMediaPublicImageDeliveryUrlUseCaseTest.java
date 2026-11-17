@@ -277,4 +277,42 @@ class ResolveMediaPublicImageDeliveryUrlUseCaseTest {
 
         assertThat(result).isEmpty();
     }
+
+    @Test
+    @DisplayName("Variant not found falls back to source URL when fallbackToSource is true")
+    void shouldFallbackToSourceWhenVariantNotFoundAndFallbackRequested() {
+        MediaAsset asset = createAsset(MediaType.IMAGE, MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1);
+        MediaAssetVersion version = createVersion(VERSION_V1_ID, 1, CLOUDINARY_LOCATION, CLOUDINARY_ORIGINAL_URL);
+
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
+        when(mediaImageVariantRepositoryPort.findByVersionIdAndVariantKey(VERSION_V1_ID, "w1200")).thenReturn(Optional.empty());
+
+        Optional<String> result = useCase.execute(ASSET_ID, 1200, true);
+
+        assertThat(result).isPresent().contains(CLOUDINARY_ORIGINAL_URL);
+    }
+
+    @Test
+    @DisplayName("Prefers variant URL over source when variant exists even if fallbackToSource is true")
+    void shouldPreferVariantWhenVariantExistsEvenIfFallbackRequested() {
+        MediaAsset asset = createAsset(MediaType.IMAGE, MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1);
+        MediaAssetVersion version = createVersion(VERSION_V1_ID, 1, CLOUDINARY_LOCATION, CLOUDINARY_ORIGINAL_URL);
+        MediaImageVariant variant = MediaImageVariant.createExternal(
+                UUID.randomUUID(),
+                VERSION_V1_ID,
+                ImageVariantSpec.of(300),
+                "https://res.cloudinary.com/kiemlai/image/upload/c_scale,w_300/screen/poster/w300.webp",
+                MimeType.of("image/webp"),
+                NOW
+        );
+
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
+        when(mediaImageVariantRepositoryPort.findByVersionIdAndVariantKey(VERSION_V1_ID, "w300")).thenReturn(Optional.of(variant));
+
+        Optional<String> result = useCase.execute(ASSET_ID, 300, true);
+
+        assertThat(result).isPresent().contains("https://res.cloudinary.com/kiemlai/image/upload/c_scale,w_300/screen/poster/w300.webp");
+    }
 }

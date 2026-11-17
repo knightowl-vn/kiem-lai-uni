@@ -159,9 +159,10 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("Đang chiếu")))
                 .andExpect(content().string(containsString("2024")))
                 .andExpect(content().string(containsString("Tập 2/24")))
-                // Media poster URLs
-                .andExpect(content().string(containsString("/media/assets/" + posterId + "/variants/w300")))
-                .andExpect(content().string(containsString("/media/assets/" + posterId + "/content")))
+                // Media poster URLs: when direct URL is absent, uses canonical content URL without requesting unverified w300
+                .andExpect(content().string(containsString("src=\"/media/assets/" + posterId + "/content\"")))
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + posterId + "/content\"")))
+                .andExpect(content().string(not(containsString("/variants/w300"))))
                 // Detailed metadata list (2-column grid)
                 .andExpect(content().string(containsString("Thời lượng:")))
                 .andExpect(content().string(containsString("~24 phút/tập")))
@@ -563,8 +564,9 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("has-backdrop")))
                 .andExpect(content().string(containsString("screen-detail-backdrop-wrap")))
-                .andExpect(content().string(containsString("/media/assets/" + backdropMediaId + "/variants/w1200")))
-                .andExpect(content().string(containsString("/media/assets/" + backdropMediaId + "/content")))
+                .andExpect(content().string(containsString("src=\"/media/assets/" + backdropMediaId + "/content\"")))
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + backdropMediaId + "/content\"")))
+                .andExpect(content().string(not(containsString("/variants/w1200"))))
                 .andExpect(content().string(containsString("data-fallback-src")))
                 .andExpect(content().string(containsString("onerror=")));
 
@@ -704,5 +706,67 @@ class PublicScreenDetailViewRenderingTest {
                 .andExpect(content().string(containsString("screen-action-btn--disabled")))
                 .andExpect(content().string(containsString("disabled")))
                 .andExpect(content().string(not(containsString("/watch/"))));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: Renders accelerated Cloudinary image URLs for poster and backdrop with canonical fallback attributes")
+    void shouldRenderAcceleratedDirectCloudinaryImagesWithCanonicalFallback() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        String directPoster = "https://res.cloudinary.com/kiemlai/image/upload/c_scale,w_300/screen/poster/p.webp";
+        String directBackdrop = "https://res.cloudinary.com/kiemlai/image/upload/v12345/screen/backdrop/b.webp";
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-direct", "Kiếm Lai Direct", null,
+                "Tóm tắt phim", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, now, 1, 24,
+                List.of(), List.of(),
+                ScreenAiringStatus.ONGOING, 2024, "Trung Quốc", null, null, null, 24,
+                directPoster, directBackdrop
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-direct")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-direct"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("src=\"" + directPoster + "\"")))
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + posterId + "/content\"")))
+                .andExpect(content().string(containsString("src=\"" + directBackdrop + "\"")))
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + backdropId + "/content\"")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("SSR: C1 - When direct URLs are absent, renders canonical content URLs and guards onerror against duplicate fallback")
+    void shouldRenderCanonicalContentFallbackWithoutUnverifiedVariantsAndDeduplicateFallback() throws Exception {
+        UUID titleId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+
+        PublicScreenTitleDetailDTO detailDTO = new PublicScreenTitleDetailDTO(
+                titleId, "kiem-lai-canonical", "Kiếm Lai Canonical", null,
+                "Tóm tắt phim", ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, now, 1, 24,
+                List.of(), List.of(),
+                ScreenAiringStatus.ONGOING, 2024, "Trung Quốc", null, null, null, 24,
+                null, null
+        );
+
+        when(getPublicScreenTitleDetailUseCase.execute("kiem-lai-canonical")).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/screen/kiem-lai-canonical"))
+                .andExpect(status().isOk())
+                // Primary src is canonical content, NOT unverified variants
+                .andExpect(content().string(containsString("src=\"/media/assets/" + posterId + "/content\"")))
+                .andExpect(content().string(containsString("src=\"/media/assets/" + backdropId + "/content\"")))
+                .andExpect(content().string(not(containsString("/variants/w300"))))
+                .andExpect(content().string(not(containsString("/variants/w1200"))))
+                // data-fallback-src also contains canonical content
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + posterId + "/content\"")))
+                .andExpect(content().string(containsString("data-fallback-src=\"/media/assets/" + backdropId + "/content\"")))
+                // onerror check guards against requesting identical fallback URL twice
+                .andExpect(content().string(containsString("this.getAttribute('src') !== this.getAttribute('data-fallback-src')")));
     }
 }

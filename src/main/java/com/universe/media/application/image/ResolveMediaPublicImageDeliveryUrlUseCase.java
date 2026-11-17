@@ -62,11 +62,19 @@ public class ResolveMediaPublicImageDeliveryUrlUseCase {
     }
 
     public Optional<String> execute(UUID assetId, Integer targetWidth) {
-        String variantKey = targetWidth != null ? "w" + targetWidth : null;
-        return execute(assetId, variantKey);
+        return execute(assetId, targetWidth, false);
     }
 
     public Optional<String> execute(UUID assetId, String variantKey) {
+        return execute(assetId, variantKey, false);
+    }
+
+    public Optional<String> execute(UUID assetId, Integer targetWidth, boolean fallbackToSource) {
+        String variantKey = targetWidth != null ? "w" + targetWidth : null;
+        return execute(assetId, variantKey, fallbackToSource);
+    }
+
+    public Optional<String> execute(UUID assetId, String variantKey, boolean fallbackToSource) {
         if (assetId == null) {
             return Optional.empty();
         }
@@ -99,15 +107,18 @@ public class ResolveMediaPublicImageDeliveryUrlUseCase {
         }
 
         // 4. Resolve candidate public URL
-        String candidateUrl;
+        String candidateUrl = null;
         if (variantKey != null && !variantKey.isBlank()) {
             String normalizedVariantKey = variantKey.trim().toLowerCase(Locale.ROOT);
             Optional<MediaImageVariant> variantOpt = mediaImageVariantRepositoryPort
                     .findByVersionIdAndVariantKey(currentVersion.getId(), normalizedVariantKey);
-            if (variantOpt.isEmpty() || !variantOpt.get().hasPublicUrl()) {
+            if (variantOpt.isPresent() && variantOpt.get().hasPublicUrl()) {
+                candidateUrl = variantOpt.get().getPublicUrl();
+            } else if (fallbackToSource) {
+                candidateUrl = currentVersion.getPublicUrl();
+            } else {
                 return Optional.empty();
             }
-            candidateUrl = variantOpt.get().getPublicUrl();
         } else {
             candidateUrl = currentVersion.getPublicUrl();
         }

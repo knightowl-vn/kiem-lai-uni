@@ -44,7 +44,7 @@
                      th:data-fallback-src="${titleDetail.fallbackBackdropUrl()}"
                      alt=""
                      loading="lazy"
-                     onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; }">
+                     onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src') &amp;&amp; this.getAttribute('src') !== this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; }">
                 <div class="screen-detail-backdrop-overlay"></div>
             </div>
 
@@ -56,7 +56,7 @@
                      th:data-fallback-src="${titleDetail.fallbackPosterUrl()}"
                      th:alt="${titleDetail.title}"
                      loading="lazy"
-                     onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
+                     onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src') &amp;&amp; this.getAttribute('src') !== this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
                 <div class="screen-detail-poster-placeholder"
                      th:style="${titleDetail.posterMediaAssetId != null ? 'display: none;' : ''}"
                      aria-hidden="true">

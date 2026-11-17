@@ -413,4 +413,30 @@ public interface MediaContract extends MediaStreamingContract {
     default Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, String variantKey) {
         return Optional.empty();
     }
+
+    /**
+     * Resolves an approved direct Cloudinary delivery URL for an ACTIVE and PUBLIC image asset or variant,
+     * with optional fallback to source image URL if the requested variant is missing.
+     *
+     * @param assetId ID of the media asset
+     * @param targetWidth optional target width in pixels (e.g. 1200 for w1200 variant), or null for source image
+     * @param fallbackToSource whether to fall back to current version source URL if target variant is missing
+     * @return Optional containing the direct public HTTPS URL if eligible, empty otherwise
+     */
+    default Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, Integer targetWidth, boolean fallbackToSource) {
+        return Optional.empty();
+    }
+
+    /**
+     * Resolves an approved direct Cloudinary delivery URL for an ACTIVE and PUBLIC image asset or variant,
+     * with optional fallback to source image URL if the requested variant is missing.
+     *
+     * @param assetId ID of the media asset
+     * @param variantKey optional variant key (e.g. "w1200"), or null for source image
+     * @param fallbackToSource whether to fall back to current version source URL if target variant is missing
+     * @return Optional containing the direct public HTTPS URL if eligible, empty otherwise
+     */
+    default Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, String variantKey, boolean fallbackToSource) {
+        return Optional.empty();
+    }
 }

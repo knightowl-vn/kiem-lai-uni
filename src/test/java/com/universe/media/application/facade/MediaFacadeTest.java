@@ -913,6 +913,8 @@ class MediaFacadeTest {
                 mock(com.universe.media.application.image.ResolveMediaPublicImageDeliveryUrlUseCase.class);
         when(mockUseCase.execute(ASSET_ID, 600)).thenReturn(Optional.of("https://res.cloudinary.com/test/w600.jpg"));
         when(mockUseCase.execute(ASSET_ID, "w600")).thenReturn(Optional.of("https://res.cloudinary.com/test/w600.jpg"));
+        when(mockUseCase.execute(ASSET_ID, 1200, true)).thenReturn(Optional.of("https://res.cloudinary.com/test/backdrop.jpg"));
+        when(mockUseCase.execute(ASSET_ID, "w1200", true)).thenReturn(Optional.of("https://res.cloudinary.com/test/backdrop.jpg"));
 
         MediaFacade facadeWithResolve = new MediaFacade(
                 getMediaAssetDetailUseCase,
@@ -936,5 +938,9 @@ class MediaFacadeTest {
                 .contains("https://res.cloudinary.com/test/w600.jpg");
         assertThat(facadeWithResolve.resolvePublicImageDeliveryUrl(ASSET_ID, "w600"))
                 .contains("https://res.cloudinary.com/test/w600.jpg");
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrl(ASSET_ID, 1200, true))
+                .contains("https://res.cloudinary.com/test/backdrop.jpg");
+        assertThat(facadeWithResolve.resolvePublicImageDeliveryUrl(ASSET_ID, "w1200", true))
+                .contains("https://res.cloudinary.com/test/backdrop.jpg");
     }
 }

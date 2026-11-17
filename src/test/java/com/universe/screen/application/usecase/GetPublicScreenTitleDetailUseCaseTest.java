@@ -8,6 +8,7 @@ import com.universe.screen.application.exceptions.PublishedScreenTitleNotFoundEx
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseMembershipRepositoryPort;
 import com.universe.screen.application.ports.ScreenFranchiseRepositoryPort;
+import com.universe.screen.application.ports.ScreenStageImageDeliveryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.application.ports.ScreenVideoDeliveryPort;
 import com.universe.screen.domain.ScreenEntry;
@@ -56,6 +57,9 @@ class GetPublicScreenTitleDetailUseCaseTest {
     @Mock
     private ScreenVideoDeliveryPort videoDeliveryPort;
 
+    @Mock
+    private ScreenStageImageDeliveryPort stageImageDeliveryPort;
+
     private GetPublicScreenTitleDetailUseCase useCase;
 
     private final Instant now = Instant.parse("2026-11-01T10:00:00Z");
@@ -67,7 +71,8 @@ class GetPublicScreenTitleDetailUseCaseTest {
                 entryRepositoryPort,
                 franchiseMembershipRepositoryPort,
                 franchiseRepositoryPort,
-                videoDeliveryPort
+                videoDeliveryPort,
+                stageImageDeliveryPort
         );
     }
 
@@ -521,5 +526,89 @@ class GetPublicScreenTitleDetailUseCaseTest {
         assertThat(result.entries()).hasSize(1);
         assertThat(result.entries().get(0).hasPlayableVideo()).isFalse();
         verify(videoDeliveryPort, never()).resolvePlaybackDelivery(any());
+    }
+
+    @Test
+    @DisplayName("Should resolve direct poster and backdrop delivery URLs when stage image delivery port returns them")
+    void shouldResolveDirectPosterAndBackdropUrlsWhenPortReturnsThem() {
+        UUID titleId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+        String directPoster = "https://res.cloudinary.com/kiemlai/image/upload/c_scale,w_300/screen/poster/p.webp";
+        String directBackdrop = "https://res.cloudinary.com/kiemlai/image/upload/c_scale,w_1200/screen/backdrop/b.webp";
+
+        ScreenTitle title = new ScreenTitle(
+                titleId, "series-direct-images", "Series Direct", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.PUBLISHED, now, now, now, 12
+        );
+
+        when(titleRepositoryPort.findPublishedBySlug("series-direct-images")).thenReturn(Optional.of(title));
+        when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of());
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(null);
+        when(franchiseMembershipRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+
+        when(stageImageDeliveryPort.resolvePublicImageUrl(posterId, 300, true))
+                .thenReturn(Optional.of(directPoster));
+        when(stageImageDeliveryPort.resolvePublicImageUrl(backdropId, 1200, true))
+                .thenReturn(Optional.of(directBackdrop));
+
+        PublicScreenTitleDetailDTO result = useCase.execute("series-direct-images");
+
+        assertThat(result.directPosterUrl()).isEqualTo(directPoster);
+        assertThat(result.directBackdropUrl()).isEqualTo(directBackdrop);
+        verify(stageImageDeliveryPort).resolvePublicImageUrl(posterId, 300, true);
+        verify(stageImageDeliveryPort).resolvePublicImageUrl(backdropId, 1200, true);
+    }
+
+    @Test
+    @DisplayName("Should leave direct image URLs null when stage image delivery port returns empty (preserves fallback)")
+    void shouldLeaveDirectUrlsNullWhenPortReturnsEmpty() {
+        UUID titleId = UUID.randomUUID();
+        UUID posterId = UUID.randomUUID();
+        UUID backdropId = UUID.randomUUID();
+
+        ScreenTitle title = new ScreenTitle(
+                titleId, "series-empty-images", "Series Empty", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                posterId, backdropId, ScreenPublicationStatus.PUBLISHED, now, now, now, 12
+        );
+
+        when(titleRepositoryPort.findPublishedBySlug("series-empty-images")).thenReturn(Optional.of(title));
+        when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of());
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(null);
+        when(franchiseMembershipRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+
+        when(stageImageDeliveryPort.resolvePublicImageUrl(posterId, 300, true))
+                .thenReturn(Optional.empty());
+        when(stageImageDeliveryPort.resolvePublicImageUrl(backdropId, 1200, true))
+                .thenReturn(Optional.empty());
+
+        PublicScreenTitleDetailDTO result = useCase.execute("series-empty-images");
+
+        assertThat(result.directPosterUrl()).isNull();
+        assertThat(result.directBackdropUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should not call stage image delivery port when title has no poster or backdrop")
+    void shouldNotCallStageImageDeliveryPortWhenAssetsNull() {
+        UUID titleId = UUID.randomUUID();
+        ScreenTitle title = new ScreenTitle(
+                titleId, "series-no-assets", "Series No Assets", null,
+                null, ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D,
+                null, null, ScreenPublicationStatus.PUBLISHED, now, now, now, 12
+        );
+
+        when(titleRepositoryPort.findPublishedBySlug("series-no-assets")).thenReturn(Optional.of(title));
+        when(entryRepositoryPort.findPublishedByTitleId(titleId)).thenReturn(List.of());
+        when(entryRepositoryPort.findLatestPublishedEpisodeNumberByTitleId(titleId)).thenReturn(null);
+        when(franchiseMembershipRepositoryPort.findByTitleId(titleId)).thenReturn(List.of());
+
+        PublicScreenTitleDetailDTO result = useCase.execute("series-no-assets");
+
+        assertThat(result.directPosterUrl()).isNull();
+        assertThat(result.directBackdropUrl()).isNull();
+        verify(stageImageDeliveryPort, never()).resolvePublicImageUrl(any(), any(), any(Boolean.class));
     }
 }

@@ -1065,4 +1065,20 @@ public class MediaFacade implements MediaContract {
         }
         return resolveMediaPublicImageDeliveryUrlUseCase.execute(assetId, variantKey);
     }
+
+    @Override
+    public Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, Integer targetWidth, boolean fallbackToSource) {
+        if (resolveMediaPublicImageDeliveryUrlUseCase == null) {
+            return Optional.empty();
+        }
+        return resolveMediaPublicImageDeliveryUrlUseCase.execute(assetId, targetWidth, fallbackToSource);
+    }
+
+    @Override
+    public Optional<String> resolvePublicImageDeliveryUrl(UUID assetId, String variantKey, boolean fallbackToSource) {
+        if (resolveMediaPublicImageDeliveryUrlUseCase == null) {
+            return Optional.empty();
+        }
+        return resolveMediaPublicImageDeliveryUrlUseCase.execute(assetId, variantKey, fallbackToSource);
+    }
 }

@@ -43,4 +43,12 @@ public class ScreenStageImageDeliveryAdapter implements ScreenStageImageDelivery
         }
         return mediaContract.resolvePublicImageDeliveryUrl(assetId, targetWidth);
     }
+
+    @Override
+    public Optional<String> resolvePublicImageUrl(UUID assetId, Integer targetWidth, boolean fallbackToSource) {
+        if (!directDeliveryEnabled || assetId == null) {
+            return Optional.empty();
+        }
+        return mediaContract.resolvePublicImageDeliveryUrl(assetId, targetWidth, fallbackToSource);
+    }
 }

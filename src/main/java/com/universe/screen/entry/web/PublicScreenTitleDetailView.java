@@ -40,7 +40,9 @@ public record PublicScreenTitleDetailView(
         String originalAuthor,
         String director,
         String productionStudio,
-        Integer averageDurationMinutes
+        Integer averageDurationMinutes,
+        String directPosterUrl,
+        String directBackdropUrl
 ) {
 
     public PublicScreenTitleDetailView {
@@ -51,6 +53,59 @@ public record PublicScreenTitleDetailView(
         Objects.requireNonNull(presentation, "ScreenPresentation cannot be null.");
         entries = entries == null ? List.of() : List.copyOf(entries);
         franchises = franchises == null ? List.of() : List.copyOf(franchises);
+    }
+
+    /**
+     * Backward-compatible constructor without direct image URLs.
+     */
+    public PublicScreenTitleDetailView(
+            UUID id,
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            UUID backdropMediaAssetId,
+            Instant publishedAt,
+            Integer latestPublishedEpisodeNumber,
+            Integer totalEpisodeCount,
+            List<PublicScreenEntryView> entries,
+            List<PublicScreenFranchiseDTO> franchises,
+            ScreenAiringStatus airingStatus,
+            Integer releaseYear,
+            String country,
+            String originalAuthor,
+            String director,
+            String productionStudio,
+            Integer averageDurationMinutes
+    ) {
+        this(
+                id,
+                slug,
+                title,
+                originalTitle,
+                synopsis,
+                structure,
+                presentation,
+                posterMediaAssetId,
+                backdropMediaAssetId,
+                publishedAt,
+                latestPublishedEpisodeNumber,
+                totalEpisodeCount,
+                entries,
+                franchises,
+                airingStatus,
+                releaseYear,
+                country,
+                originalAuthor,
+                director,
+                productionStudio,
+                averageDurationMinutes,
+                null,
+                null
+        );
     }
 
     /**
@@ -124,16 +179,24 @@ public record PublicScreenTitleDetailView(
                 dto.originalAuthor(),
                 dto.director(),
                 dto.productionStudio(),
-                dto.averageDurationMinutes()
+                dto.averageDurationMinutes(),
+                dto.directPosterUrl(),
+                dto.directBackdropUrl()
         );
     }
 
     /**
-     * Resolves the canonical 300px image variant delivery URL for the poster.
+     * Resolves the primary image delivery URL for the poster:
+     * - Returns accelerated direct Cloudinary URL if available;
+     * - Else falls back to canonical Media content delivery URL if present (avoids unverified variant requests);
+     * - Else returns null.
      */
     public String displayPosterUrl() {
+        if (directPosterUrl != null && !directPosterUrl.isBlank()) {
+            return directPosterUrl;
+        }
         return posterMediaAssetId != null
-                ? MediaDeliveryUrlSupport.variantUrl(posterMediaAssetId, 300)
+                ? MediaDeliveryUrlSupport.contentUrl(posterMediaAssetId)
                 : null;
     }
 
@@ -147,11 +210,17 @@ public record PublicScreenTitleDetailView(
     }
 
     /**
-     * Resolves the 1200px variant delivery URL for the backdrop image when present.
+     * Resolves the primary image delivery URL for the backdrop image when present:
+     * - Returns accelerated direct Cloudinary URL (w1200 or source) if available;
+     * - Else falls back to canonical Media content delivery URL if present (avoids unverified variant requests);
+     * - Else returns null.
      */
     public String displayBackdropUrl() {
+        if (directBackdropUrl != null && !directBackdropUrl.isBlank()) {
+            return directBackdropUrl;
+        }
         return backdropMediaAssetId != null
-                ? MediaDeliveryUrlSupport.variantUrl(backdropMediaAssetId, 1200)
+                ? MediaDeliveryUrlSupport.contentUrl(backdropMediaAssetId)
                 : null;
     }
 
