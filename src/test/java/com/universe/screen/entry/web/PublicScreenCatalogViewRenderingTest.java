@@ -105,7 +105,10 @@ class PublicScreenCatalogViewRenderingTest {
     @WithAnonymousUser
     @DisplayName("Renders minimalist catalog cards with title, poster, episode badge and no visual clutter")
     void shouldRenderCatalogCardsWithBadgesAndPosterUrls() throws Exception {
-        UUID posterId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        UUID posterId1 = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        UUID posterId3 = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        String directPosterUrl1 = "https://res.cloudinary.com/test-cloud/image/upload/w_300/poster1.webp";
+
         PublicScreenCatalogItemDTO item1 = new PublicScreenCatalogItemDTO(
                 "kiem-lai-donghua-1",
                 "Kiếm Lai Hoạt Hình Phần 1",
@@ -113,10 +116,11 @@ class PublicScreenCatalogViewRenderingTest {
                 "Trần Bình An bắt đầu bước vào con đường tu tiên.",
                 ScreenStructure.SERIES,
                 ScreenPresentation.ANIMATION_3D,
-                posterId,
+                posterId1,
                 now,
                 12,
-                24
+                24,
+                directPosterUrl1
         );
         PublicScreenCatalogItemDTO item2 = new PublicScreenCatalogItemDTO(
                 "kiem-lai-movie-1",
@@ -130,12 +134,25 @@ class PublicScreenCatalogViewRenderingTest {
                 null,
                 null
         );
+        PublicScreenCatalogItemDTO item3 = new PublicScreenCatalogItemDTO(
+                "kiem-lai-live-action",
+                "Kiếm Lai Bản Người Đóng",
+                null,
+                null,
+                ScreenStructure.FEATURE,
+                ScreenPresentation.LIVE_ACTION,
+                posterId3,
+                now,
+                null,
+                null,
+                null
+        );
 
         PublicScreenCatalogPageDTO catalogPage = new PublicScreenCatalogPageDTO(
-                List.of(item1, item2),
+                List.of(item1, item2, item3),
                 0,
                 12,
-                2L,
+                3L,
                 1,
                 true,
                 true
@@ -148,13 +165,19 @@ class PublicScreenCatalogViewRenderingTest {
                 // Header (no eyebrow)
                 .andExpect(content().string(containsString("Danh mục phim")))
                 .andExpect(content().string(not(containsString("KIẾM LAI SCREEN"))))
-                // Card 1
+                // Card 1: Direct Cloudinary poster URL in src, canonical content URL in fallback
                 .andExpect(content().string(containsString("Kiếm Lai Hoạt Hình Phần 1")))
                 .andExpect(content().string(containsString("The Great Ruler")))
                 .andExpect(content().string(containsString("screen-card-original-title")))
                 .andExpect(content().string(containsString("Tập 12/24")))
-                .andExpect(content().string(containsString("/media/assets/" + posterId + "/variants/w300")))
-                .andExpect(content().string(containsString("/media/assets/" + posterId + "/content")))
+                .andExpect(content().string(containsString(directPosterUrl1)))
+                .andExpect(content().string(containsString("/media/assets/" + posterId1 + "/content")))
+                // Card 3: When direct URL is absent, renders canonical content URL as src (never unverified /variants/w300)
+                .andExpect(content().string(containsString("Kiếm Lai Bản Người Đóng")))
+                .andExpect(content().string(containsString("/media/assets/" + posterId3 + "/content")))
+                .andExpect(content().string(not(containsString("/variants/w300"))))
+                // Onerror fallback retry logic avoids loop if src already equals fallback
+                .andExpect(content().string(containsString("this.getAttribute('src') !== this.getAttribute('data-fallback-src')")))
                 // Card 2
                 .andExpect(content().string(containsString("Kiếm Lai Điện Ảnh 1")))
                 .andExpect(content().string(containsString("Phim lẻ")))
@@ -178,6 +201,7 @@ class PublicScreenCatalogViewRenderingTest {
                 // MS-08F2: Semantic detail links emitted for catalog cards
                 .andExpect(content().string(containsString("href=\"/screen/kiem-lai-donghua-1\"")))
                 .andExpect(content().string(containsString("href=\"/screen/kiem-lai-movie-1\"")))
+                .andExpect(content().string(containsString("href=\"/screen/kiem-lai-live-action\"")))
                 // Neither empty state nor out-of-range state is rendered
                 .andExpect(content().string(not(containsString("screen-empty-state"))))
                 .andExpect(content().string(not(containsString("screen-out-of-range-state"))))

@@ -25,7 +25,8 @@ public record PublicScreenCatalogCardView(
         UUID posterMediaAssetId,
         Instant publishedAt,
         Integer latestPublishedEpisodeNumber,
-        Integer totalEpisodeCount
+        Integer totalEpisodeCount,
+        String directPosterUrl
 ) {
 
     public PublicScreenCatalogCardView(
@@ -38,7 +39,22 @@ public record PublicScreenCatalogCardView(
             UUID posterMediaAssetId,
             Instant publishedAt
     ) {
-        this(slug, title, originalTitle, synopsis, structure, presentation, posterMediaAssetId, publishedAt, null, null);
+        this(slug, title, originalTitle, synopsis, structure, presentation, posterMediaAssetId, publishedAt, null, null, null);
+    }
+
+    public PublicScreenCatalogCardView(
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            Instant publishedAt,
+            Integer latestPublishedEpisodeNumber,
+            Integer totalEpisodeCount
+    ) {
+        this(slug, title, originalTitle, synopsis, structure, presentation, posterMediaAssetId, publishedAt, latestPublishedEpisodeNumber, totalEpisodeCount, null);
     }
 
     public PublicScreenCatalogCardView {
@@ -60,16 +76,23 @@ public record PublicScreenCatalogCardView(
                 dto.posterMediaAssetId(),
                 dto.publishedAt(),
                 dto.latestPublishedEpisodeNumber(),
-                dto.totalEpisodeCount()
+                dto.totalEpisodeCount(),
+                dto.directPosterUrl()
         );
     }
 
     /**
-     * Resolves the canonical 300px image variant delivery URL for the poster.
+     * Resolves the primary image delivery URL for the poster:
+     * - Returns accelerated direct Cloudinary URL if available;
+     * - Else falls back to canonical Media content delivery URL if present (avoids unverified variant requests);
+     * - Else returns null.
      */
     public String displayPosterUrl() {
+        if (directPosterUrl != null && !directPosterUrl.isBlank()) {
+            return directPosterUrl;
+        }
         return posterMediaAssetId != null
-                ? MediaDeliveryUrlSupport.variantUrl(posterMediaAssetId, 300)
+                ? MediaDeliveryUrlSupport.contentUrl(posterMediaAssetId)
                 : null;
     }
 

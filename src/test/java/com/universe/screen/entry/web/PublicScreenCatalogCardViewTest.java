@@ -18,7 +18,7 @@ class PublicScreenCatalogCardViewTest {
     private final Instant now = Instant.parse("2026-11-01T10:00:00Z");
 
     @Test
-    @DisplayName("Should compose poster delivery URLs and Vietnamese labels from DTO")
+    @DisplayName("Should compose poster delivery URLs and Vietnamese labels from DTO without direct URL")
     void shouldComposePosterUrlsAndDisplayLabels() {
         UUID posterId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         PublicScreenCatalogItemDTO dto = new PublicScreenCatalogItemDTO(
@@ -42,15 +42,64 @@ class PublicScreenCatalogCardViewTest {
         assertThat(cardView.presentation()).isEqualTo(ScreenPresentation.ANIMATION_3D);
         assertThat(cardView.posterMediaAssetId()).isEqualTo(posterId);
         assertThat(cardView.publishedAt()).isEqualTo(now);
+        assertThat(cardView.directPosterUrl()).isNull();
 
-        // Poster delivery URLs through Media capability
-        assertThat(cardView.displayPosterUrl()).isEqualTo("/media/assets/" + posterId + "/variants/w300");
+        // When directPosterUrl is absent, display falls back to canonical content (never unverified variant)
+        assertThat(cardView.displayPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
         assertThat(cardView.fallbackPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
 
         // Vietnamese display labels
         assertThat(cardView.structureDisplayName()).isEqualTo("Phim bộ");
         assertThat(cardView.presentationDisplayName()).isEqualTo("Hoạt hình 3D");
         assertThat(cardView.episodeBadgeText()).isEqualTo("Chưa có tập");
+    }
+
+    @Test
+    @DisplayName("Should prioritize directPosterUrl when present and retain canonical content fallback")
+    void shouldPrioritizeDirectPosterUrlWhenPresent() {
+        UUID posterId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        String directUrl = "https://res.cloudinary.com/demo/image/upload/w_300/poster.webp";
+        PublicScreenCatalogItemDTO dto = new PublicScreenCatalogItemDTO(
+                "kiem-lai-1",
+                "Kiếm Lai 1",
+                "Original",
+                "Synopsis",
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                posterId,
+                now,
+                10,
+                24,
+                directUrl
+        );
+
+        PublicScreenCatalogCardView cardView = PublicScreenCatalogCardView.fromDTO(dto);
+
+        assertThat(cardView.directPosterUrl()).isEqualTo(directUrl);
+        assertThat(cardView.displayPosterUrl()).isEqualTo(directUrl);
+        assertThat(cardView.fallbackPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+    }
+
+    @Test
+    @DisplayName("Should treat blank directPosterUrl as absent and fall back to canonical content URL")
+    void shouldTreatBlankDirectPosterUrlAsAbsent() {
+        UUID posterId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        PublicScreenCatalogCardView cardView = new PublicScreenCatalogCardView(
+                "kiem-lai-1",
+                "Kiếm Lai 1",
+                null,
+                null,
+                ScreenStructure.SERIES,
+                ScreenPresentation.ANIMATION_3D,
+                posterId,
+                now,
+                10,
+                24,
+                "   "
+        );
+
+        assertThat(cardView.displayPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
+        assertThat(cardView.fallbackPosterUrl()).isEqualTo("/media/assets/" + posterId + "/content");
     }
 
     @Test

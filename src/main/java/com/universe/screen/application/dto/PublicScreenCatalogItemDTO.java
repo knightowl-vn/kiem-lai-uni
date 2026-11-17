@@ -23,7 +23,8 @@ public record PublicScreenCatalogItemDTO(
         UUID posterMediaAssetId,
         Instant publishedAt,
         Integer latestPublishedEpisodeNumber,
-        Integer totalEpisodeCount
+        Integer totalEpisodeCount,
+        String directPosterUrl
 ) {
 
     public PublicScreenCatalogItemDTO(
@@ -36,7 +37,22 @@ public record PublicScreenCatalogItemDTO(
             UUID posterMediaAssetId,
             Instant publishedAt
     ) {
-        this(slug, title, originalTitle, synopsis, structure, presentation, posterMediaAssetId, publishedAt, null, null);
+        this(slug, title, originalTitle, synopsis, structure, presentation, posterMediaAssetId, publishedAt, null, null, null);
+    }
+
+    public PublicScreenCatalogItemDTO(
+            String slug,
+            String title,
+            String originalTitle,
+            String synopsis,
+            ScreenStructure structure,
+            ScreenPresentation presentation,
+            UUID posterMediaAssetId,
+            Instant publishedAt,
+            Integer latestPublishedEpisodeNumber,
+            Integer totalEpisodeCount
+    ) {
+        this(slug, title, originalTitle, synopsis, structure, presentation, posterMediaAssetId, publishedAt, latestPublishedEpisodeNumber, totalEpisodeCount, null);
     }
 
     public PublicScreenCatalogItemDTO {

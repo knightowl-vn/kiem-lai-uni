@@ -68,7 +68,7 @@
                          th:data-fallback-src="${item.fallbackPosterUrl()}"
                          th:alt="${item.title}"
                          loading="lazy"
-                         onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
+                         onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src') &amp;&amp; this.getAttribute('src') !== this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
                     <div class="screen-card-poster-placeholder"
                          th:style="${item.posterMediaAssetId != null ? 'display: none;' : ''}"
                          aria-hidden="true">

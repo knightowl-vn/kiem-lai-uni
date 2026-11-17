@@ -2,10 +2,12 @@ package com.universe.screen.application.usecase;
 
 import com.universe.screen.application.dto.PublicScreenCatalogItemDTO;
 import com.universe.screen.application.dto.PublicScreenCatalogPageDTO;
+import com.universe.screen.application.ports.ScreenCatalogImageDeliveryPort;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenTitleRepositoryPort;
 import com.universe.screen.domain.ScreenStructure;
 import com.universe.screen.domain.ScreenTitle;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +24,8 @@ import java.util.UUID;
  *   <li>Only {@link com.universe.screen.domain.ScreenPublicationStatus#PUBLISHED} titles are queried;</li>
  *   <li>Deterministic ordering by {@code publishedAt DESC, id ASC};</li>
  *   <li>Safe pagination boundaries (page >= 0, size bounded);</li>
- *   <li>Safe mapping to public card DTOs with no internal persistence or storage exposure.</li>
+ *   <li>Safe mapping to public card DTOs with no internal persistence or storage exposure;</li>
+ *   <li>Page-scoped batch image resolution for poster delivery, issuing at most 1 batch resolution request per page.</li>
  * </ul>
  */
 @Service
@@ -34,13 +37,24 @@ public class GetPublicScreenCatalogUseCase {
 
     private final ScreenTitleRepositoryPort titleRepositoryPort;
     private final ScreenEntryRepositoryPort entryRepositoryPort;
+    private final ScreenCatalogImageDeliveryPort catalogImageDeliveryPort;
 
     public GetPublicScreenCatalogUseCase(
             ScreenTitleRepositoryPort titleRepositoryPort,
             ScreenEntryRepositoryPort entryRepositoryPort
     ) {
+        this(titleRepositoryPort, entryRepositoryPort, (assetIds, targetWidth, fallbackToSource) -> Map.of());
+    }
+
+    @Autowired
+    public GetPublicScreenCatalogUseCase(
+            ScreenTitleRepositoryPort titleRepositoryPort,
+            ScreenEntryRepositoryPort entryRepositoryPort,
+            ScreenCatalogImageDeliveryPort catalogImageDeliveryPort
+    ) {
         this.titleRepositoryPort = Objects.requireNonNull(titleRepositoryPort, "ScreenTitleRepositoryPort cannot be null.");
         this.entryRepositoryPort = Objects.requireNonNull(entryRepositoryPort, "ScreenEntryRepositoryPort cannot be null.");
+        this.catalogImageDeliveryPort = Objects.requireNonNull(catalogImageDeliveryPort, "ScreenCatalogImageDeliveryPort cannot be null.");
     }
 
     public PublicScreenCatalogPageDTO execute(int page, int size) {
@@ -58,11 +72,27 @@ public class GetPublicScreenCatalogUseCase {
                 ? Map.of()
                 : entryRepositoryPort.findLatestPublishedEpisodeNumbersByTitleIds(seriesTitleIds);
 
+        List<UUID> posterAssetIds = result.items().stream()
+                .map(ScreenTitle::getPosterMediaAssetId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<UUID, String> directPosterUrls = posterAssetIds.isEmpty()
+                ? Map.of()
+                : Objects.requireNonNullElse(
+                        catalogImageDeliveryPort.resolvePublicImageUrls(posterAssetIds, 300, true),
+                        Map.of()
+                );
+
         List<PublicScreenCatalogItemDTO> items = result.items().stream()
                 .map(title -> toItemDTO(
                         title,
                         title.getStructure() == ScreenStructure.SERIES
                                 ? latestEpisodes.get(title.getId())
+                                : null,
+                        title.getPosterMediaAssetId() != null
+                                ? directPosterUrls.get(title.getPosterMediaAssetId())
                                 : null
                 ))
                 .toList();
@@ -81,7 +111,11 @@ public class GetPublicScreenCatalogUseCase {
         );
     }
 
-    private static PublicScreenCatalogItemDTO toItemDTO(ScreenTitle title, Integer latestPublishedEpisodeNumber) {
+    private static PublicScreenCatalogItemDTO toItemDTO(
+            ScreenTitle title,
+            Integer latestPublishedEpisodeNumber,
+            String directPosterUrl
+    ) {
         return new PublicScreenCatalogItemDTO(
                 title.getSlug(),
                 title.getTitle(),
@@ -92,7 +126,8 @@ public class GetPublicScreenCatalogUseCase {
                 title.getPosterMediaAssetId(),
                 title.getPublishedAt(),
                 latestPublishedEpisodeNumber,
-                title.getTotalEpisodeCount()
+                title.getTotalEpisodeCount(),
+                directPosterUrl
         );
     }
 }
