@@ -23,8 +23,10 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.entry.shared.CommentReactionEnrichmentService.ReactionEnrichmentResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreKnownRootsResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreSingleThreadResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.KnownRootsSelection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -419,6 +421,65 @@ class DiscussionCoreReadTransactionIntegrationTest {
         assertThat(maxConcurrentConnections.get()).isEqualTo(1);
         assertThat(coreReadOnlyFlags).containsOnly(true);
         assertThat(coreTxNames).hasSize(5);
+        assertThat(coreTxNames.stream().distinct().count()).isEqualTo(1);
+        verify(reactionConnection, times(1)).commit();
+        verify(reactionConnection, times(1)).close();
+    }
+
+    @Test
+    @DisplayName("Shared known-roots core executes resolver, batch threads, and identity in 1 RO TX and closes before Reaction TX")
+    void sharedKnownRootsCoreCommitsAndClosesBeforeReactionStarts() throws SQLException {
+        CommentTarget target = CommentTarget.novelChapter(TARGET_ID);
+        Comment root = Comment.createRoot(ROOT_ID, target, AUTHOR_ID, "Known block root", NOW);
+        List<String> coreTxNames = new ArrayList<>();
+        List<Boolean> coreReadOnlyFlags = new ArrayList<>();
+
+        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenAnswer(inv -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            coreReadOnlyFlags.add(TransactionSynchronizationManager.isCurrentTransactionReadOnly());
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return List.of(root);
+        });
+        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
+        when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID))).thenAnswer(inv -> {
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author", null, "author"));
+        });
+
+        CoreKnownRootsResult<String> knownRootsResult = coreReadService.readKnownRootsCore(
+                target,
+                () -> {
+                    assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+                    coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+                },
+                () -> {
+                    assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+                    coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+                    return new KnownRootsSelection<>(List.of(ROOT_ID), "block-ctx");
+                }
+        );
+
+        assertThat(knownRootsResult.contextAttachment()).isEqualTo("block-ctx");
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        assertThat(activeConnections.get()).isZero();
+        verify(coreConnection, times(1)).commit();
+        verify(coreConnection, times(1)).close();
+
+        when(reactionRepositoryPort.countReactionsByTargetIdsGroupedByType(ReactionTargetType.COMMENT, Set.of(ROOT_ID)))
+                .thenReturn(Map.of(ROOT_ID, Map.of(ReactionType.FIRE, 3L)));
+
+        ReactionEnrichmentResult reactionResult = reactionEnrichmentService.loadCommentReactionSummaries(
+                "shared known roots test",
+                knownRootsResult.participants().activeCommentIds(),
+                null,
+                false
+        );
+
+        assertThat(reactionResult.failed()).isFalse();
+        assertThat(reactionResult.summariesByCommentId().get(ROOT_ID).totalCount()).isEqualTo(3L);
+        assertThat(maxConcurrentConnections.get()).isEqualTo(1);
+        assertThat(coreReadOnlyFlags).containsOnly(true);
+        assertThat(coreTxNames).hasSize(4);
         assertThat(coreTxNames.stream().distinct().count()).isEqualTo(1);
         verify(reactionConnection, times(1)).commit();
         verify(reactionConnection, times(1)).close();

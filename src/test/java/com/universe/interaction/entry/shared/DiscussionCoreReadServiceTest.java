@@ -16,8 +16,10 @@ import com.universe.interaction.application.query.ValidateCommentTargetScopeUseC
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreKnownRootsResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreSingleThreadResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.KnownRootsSelection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -225,5 +227,115 @@ class DiscussionCoreReadServiceTest {
 
         verify(getCommentThreadUseCase, never()).execute(any());
         verify(userIdentityContract, never()).findPublicProfilesByIds(any());
+    }
+
+    @Test
+    @DisplayName("Surviving-roots attachment loader runs only for surviving roots after concurrent delete filtering")
+    void shouldLoadPostThreadsAttachmentOnlyForSurvivingRoots() {
+        CommentTarget target = CommentTarget.novelChapter(TARGET_ID);
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1", NOW);
+        Comment root2 = Comment.createRoot(ROOT_2_ID, target, AUTHOR_1_ID, "Root 2", NOW.plusSeconds(1));
+        CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
+        CommentReadItem root2Item = CommentReadItem.fromRoot(root2);
+
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
+                .thenReturn(new CommentReadSlice(List.of(root1Item, root2Item), 0, 20, false));
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID, ROOT_2_ID)))
+                .thenReturn(List.of(new CommentThreadView(root1Item, List.of())));
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+
+        AtomicBoolean receivedExpectedSurvivingRoots = new AtomicBoolean(false);
+        CoreThreadedFeedResult<String> result = service.readThreadedFeedForSurvivingRoots(
+                target,
+                0,
+                20,
+                CommentSortMode.FEATURED,
+                false,
+                true,
+                () -> {},
+                survivingRootIds -> {
+                    receivedExpectedSurvivingRoots.set(survivingRootIds.equals(List.of(ROOT_1_ID)));
+                    return "anchors-for-" + survivingRootIds.size();
+                }
+        );
+
+        assertThat(receivedExpectedSurvivingRoots.get()).isTrue();
+        assertThat(result.contextAttachment()).isEqualTo("anchors-for-1");
+        assertThat(result.survivingRootIds()).containsExactly(ROOT_1_ID);
+
+        // When all roots disappear concurrently, survivingRootsAttachmentLoader is not called
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID, ROOT_2_ID)))
+                .thenReturn(List.of());
+        AtomicBoolean calledOnAllDeleted = new AtomicBoolean(false);
+        CoreThreadedFeedResult<String> emptyResult = service.readThreadedFeedForSurvivingRoots(
+                target,
+                0,
+                20,
+                CommentSortMode.FEATURED,
+                false,
+                false,
+                () -> {},
+                ids -> {
+                    calledOnAllDeleted.set(true);
+                    return "should-not-run";
+                }
+        );
+        assertThat(calledOnAllDeleted.get()).isFalse();
+        assertThat(emptyResult.contextAttachment()).isNull();
+        assertThat(emptyResult.survivingRootIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Known-roots core skips threads and identity when rootIds are empty, and returns immutable snapshots when populated")
+    void shouldReadKnownRootsCoreSafely() {
+        CommentTarget target = CommentTarget.novelChapter(TARGET_ID);
+
+        // 1. Empty root selection preserves attachment without calling Interaction/Identity
+        CoreKnownRootsResult<String> emptyResult = service.readKnownRootsCore(
+                target,
+                () -> {},
+                () -> new KnownRootsSelection<>(List.of(), "empty-block-meta")
+        );
+        assertThat(emptyResult.contextAttachment()).isEqualTo("empty-block-meta");
+        assertThat(emptyResult.threadViews()).isEmpty();
+        verify(getCommentThreadsByRootIdsUseCase, never()).execute(any(), any());
+        verify(userIdentityContract, never()).findPublicProfilesByIds(any());
+
+        // 2. Eligibility gate fails closed before rootsResolver
+        AtomicBoolean resolverCalled = new AtomicBoolean(false);
+        assertThatThrownBy(() -> service.readKnownRootsCore(
+                target,
+                () -> {
+                    throw new CommentTargetNotEligibleException(target);
+                },
+                () -> {
+                    resolverCalled.set(true);
+                    return new KnownRootsSelection<>(List.of(ROOT_1_ID), "unreachable");
+                }
+        )).isInstanceOf(CommentTargetNotEligibleException.class);
+        assertThat(resolverCalled.get()).isFalse();
+
+        // 3. Populated known roots hydrate threads and authors defensively
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Known root", NOW);
+        CommentThreadView threadView = new CommentThreadView(CommentReadItem.fromRoot(root1), List.of());
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                .thenReturn(List.of(threadView));
+        Map<UUID, UserPublicProfileDTO> mutableProfiles = new HashMap<>();
+        mutableProfiles.put(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"));
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID))).thenReturn(mutableProfiles);
+
+        CoreKnownRootsResult<String> populated = service.readKnownRootsCore(
+                target,
+                () -> {},
+                () -> new KnownRootsSelection<>(List.of(ROOT_1_ID), "populated-block-meta")
+        );
+        assertThat(populated.contextAttachment()).isEqualTo("populated-block-meta");
+        assertThat(populated.threadViews()).containsExactly(threadView);
+        assertThat(populated.participants().activeCommentIds()).containsExactly(ROOT_1_ID);
+        mutableProfiles.clear();
+        assertThat(populated.authorsMap()).containsKey(AUTHOR_1_ID);
+        assertThatThrownBy(() -> populated.authorsMap().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> populated.threadViews().clear()).isInstanceOf(UnsupportedOperationException.class);
     }
 }

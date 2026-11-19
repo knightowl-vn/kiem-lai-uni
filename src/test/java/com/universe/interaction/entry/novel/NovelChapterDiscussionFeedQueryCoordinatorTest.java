@@ -16,15 +16,26 @@ import com.universe.interaction.application.query.GetBatchReactionSummariesUseCa
 import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
+import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService.ReactionEnrichmentResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreStageTimings;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
+import com.universe.interaction.entry.shared.DiscussionParticipants;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsByRootIdsUseCase;
 import com.universe.novel.application.anchor.ResolvedChapterCommentAnchorView;
 import com.universe.novel.domain.anchor.ChapterCommentAnchorResolutionStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.QueryTimeoutException;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -36,6 +47,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -476,5 +488,89 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         assertThat(degradedFeed.items()).hasSize(1);
         assertThat(degradedFeed.items().get(0).reactionSummary()).isNull();
         assertThat(degradedFeed.items().get(0).replies().get(0).reactionSummary()).isNull();
+    }
+
+    @Nested
+    @DisplayName("Shared core delegation contracts")
+    class SharedCoreDelegationTests {
+
+        @Test
+        @DisplayName("Primary constructor invokes shared Phase A feed read strictly before Phase B Reaction enrichment")
+        void shouldInvokeSharedCoreStrictlyBeforeReactionEnrichment() {
+            DiscussionCoreReadService mockCore = Mockito.mock(DiscussionCoreReadService.class);
+            CommentReactionEnrichmentService mockReact = Mockito.mock(CommentReactionEnrichmentService.class);
+            NovelChapterDiscussionFeedQueryCoordinator primary = new NovelChapterDiscussionFeedQueryCoordinator(
+                    mockCore, mockReact, resolveChapterCommentAnchorsByRootIdsUseCase
+            );
+
+            CommentTarget target = CommentTarget.novelChapter(CHAPTER_ID);
+            CommentReadItem root1 = new CommentReadItem(ROOT_1_ID, AUTHOR_1_ID, null, null, "Root 1", false, T1, T2);
+            CommentThreadView tv1 = new CommentThreadView(root1, List.of());
+            ResolvedChapterCommentAnchorView anchor1 = new ResolvedChapterCommentAnchorView(
+                    ROOT_1_ID,
+                    ChapterCommentAnchorResolutionStatus.CURRENT,
+                    "blk-1",
+                    "Đây là đoạn văn bản nguồn khá ngắn."
+            );
+
+            CoreThreadedFeedResult<Map<UUID, ResolvedChapterCommentAnchorView>> coreResult = new CoreThreadedFeedResult<>(
+                    0,
+                    0,
+                    0,
+                    20,
+                    false,
+                    1,
+                    Map.of(ROOT_1_ID, anchor1),
+                    List.of(ROOT_1_ID),
+                    Map.of(ROOT_1_ID, tv1),
+                    new DiscussionParticipants(Set.of(AUTHOR_1_ID), List.of(ROOT_1_ID)),
+                    Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")),
+                    CoreStageTimings.ZERO
+            );
+
+            when(mockCore.<Map<UUID, ResolvedChapterCommentAnchorView>>readThreadedFeedForSurvivingRoots(
+                    eq(target), eq(0), eq(20), eq(CommentSortMode.NEWEST), eq(false), eq(false), any(), any()
+            )).thenReturn(coreResult);
+            when(mockReact.loadCommentReactionSummaries("chapter discussion feed", List.of(ROOT_1_ID), AUTHOR_2_ID, false))
+                    .thenReturn(new ReactionEnrichmentResult(
+                            Map.of(ROOT_1_ID, new ReactionSummaryResponseDTO("COMMENT", ROOT_1_ID, Map.of("LOVE", 2L), 2L, "LOVE")),
+                            false,
+                            0L
+                    ));
+
+            ChapterDiscussionFeedResponseDTO feed = primary.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_2_ID, CommentSortMode.NEWEST);
+
+            assertThat(feed.items()).hasSize(1);
+            ChapterDiscussionFeedItemDTO item = feed.items().get(0);
+            assertThat(item.rootCommentId()).isEqualTo(ROOT_1_ID);
+            assertThat(item.edited()).isTrue();
+            assertThat(item.anchorStatus()).isEqualTo("CURRENT");
+            assertThat(item.blockKey()).isEqualTo("blk-1");
+            assertThat(item.reactionSummary()).isNotNull();
+            assertThat(item.reactionSummary().currentUserReaction()).isEqualTo("LOVE");
+
+            InOrder order = Mockito.inOrder(mockCore, mockReact);
+            order.verify(mockCore).readThreadedFeedForSurvivingRoots(
+                    eq(target), eq(0), eq(20), eq(CommentSortMode.NEWEST), eq(false), eq(false), any(), any()
+            );
+            order.verify(mockReact).loadCommentReactionSummaries("chapter discussion feed", List.of(ROOT_1_ID), AUTHOR_2_ID, false);
+        }
+
+        @Test
+        @DisplayName("Core timeout propagates cleanly without calling Reaction enrichment")
+        void shouldPropagateCoreFailureWithoutCallingReactionEnrichment() {
+            DiscussionCoreReadService mockCore = Mockito.mock(DiscussionCoreReadService.class);
+            CommentReactionEnrichmentService mockReact = Mockito.mock(CommentReactionEnrichmentService.class);
+            NovelChapterDiscussionFeedQueryCoordinator primary = new NovelChapterDiscussionFeedQueryCoordinator(
+                    mockCore, mockReact, resolveChapterCommentAnchorsByRootIdsUseCase
+            );
+
+            when(mockCore.readThreadedFeedForSurvivingRoots(any(), any(int.class), any(int.class), any(), any(boolean.class), any(boolean.class), any(), any()))
+                    .thenThrow(new QueryTimeoutException("Core slice query timed out"));
+
+            assertThatThrownBy(() -> primary.getDiscussionFeed(CHAPTER_ID, 0, 20, null, CommentSortMode.FEATURED))
+                    .isInstanceOf(QueryTimeoutException.class);
+            verify(mockReact, never()).loadCommentReactionSummaries(any(), any(), any(), any(boolean.class));
+        }
     }
 }

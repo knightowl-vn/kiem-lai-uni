@@ -82,6 +82,29 @@ public record DiscussionParticipants(
         return new DiscussionParticipants(authorUserIds, activeCommentIds);
     }
 
+    /**
+     * Collects active author user IDs and active comment IDs across an ordered list of visible threads.
+     *
+     * @param threadViews ordered visible thread views (may be null or empty)
+     * @return immutable {@link DiscussionParticipants} snapshot
+     */
+    public static DiscussionParticipants collectForThreads(List<CommentThreadView> threadViews) {
+        if (threadViews == null || threadViews.isEmpty()) {
+            return EMPTY;
+        }
+
+        Set<UUID> authorUserIds = new LinkedHashSet<>();
+        List<UUID> activeCommentIds = new ArrayList<>();
+        for (CommentThreadView threadView : threadViews) {
+            appendThreadParticipants(threadView, authorUserIds, activeCommentIds);
+        }
+
+        if (authorUserIds.isEmpty() && activeCommentIds.isEmpty()) {
+            return EMPTY;
+        }
+        return new DiscussionParticipants(authorUserIds, activeCommentIds);
+    }
+
     private static void appendThreadParticipants(
             CommentThreadView threadView,
             Set<UUID> authorUserIds,

@@ -83,4 +83,32 @@ class DiscussionParticipantsTest {
         assertThat(single.authorUserIds()).containsExactly(AUTHOR_1_ID);
         assertThat(single.activeCommentIds()).containsExactly(ROOT_1_ID);
     }
+
+    @Test
+    @DisplayName("Thread-list collector preserves thread/reply order, excludes tombstones, and handles empty/null")
+    void shouldCollectForThreadsInOrderExcludingTombstonesAndNulls() {
+        assertThat(DiscussionParticipants.collectForThreads(null)).isEqualTo(DiscussionParticipants.EMPTY);
+        assertThat(DiscussionParticipants.collectForThreads(List.of())).isEqualTo(DiscussionParticipants.EMPTY);
+
+        CommentTarget target = CommentTarget.novelChapter(TARGET_ID);
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1", NOW);
+        Comment root2 = Comment.createRoot(ROOT_2_ID, target, AUTHOR_2_ID, "Root 2", NOW.plusSeconds(1));
+        Comment reply1 = Comment.createReply(REPLY_1_ID, root1, AUTHOR_2_ID, "Reply 1", NOW.plusSeconds(2));
+        Comment tombstoneReply = Comment.createReply(TOMBSTONE_REPLY_ID, root1, TOMBSTONE_AUTHOR_ID, "Deleted", NOW.plusSeconds(3));
+        tombstoneReply.delete(NOW.plusSeconds(4));
+
+        CommentThreadView tv1 = new CommentThreadView(
+                CommentReadItem.fromRoot(root1),
+                List.of(CommentReadItem.fromTombstoneReply(tombstoneReply, AUTHOR_1_ID), CommentReadItem.fromActiveReply(reply1, AUTHOR_1_ID))
+        );
+        CommentThreadView tv2 = new CommentThreadView(CommentReadItem.fromRoot(root2), List.of());
+
+        DiscussionParticipants result = DiscussionParticipants.collectForThreads(java.util.Arrays.asList(tv1, null, tv2));
+        assertThat(result.authorUserIds())
+                .containsExactlyInAnyOrder(AUTHOR_1_ID, AUTHOR_2_ID)
+                .doesNotContain(TOMBSTONE_AUTHOR_ID);
+        assertThat(result.activeCommentIds())
+                .containsExactly(ROOT_1_ID, REPLY_1_ID, ROOT_2_ID)
+                .doesNotContain(TOMBSTONE_REPLY_ID);
+    }
 }

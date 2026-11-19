@@ -83,6 +83,29 @@ public class DiscussionCoreReadService {
         );
     }
 
+    private DiscussionCoreReadService(
+            GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
+            ListCommentRootsUseCase listCommentRootsUseCase,
+            GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
+            ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
+            GetCommentThreadUseCase getCommentThreadUseCase,
+            UserIdentityContract userIdentityContract,
+            boolean internalMarker
+    ) {
+        this.getCommentTargetMetricsUseCase = getCommentTargetMetricsUseCase;
+        this.listCommentRootsUseCase = listCommentRootsUseCase;
+        this.getCommentThreadsByRootIdsUseCase = Objects.requireNonNull(
+                getCommentThreadsByRootIdsUseCase,
+                "GetCommentThreadsByRootIdsUseCase cannot be null."
+        );
+        this.validateCommentTargetScopeUseCase = validateCommentTargetScopeUseCase;
+        this.getCommentThreadUseCase = getCommentThreadUseCase;
+        this.userIdentityContract = Objects.requireNonNull(
+                userIdentityContract,
+                "UserIdentityContract cannot be null."
+        );
+    }
+
     /**
      * Compatibility constructor for feed-only unit tests that do not exercise single-thread reads.
      */
@@ -92,23 +115,51 @@ public class DiscussionCoreReadService {
             GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
             UserIdentityContract userIdentityContract
     ) {
-        this.getCommentTargetMetricsUseCase = Objects.requireNonNull(
-                getCommentTargetMetricsUseCase,
-                "GetCommentTargetMetricsUseCase cannot be null."
-        );
-        this.listCommentRootsUseCase = Objects.requireNonNull(
-                listCommentRootsUseCase,
-                "ListCommentRootsUseCase cannot be null."
-        );
-        this.getCommentThreadsByRootIdsUseCase = Objects.requireNonNull(
+        this(
+                Objects.requireNonNull(getCommentTargetMetricsUseCase, "GetCommentTargetMetricsUseCase cannot be null."),
+                Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null."),
                 getCommentThreadsByRootIdsUseCase,
-                "GetCommentThreadsByRootIdsUseCase cannot be null."
-        );
-        this.validateCommentTargetScopeUseCase = null;
-        this.getCommentThreadUseCase = null;
-        this.userIdentityContract = Objects.requireNonNull(
+                null,
+                null,
                 userIdentityContract,
-                "UserIdentityContract cannot be null."
+                true
+        );
+    }
+
+    /**
+     * Compatibility factory for unit tests exercising feed coordinators with {@code includeMetrics = false}.
+     */
+    public static DiscussionCoreReadService forSliceReadWithoutMetrics(
+            ListCommentRootsUseCase listCommentRootsUseCase,
+            GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
+            UserIdentityContract userIdentityContract
+    ) {
+        return new DiscussionCoreReadService(
+                null,
+                Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null."),
+                getCommentThreadsByRootIdsUseCase,
+                null,
+                null,
+                userIdentityContract,
+                true
+        );
+    }
+
+    /**
+     * Compatibility factory for unit tests exercising known-root coordinators.
+     */
+    public static DiscussionCoreReadService forKnownRootsRead(
+            GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
+            UserIdentityContract userIdentityContract
+    ) {
+        return new DiscussionCoreReadService(
+                null,
+                null,
+                getCommentThreadsByRootIdsUseCase,
+                null,
+                null,
+                userIdentityContract,
+                true
         );
     }
 
@@ -171,6 +222,69 @@ public class DiscussionCoreReadService {
             TargetEligibilityGate eligibilityGate,
             ContextAttachmentLoader<T> attachmentLoader
     ) {
+        return executeThreadedFeedRead(
+                target,
+                page,
+                size,
+                sortMode,
+                includeMetrics,
+                diagnosticEnabled,
+                eligibilityGate,
+                attachmentLoader,
+                null
+        );
+    }
+
+    /**
+     * Executes mandatory Phase A core discussion feed reads inside one read-only transaction,
+     * including a local read-only attachment lookup invoked only with surviving root IDs
+     * after concurrent-delete thread reconciliation.
+     *
+     * @param target interaction comment target
+     * @param page zero-based page index
+     * @param size positive page size
+     * @param sortMode comment sort mode (defaults to {@link CommentSortMode#FEATURED} when null)
+     * @param includeMetrics whether to query {@link GetCommentTargetMetricsUseCase}
+     * @param diagnosticEnabled whether to record monotonic per-stage timings
+     * @param eligibilityGate fail-closed module target eligibility check
+     * @param survivingRootsAttachmentLoader optional local read-only lookup executed only when surviving roots are non-empty
+     * @param <T> immutable attachment snapshot type
+     * @return immutable {@link CoreThreadedFeedResult}
+     */
+    public <T> CoreThreadedFeedResult<T> readThreadedFeedForSurvivingRoots(
+            CommentTarget target,
+            int page,
+            int size,
+            CommentSortMode sortMode,
+            boolean includeMetrics,
+            boolean diagnosticEnabled,
+            TargetEligibilityGate eligibilityGate,
+            SurvivingRootsAttachmentLoader<T> survivingRootsAttachmentLoader
+    ) {
+        return executeThreadedFeedRead(
+                target,
+                page,
+                size,
+                sortMode,
+                includeMetrics,
+                diagnosticEnabled,
+                eligibilityGate,
+                null,
+                survivingRootsAttachmentLoader
+        );
+    }
+
+    private <T> CoreThreadedFeedResult<T> executeThreadedFeedRead(
+            CommentTarget target,
+            int page,
+            int size,
+            CommentSortMode sortMode,
+            boolean includeMetrics,
+            boolean diagnosticEnabled,
+            TargetEligibilityGate eligibilityGate,
+            ContextAttachmentLoader<T> preThreadsAttachmentLoader,
+            SurvivingRootsAttachmentLoader<T> postThreadsAttachmentLoader
+    ) {
         if (target == null) {
             throw new IllegalArgumentException("target cannot be null");
         }
@@ -181,6 +295,12 @@ public class DiscussionCoreReadService {
             throw new IllegalArgumentException("size must be greater than zero: " + size);
         }
         Objects.requireNonNull(eligibilityGate, "eligibilityGate cannot be null");
+        if (listCommentRootsUseCase == null) {
+            throw new IllegalStateException("ListCommentRootsUseCase is required for threaded feed reads.");
+        }
+        if (includeMetrics && getCommentTargetMetricsUseCase == null) {
+            throw new IllegalStateException("GetCommentTargetMetricsUseCase is required when includeMetrics is true.");
+        }
 
         CommentSortMode effectiveSortMode = (sortMode != null) ? sortMode : CommentSortMode.FEATURED;
         long t0 = diagnosticEnabled ? System.nanoTime() : 0L;
@@ -230,11 +350,13 @@ public class DiscussionCoreReadService {
         List<CommentReadItem> roots = rootSlice.items();
         List<UUID> rootIds = roots.stream().map(CommentReadItem::id).toList();
 
-        // 4. Optional local module metadata attachment (skipped when root slice is empty)
-        T contextAttachment = (attachmentLoader != null) ? attachmentLoader.load() : null;
-        long tAttachmentEnd = diagnosticEnabled ? System.nanoTime() : 0L;
+        // 4. Optional pre-thread local module metadata attachment (skipped when root slice is empty)
+        long tPreAttachStart = diagnosticEnabled ? System.nanoTime() : 0L;
+        T contextAttachment = (preThreadsAttachmentLoader != null) ? preThreadsAttachmentLoader.load() : null;
+        long tPreAttachEnd = diagnosticEnabled ? System.nanoTime() : 0L;
 
         // 5. Batch retrieve visible threads for all roots in this slice
+        long tThreadsStart = diagnosticEnabled ? System.nanoTime() : 0L;
         List<CommentThreadView> threadViews = getCommentThreadsByRootIdsUseCase.execute(target, rootIds);
         long tThreadsEnd = diagnosticEnabled ? System.nanoTime() : 0L;
         Map<UUID, CommentThreadView> threadViewsByRootId = threadViews.stream()
@@ -256,8 +378,8 @@ public class DiscussionCoreReadService {
                     tEligibilityEnd - t0,
                     tMetricsEnd - tEligibilityEnd,
                     tSliceEnd - tMetricsEnd,
-                    tAttachmentEnd - tSliceEnd,
-                    tThreadsEnd - tAttachmentEnd,
+                    tPreAttachEnd - tPreAttachStart,
+                    tThreadsEnd - tThreadsStart,
                     tEnd - tThreadsEnd,
                     0L
             )
@@ -278,24 +400,33 @@ public class DiscussionCoreReadService {
             );
         }
 
-        // 7. Active participant & comment ID collection (excluding tombstones)
+        // 7. Optional post-thread attachment resolved strictly for surviving roots
+        long tPostAttachStart = diagnosticEnabled ? System.nanoTime() : 0L;
+        if (postThreadsAttachmentLoader != null) {
+            contextAttachment = postThreadsAttachmentLoader.load(survivingRootIds);
+        }
+        long tPostAttachEnd = diagnosticEnabled ? System.nanoTime() : 0L;
+
+        // 8. Active participant & comment ID collection (excluding tombstones)
+        long tCollectStart = diagnosticEnabled ? System.nanoTime() : 0L;
         DiscussionParticipants participants = DiscussionParticipants.collect(survivingRootIds, threadViewsByRootId);
         long tCollectEnd = diagnosticEnabled ? System.nanoTime() : 0L;
 
-        // 8. Batch Identity public profile lookup
+        // 9. Batch Identity public profile lookup
         Map<UUID, UserPublicProfileDTO> authorsMap = participants.authorUserIds().isEmpty()
                 ? Map.of()
                 : userIdentityContract.findPublicProfilesByIds(participants.authorUserIds());
         long tIdentityEnd = diagnosticEnabled ? System.nanoTime() : 0L;
 
+        long contextAttachmentNanos = (tPreAttachEnd - tPreAttachStart) + (tPostAttachEnd - tPostAttachStart);
         CoreStageTimings timings = diagnosticEnabled
                 ? new CoreStageTimings(
                 tEligibilityEnd - t0,
                 tMetricsEnd - tEligibilityEnd,
                 tSliceEnd - tMetricsEnd,
-                tAttachmentEnd - tSliceEnd,
-                tThreadsEnd - tAttachmentEnd,
-                tCollectEnd - tThreadsEnd,
+                contextAttachmentNanos,
+                tThreadsEnd - tThreadsStart,
+                tCollectEnd - tCollectStart,
                 tIdentityEnd - tCollectEnd
         )
                 : CoreStageTimings.ZERO;
@@ -378,6 +509,74 @@ public class DiscussionCoreReadService {
     }
 
     /**
+     * Executes mandatory Phase A known-root discussion reads (eligibility gate, module-local known-root
+     * selection, batched visible thread retrieval, active participant collection, and batched author
+     * lookup) inside one read-only transaction.
+     *
+     * @param target interaction comment target
+     * @param eligibilityGate fail-closed module target eligibility check
+     * @param rootsResolver module-local read-only callback resolving ordered root comment IDs and metadata
+     * @param <T> immutable context attachment snapshot type
+     * @return immutable {@link CoreKnownRootsResult}
+     */
+    public <T> CoreKnownRootsResult<T> readKnownRootsCore(
+            CommentTarget target,
+            TargetEligibilityGate eligibilityGate,
+            KnownRootsResolver<T> rootsResolver
+    ) {
+        if (target == null) {
+            throw new IllegalArgumentException("target cannot be null");
+        }
+        Objects.requireNonNull(eligibilityGate, "eligibilityGate cannot be null");
+        Objects.requireNonNull(rootsResolver, "rootsResolver cannot be null");
+
+        // 1. Fail-closed target eligibility check
+        eligibilityGate.verifyEligible();
+
+        // 2. Module-local known-root selection and attachment resolution
+        KnownRootsSelection<T> selection = Objects.requireNonNull(
+                rootsResolver.resolve(),
+                "rootsResolver returned null selection"
+        );
+        List<UUID> rootIds = selection.rootIds();
+        if (rootIds.isEmpty()) {
+            return new CoreKnownRootsResult<>(
+                    selection.contextAttachment(),
+                    List.of(),
+                    DiscussionParticipants.EMPTY,
+                    Map.of()
+            );
+        }
+
+        // 3. Batch retrieve visible threads for resolved root IDs
+        List<CommentThreadView> rawThreads = getCommentThreadsByRootIdsUseCase.execute(target, rootIds);
+        List<CommentThreadView> threadViews = (rawThreads == null) ? List.of() : List.copyOf(rawThreads);
+        if (threadViews.isEmpty()) {
+            return new CoreKnownRootsResult<>(
+                    selection.contextAttachment(),
+                    List.of(),
+                    DiscussionParticipants.EMPTY,
+                    Map.of()
+            );
+        }
+
+        // 4. Active participant & comment ID collection (excluding tombstones)
+        DiscussionParticipants participants = DiscussionParticipants.collectForThreads(threadViews);
+
+        // 5. Batch Identity public profile lookup
+        Map<UUID, UserPublicProfileDTO> authorsMap = participants.authorUserIds().isEmpty()
+                ? Map.of()
+                : userIdentityContract.findPublicProfilesByIds(participants.authorUserIds());
+
+        return new CoreKnownRootsResult<>(
+                selection.contextAttachment(),
+                threadViews,
+                participants,
+                authorsMap != null ? authorsMap : Map.of()
+        );
+    }
+
+    /**
      * Immutable detached result of a Phase A single-thread read.
      */
     public record CoreSingleThreadResult<T>(
@@ -388,6 +587,36 @@ public class DiscussionCoreReadService {
     ) {
         public CoreSingleThreadResult {
             Objects.requireNonNull(threadView, "threadView cannot be null");
+            participants = participants == null ? DiscussionParticipants.EMPTY : participants;
+            authorsMap = (authorsMap == null || authorsMap.isEmpty())
+                    ? Map.of()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(authorsMap));
+        }
+    }
+
+    /**
+     * Module-local selection of known root comment IDs plus detached context metadata.
+     */
+    public record KnownRootsSelection<T>(
+            List<UUID> rootIds,
+            T contextAttachment
+    ) {
+        public KnownRootsSelection {
+            rootIds = (rootIds == null || rootIds.isEmpty()) ? List.of() : List.copyOf(rootIds);
+        }
+    }
+
+    /**
+     * Immutable detached result of a Phase A known-root discussion read.
+     */
+    public record CoreKnownRootsResult<T>(
+            T contextAttachment,
+            List<CommentThreadView> threadViews,
+            DiscussionParticipants participants,
+            Map<UUID, UserPublicProfileDTO> authorsMap
+    ) {
+        public CoreKnownRootsResult {
+            threadViews = (threadViews == null || threadViews.isEmpty()) ? List.of() : List.copyOf(threadViews);
             participants = participants == null ? DiscussionParticipants.EMPTY : participants;
             authorsMap = (authorsMap == null || authorsMap.isEmpty())
                     ? Map.of()
@@ -412,6 +641,25 @@ public class DiscussionCoreReadService {
     @FunctionalInterface
     public interface ContextAttachmentLoader<T> {
         T load();
+    }
+
+    /**
+     * Optional context metadata callback executed within Phase A's read-only transaction
+     * strictly for surviving roots after thread reconciliation. Must perform only compatible
+     * local reads and return an immutable snapshot.
+     */
+    @FunctionalInterface
+    public interface SurvivingRootsAttachmentLoader<T> {
+        T load(List<UUID> survivingRootIds);
+    }
+
+    /**
+     * Callback executed within Phase A's read-only transaction to resolve ordered known root IDs
+     * and detached module metadata. Must perform only compatible local reads.
+     */
+    @FunctionalInterface
+    public interface KnownRootsResolver<T> {
+        KnownRootsSelection<T> resolve();
     }
 
     public record CoreStageTimings(

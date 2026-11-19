@@ -1,33 +1,29 @@
 package com.universe.interaction.entry.novel;
 
-import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
-import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.domain.CommentTarget;
-import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
-import com.universe.interaction.entry.dto.CommentAuthorDTO;
-import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService.ReactionEnrichmentResult;
+import com.universe.interaction.entry.shared.CommentThreadDtoAssembler;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreKnownRootsResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.KnownRootsSelection;
 import com.universe.novel.application.anchor.ChapterBlockDiscussionAnchorView;
 import com.universe.novel.application.anchor.GetChapterBlockDiscussionAnchorsUseCase;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Cross-context composition coordinator for reading Novel block discussions.
@@ -37,37 +33,54 @@ import java.util.stream.Collectors;
  *   <li>Novel application has ZERO Interaction imports;</li>
  *   <li>Interaction application has ZERO Novel imports;</li>
  *   <li>Composition occurs cleanly at this entry layer;</li>
- *   <li>1 bulk Novel anchor resolution query + 1 bulk Interaction thread read + 1 bulk Identity author lookup + 1 bulk Interaction reaction summary read (no N+1 loop);</li>
- *   <li>Read-only operation without write transactional overhead.</li>
+ *   <li>Delegates Phase A core reads (one {@code @Transactional(readOnly = true)} transaction covering
+ *       bulk Novel block anchor resolution, bulk visible thread retrieval, participant collection, and
+ *       batched Identity profiles) to {@link DiscussionCoreReadService}, followed sequentially by Phase B
+ *       best-effort Reaction enrichment via {@link CommentReactionEnrichmentService}.</li>
  * </ul>
  */
 @Service
 public class NovelBlockDiscussionQueryCoordinator {
 
-    private static final Logger log = LoggerFactory.getLogger(NovelBlockDiscussionQueryCoordinator.class);
-
+    private final DiscussionCoreReadService discussionCoreReadService;
+    private final CommentReactionEnrichmentService commentReactionEnrichmentService;
     private final GetChapterBlockDiscussionAnchorsUseCase getChapterBlockDiscussionAnchorsUseCase;
-    private final GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
-    private final UserIdentityContract userIdentityContract;
-    private final GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
 
+    @Autowired
+    public NovelBlockDiscussionQueryCoordinator(
+            DiscussionCoreReadService discussionCoreReadService,
+            CommentReactionEnrichmentService commentReactionEnrichmentService,
+            GetChapterBlockDiscussionAnchorsUseCase getChapterBlockDiscussionAnchorsUseCase
+    ) {
+        this.discussionCoreReadService = Objects.requireNonNull(
+                discussionCoreReadService, "DiscussionCoreReadService cannot be null"
+        );
+        this.commentReactionEnrichmentService = Objects.requireNonNull(
+                commentReactionEnrichmentService, "CommentReactionEnrichmentService cannot be null"
+        );
+        this.getChapterBlockDiscussionAnchorsUseCase = Objects.requireNonNull(
+                getChapterBlockDiscussionAnchorsUseCase, "GetChapterBlockDiscussionAnchorsUseCase cannot be null"
+        );
+    }
+
+    /**
+     * Compatibility constructor for isolated unit tests instantiating the coordinator directly with mocks.
+     */
     public NovelBlockDiscussionQueryCoordinator(
             GetChapterBlockDiscussionAnchorsUseCase getChapterBlockDiscussionAnchorsUseCase,
             GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
             UserIdentityContract userIdentityContract,
             GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
     ) {
-        this.getChapterBlockDiscussionAnchorsUseCase = Objects.requireNonNull(
-                getChapterBlockDiscussionAnchorsUseCase, "GetChapterBlockDiscussionAnchorsUseCase cannot be null"
-        );
-        this.getCommentThreadsByRootIdsUseCase = Objects.requireNonNull(
-                getCommentThreadsByRootIdsUseCase, "GetCommentThreadsByRootIdsUseCase cannot be null"
-        );
-        this.userIdentityContract = Objects.requireNonNull(
-                userIdentityContract, "UserIdentityContract cannot be null"
-        );
-        this.getBatchReactionSummariesUseCase = Objects.requireNonNull(
-                getBatchReactionSummariesUseCase, "GetBatchReactionSummariesUseCase cannot be null"
+        this(
+                DiscussionCoreReadService.forKnownRootsRead(
+                        Objects.requireNonNull(getCommentThreadsByRootIdsUseCase, "GetCommentThreadsByRootIdsUseCase cannot be null"),
+                        Objects.requireNonNull(userIdentityContract, "UserIdentityContract cannot be null")
+                ),
+                new CommentReactionEnrichmentService(
+                        Objects.requireNonNull(getBatchReactionSummariesUseCase, "GetBatchReactionSummariesUseCase cannot be null")
+                ),
+                Objects.requireNonNull(getChapterBlockDiscussionAnchorsUseCase, "GetChapterBlockDiscussionAnchorsUseCase cannot be null")
         );
     }
 
@@ -100,12 +113,21 @@ public class NovelBlockDiscussionQueryCoordinator {
             throw new IllegalArgumentException("blockKey cannot be blank");
         }
 
-        // 1. Novel application query: loads current chapter snapshot, validates requested blockKey,
-        // and resolves eligible chapter anchors to root comment IDs.
-        ChapterBlockDiscussionAnchorView anchorView = getChapterBlockDiscussionAnchorsUseCase.execute(chapterId, blockKey);
+        // Phase A: Single read-only transaction covering Novel block anchors, bulk Interaction threads, and Identity profiles
+        CommentTarget target = CommentTarget.novelChapter(chapterId);
+        CoreKnownRootsResult<ChapterBlockDiscussionAnchorView> coreResult =
+                discussionCoreReadService.readKnownRootsCore(
+                        target,
+                        () -> {},
+                        () -> {
+                            ChapterBlockDiscussionAnchorView anchorView =
+                                    getChapterBlockDiscussionAnchorsUseCase.execute(chapterId, blockKey);
+                            return new KnownRootsSelection<>(anchorView.rootCommentIds(), anchorView);
+                        }
+                );
 
-        // 2. If no anchors resolved to this block, return empty threads with canonical block metadata immediately
-        if (anchorView.rootCommentIds().isEmpty()) {
+        ChapterBlockDiscussionAnchorView anchorView = coreResult.contextAttachment();
+        if (coreResult.threadViews().isEmpty()) {
             return new ChapterBlockDiscussionResponseDTO(
                     anchorView.chapterId(),
                     anchorView.contentVersion(),
@@ -117,68 +139,27 @@ public class NovelBlockDiscussionQueryCoordinator {
             );
         }
 
-        // 3. Interaction bulk visible thread read: loads visible root threads and their replies in bulk (no N+1 loop)
-        CommentTarget target = CommentTarget.novelChapter(chapterId);
-        List<CommentThreadView> threadViews = getCommentThreadsByRootIdsUseCase.execute(target, anchorView.rootCommentIds());
+        // Phase B: Sequential best-effort batch reaction lookup in an isolated transaction boundary
+        ReactionEnrichmentResult reactionResult = commentReactionEnrichmentService.loadCommentReactionSummaries(
+                "block discussion",
+                coreResult.participants().activeCommentIds(),
+                viewerUserId,
+                false
+        );
+        Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = reactionResult.summariesByCommentId();
 
-        // 4. Identity bulk author lookup + active comments collection for reactions: collect unique authorUserIds from roots and active replies (exclude tombstones)
-        Set<UUID> authorUserIds = new HashSet<>();
-        List<UUID> activeCommentIds = new ArrayList<>();
-        for (CommentThreadView thread : threadViews) {
-            if (thread.root() != null) {
-                if (!thread.root().tombstone()) {
-                    activeCommentIds.add(thread.root().id());
-                }
-                if (thread.root().authorUserId() != null) {
-                    authorUserIds.add(thread.root().authorUserId());
-                }
-            }
-            if (thread.replies() != null) {
-                for (CommentReadItem reply : thread.replies()) {
-                    if (reply != null && !reply.tombstone()) {
-                        activeCommentIds.add(reply.id());
-                        if (reply.authorUserId() != null) {
-                            authorUserIds.add(reply.authorUserId());
-                        }
-                    }
-                }
-            }
-        }
-
-        Map<UUID, UserPublicProfileDTO> authorsMap = authorUserIds.isEmpty()
-                ? Map.of()
-                : userIdentityContract.findPublicProfilesByIds(authorUserIds);
-
-        // 5. Interaction batch reaction summary lookup
-        Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = Map.of();
-        if (!activeCommentIds.isEmpty()) {
-            try {
-                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
-                        ReactionTargetType.COMMENT,
-                        activeCommentIds,
-                        viewerUserId
-                );
-                if (summaries != null && !summaries.isEmpty()) {
-                    reactionSummariesByCommentId = summaries.entrySet().stream()
-                            .filter(e -> e.getValue() != null)
-                            .collect(Collectors.toMap(
-                                    Map.Entry::getKey,
-                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
-                            ));
-                }
-            } catch (RuntimeException ex) {
-                log.warn("Failed to load reaction summaries for block discussion: chapterId={}, blockKey={}", chapterId, blockKey, ex);
-                reactionSummariesByCommentId = Map.of();
-            }
-        }
-
-        final Map<UUID, ReactionSummaryResponseDTO> finalSummaries = reactionSummariesByCommentId;
-        List<CommentThreadResponseDTO> threads = threadViews.stream()
-                .map(threadView -> toEnrichedThreadDTO(threadView, authorsMap, viewerUserId, finalSummaries))
+        List<CommentThreadResponseDTO> threads = coreResult.threadViews().stream()
+                .map(threadView -> CommentThreadDtoAssembler.toThreadDto(
+                        threadView,
+                        coreResult.authorsMap(),
+                        viewerUserId,
+                        reactionSummariesByCommentId,
+                        null
+                ))
                 .toList();
 
         int commentCount = 0;
-        for (CommentThreadView threadView : threadViews) {
+        for (CommentThreadView threadView : coreResult.threadViews()) {
             commentCount += 1;
             if (threadView.replies() != null) {
                 for (CommentReadItem reply : threadView.replies()) {
@@ -198,46 +179,5 @@ public class NovelBlockDiscussionQueryCoordinator {
                 commentCount,
                 threads
         );
-    }
-
-    private CommentThreadResponseDTO toEnrichedThreadDTO(
-            CommentThreadView threadView,
-            Map<UUID, UserPublicProfileDTO> authorsMap,
-            UUID viewerUserId,
-            Map<UUID, ReactionSummaryResponseDTO> reactionSummaries
-    ) {
-        CommentReadDTO rootDTO = toEnrichedCommentDTO(threadView.root(), authorsMap, viewerUserId, reactionSummaries);
-        List<CommentReadDTO> replyDTOs = threadView.replies().stream()
-                .map(replyItem -> toEnrichedCommentDTO(replyItem, authorsMap, viewerUserId, reactionSummaries))
-                .toList();
-        return new CommentThreadResponseDTO(rootDTO, replyDTOs);
-    }
-
-    private CommentReadDTO toEnrichedCommentDTO(
-            CommentReadItem item,
-            Map<UUID, UserPublicProfileDTO> authorsMap,
-            UUID viewerUserId,
-            Map<UUID, ReactionSummaryResponseDTO> reactionSummaries
-    ) {
-        if (item == null) {
-            return null;
-        }
-
-        if (item.tombstone()) {
-            // Tombstone replies have no author presentation to prevent identity re-introduction
-            return CommentReadDTO.from(item, viewerUserId);
-        }
-
-        UUID authorId = item.authorUserId();
-        UserPublicProfileDTO profile = authorsMap != null ? authorsMap.get(authorId) : null;
-        CommentAuthorDTO authorDTO;
-        if (profile != null) {
-            authorDTO = new CommentAuthorDTO(authorId, profile.displayName(), profile.avatarUrl(), profile.publicHandle());
-        } else {
-            authorDTO = CommentAuthorDTO.fallback(authorId);
-        }
-
-        ReactionSummaryResponseDTO reactionSummary = reactionSummaries != null ? reactionSummaries.get(item.id()) : null;
-        return CommentReadDTO.from(item, authorDTO, viewerUserId, reactionSummary);
     }
 }
