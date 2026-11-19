@@ -417,9 +417,28 @@
 }
 
 @media (max-width: 360px) {
+    .screen-catalog-container {
+        padding: 14px 10px 48px;
+    }
+
     .screen-catalog-grid {
-        grid-template-columns: minmax(0, 1fr);
-        gap: 12px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .screen-card-title {
+        font-size: 0.9rem;
+    }
+
+    .screen-card-original-title {
+        font-size: 0.8rem;
+    }
+
+    .screen-card-episode-badge {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.35rem;
+        top: 5px;
+        left: 5px;
     }
 }
 
