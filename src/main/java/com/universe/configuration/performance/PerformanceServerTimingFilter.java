@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.FilterWriter;
 import java.io.IOException;
@@ -19,6 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongSupplier;
 
 final class PerformanceServerTimingFilter extends OncePerRequestFilter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(PerformanceServerTimingFilter.class);
 
     static final String SERVER_TIMING = "Server-Timing";
 
@@ -65,7 +69,9 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
         } finally {
             if (completed) {
                 long elapsed = nanoTime.getAsLong() - started;
-                wrapped.setHeader(SERVER_TIMING, headerValue("total", elapsed, metrics.snapshot()));
+                PerformanceRequestMetrics.Snapshot snapshot = metrics.snapshot();
+                wrapped.setHeader(SERVER_TIMING, headerValue("total", elapsed, snapshot, request));
+                logDiagnostics(request, elapsed, snapshot);
                 wrapped.copyBodyToResponse();
             }
         }
@@ -82,7 +88,8 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
                 response,
                 metrics,
                 started,
-                nanoTime
+                nanoTime,
+                request
         );
         filterChain.doFilter(request, wrapped);
         if (!request.isAsyncStarted()) {
@@ -102,9 +109,13 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
             return true;
         }
 
-        return !("GET".equals(method) && (path.equals("/") || path.equals("/home"))
+        return !("GET".equals(method) && (path.equals("/")
+                || path.equals("/home")
+                || isScreenDiscussionFeedPath(path))
                 || path.equals("/novel")
                 || path.startsWith("/novel/")
+                || path.equals("/wiki")
+                || path.startsWith("/wiki/")
                 || path.equals("/api/novel/narration/voices")
                 || isPlaybackMetadataPath(path)
                 || isMediaContentPath(path));
@@ -139,17 +150,51 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
         return path.startsWith("/media/assets/") && path.endsWith("/content");
     }
 
+    private static boolean isScreenDiscussionFeedPath(String path) {
+        String prefix = "/api/screen/titles/";
+        if (!path.startsWith(prefix)) {
+            return false;
+        }
+        int nextSlash = path.indexOf('/', prefix.length());
+        if (nextSlash <= prefix.length()) {
+            return false;
+        }
+        String suffix = path.substring(nextSlash);
+        return suffix.equals("/comments") || suffix.equals("/comments/feed");
+    }
+
+    private static String diagnosticPath(HttpServletRequest request) {
+        String contextPath = request.getContextPath() != null ? request.getContextPath() : "";
+        String uri = request.getRequestURI();
+        String path = uri.startsWith(contextPath) ? uri.substring(contextPath.length()) : uri;
+        if (isScreenDiscussionFeedPath(path)) {
+            String suffix = path.endsWith("/comments/feed") ? "/comments/feed" : "/comments";
+            return contextPath + "/api/screen/titles/{titleId}" + suffix;
+        }
+        return uri;
+    }
+
     static String headerValue(
             String primaryMetric,
             long elapsedNanos,
             PerformanceRequestMetrics.Snapshot snapshot
+    ) {
+        return headerValue(primaryMetric, elapsedNanos, snapshot, null);
+    }
+
+    static String headerValue(
+            String primaryMetric,
+            long elapsedNanos,
+            PerformanceRequestMetrics.Snapshot snapshot,
+            HttpServletRequest request
     ) {
         long measuredNanos = snapshot.connectionAcquisitionNanos()
                 + snapshot.sqlExecutionNanos()
                 + snapshot.transactionControlNanos();
         long applicationNanos = Math.max(0, elapsedNanos - measuredNanos);
 
-        return String.format(
+        StringBuilder sb = new StringBuilder(128);
+        sb.append(String.format(
                 Locale.ROOT,
                 "%s;dur=%.3f, conn;dur=%.3f;desc=\"%d acquisitions\", "
                         + "sql;dur=%.3f;desc=\"%d statements\", "
@@ -163,7 +208,99 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
                 milliseconds(snapshot.transactionControlNanos()),
                 snapshot.transactionControlCount(),
                 milliseconds(applicationNanos)
-        );
+        ));
+
+        if (request != null) {
+            Object handlerDurObj = request.getAttribute(PerformanceViewTimingInterceptor.ATTR_HANDLER_DURATION);
+            Object viewDurObj = request.getAttribute(PerformanceViewTimingInterceptor.ATTR_VIEW_DURATION);
+            if (handlerDurObj instanceof Long hDur) {
+                sb.append(String.format(Locale.ROOT, ", ctrl;dur=%.3f", milliseconds(hDur)));
+            }
+            if (viewDurObj instanceof Long vDur) {
+                sb.append(String.format(Locale.ROOT, ", view_est;dur=%.3f", milliseconds(vDur)));
+            }
+        }
+
+        appendMethodTiming(sb, "tx_ac", snapshot.setAutoCommit());
+        appendMethodTiming(sb, "tx_ro", snapshot.setReadOnly());
+        appendMethodTiming(sb, "tx_iso", snapshot.setTransactionIsolation());
+        appendMethodTiming(sb, "tx_cm", snapshot.commit());
+        appendMethodTiming(sb, "tx_rb", snapshot.rollback());
+
+        return sb.toString();
+    }
+
+    private static void appendMethodTiming(
+            StringBuilder sb,
+            String metricName,
+            PerformanceRequestMetrics.MethodSnapshot methodSnapshot
+    ) {
+        if (methodSnapshot != null && methodSnapshot.count() > 0) {
+            sb.append(String.format(
+                    Locale.ROOT,
+                    ", %s;dur=%.3f;desc=\"%d calls max=%.1fms\"",
+                    metricName,
+                    milliseconds(methodSnapshot.durationNanos()),
+                    methodSnapshot.count(),
+                    milliseconds(methodSnapshot.maxDurationNanos())
+            ));
+        }
+    }
+
+    private static void logDiagnostics(
+            HttpServletRequest request,
+            long elapsedNanos,
+            PerformanceRequestMetrics.Snapshot snapshot
+    ) {
+        if (!LOGGER.isInfoEnabled() || request == null) {
+            return;
+        }
+        Object handlerDurObj = request.getAttribute(PerformanceViewTimingInterceptor.ATTR_HANDLER_DURATION);
+        Object viewDurObj = request.getAttribute(PerformanceViewTimingInterceptor.ATTR_VIEW_DURATION);
+        String path = diagnosticPath(request);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                Locale.ROOT,
+                "[PERF-DIAGNOSTIC] %s request: total=%.2fms",
+                path,
+                milliseconds(elapsedNanos)
+        ));
+        if (handlerDurObj instanceof Long hDur) {
+            sb.append(String.format(Locale.ROOT, ", ctrl=%.2fms", milliseconds(hDur)));
+        }
+        if (viewDurObj instanceof Long vDur) {
+            sb.append(String.format(Locale.ROOT, ", view_est=%.2fms", milliseconds(vDur)));
+        }
+        sb.append(String.format(
+                Locale.ROOT,
+                " | JDBC: conn=%.2fms (%d acq), sql=%.2fms (%d stmts), tx=%.2fms (%d calls [",
+                milliseconds(snapshot.connectionAcquisitionNanos()),
+                snapshot.connectionAcquisitionCount(),
+                milliseconds(snapshot.sqlExecutionNanos()),
+                snapshot.sqlStatementCount(),
+                milliseconds(snapshot.transactionControlNanos()),
+                snapshot.transactionControlCount()
+        ));
+
+        sb.append(String.format(
+                Locale.ROOT,
+                "setAutoCommit: %d (%.2fms, max=%.2fms), setReadOnly: %d (%.2fms, max=%.2fms), setTransactionIsolation: %d (%.2fms, max=%.2fms), commit: %d (%.2fms, max=%.2fms), rollback: %d (%.2fms, max=%.2fms)",
+                snapshot.setAutoCommit().count(), milliseconds(snapshot.setAutoCommit().durationNanos()), milliseconds(snapshot.setAutoCommit().maxDurationNanos()),
+                snapshot.setReadOnly().count(), milliseconds(snapshot.setReadOnly().durationNanos()), milliseconds(snapshot.setReadOnly().maxDurationNanos()),
+                snapshot.setTransactionIsolation().count(), milliseconds(snapshot.setTransactionIsolation().durationNanos()), milliseconds(snapshot.setTransactionIsolation().maxDurationNanos()),
+                snapshot.commit().count(), milliseconds(snapshot.commit().durationNanos()), milliseconds(snapshot.commit().maxDurationNanos()),
+                snapshot.rollback().count(), milliseconds(snapshot.rollback().durationNanos()), milliseconds(snapshot.rollback().maxDurationNanos())
+        ));
+        sb.append("])");
+
+        long measuredNanos = snapshot.connectionAcquisitionNanos()
+                + snapshot.sqlExecutionNanos()
+                + snapshot.transactionControlNanos();
+        long appNanos = Math.max(0, elapsedNanos - measuredNanos);
+        sb.append(String.format(Locale.ROOT, ", app_residual=%.2fms", milliseconds(appNanos)));
+
+        LOGGER.info(sb.toString());
     }
 
     private static double milliseconds(long nanos) {
@@ -175,6 +312,7 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
         private final PerformanceRequestMetrics metrics;
         private final long started;
         private final LongSupplier nanoTime;
+        private final HttpServletRequest request;
         private final AtomicBoolean published = new AtomicBoolean();
         private ServletOutputStream outputStream;
         private PrintWriter writer;
@@ -183,12 +321,14 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
                 HttpServletResponse response,
                 PerformanceRequestMetrics metrics,
                 long started,
-                LongSupplier nanoTime
+                LongSupplier nanoTime,
+                HttpServletRequest request
         ) {
             super(response);
             this.metrics = metrics;
             this.started = started;
             this.nanoTime = nanoTime;
+            this.request = request;
         }
 
         @Override
@@ -300,7 +440,9 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
         private void publish(String primaryMetric) {
             if (published.compareAndSet(false, true) && !isCommitted()) {
                 long elapsed = nanoTime.getAsLong() - started;
-                setHeader(SERVER_TIMING, headerValue(primaryMetric, elapsed, metrics.snapshot()));
+                PerformanceRequestMetrics.Snapshot snapshot = metrics.snapshot();
+                setHeader(SERVER_TIMING, headerValue(primaryMetric, elapsed, snapshot, request));
+                logDiagnostics(request, elapsed, snapshot);
             }
         }
     }

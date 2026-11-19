@@ -3,8 +3,11 @@ package com.universe.configuration.performance;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.support.PropertiesLoaderUtils;
 
 import javax.sql.DataSource;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -65,5 +68,16 @@ class PerformanceInstrumentationConfigurationTest {
                             .isInstanceOf(PerformanceDataSource.class)
                             .isNotSameAs(delegate);
                 });
+    }
+
+    @Test
+    void perfProfilePropertiesEnableScreenAndGlobalDiagnostics() throws Exception {
+        Properties perfProperties = PropertiesLoaderUtils.loadProperties(
+                new ClassPathResource("application-perf.properties")
+        );
+
+        assertThat(perfProperties.getProperty("kiemlai.performance.instrumentation.enabled")).isEqualTo("true");
+        assertThat(perfProperties.getProperty("wiki.performance.diagnostic-enabled")).isEqualTo("true");
+        assertThat(perfProperties.getProperty("screen.performance.diagnostic-enabled")).isEqualTo("true");
     }
 }

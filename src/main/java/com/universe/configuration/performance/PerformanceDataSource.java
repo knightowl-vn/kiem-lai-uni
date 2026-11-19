@@ -195,7 +195,7 @@ final class PerformanceDataSource implements DataSource {
                     if (timingKind == TimingKind.SQL_EXECUTION) {
                         metrics.recordSqlExecution(duration);
                     } else {
-                        metrics.recordTransactionControl(duration);
+                        metrics.recordTransactionControl(method.getName(), duration);
                     }
                 }
             }
