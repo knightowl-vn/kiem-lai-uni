@@ -31,8 +31,10 @@ import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
+import com.universe.interaction.entry.dto.CommentOriginDTO;
 import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
+import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
 import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.shared.security.AuthenticatedEmailResolver;
@@ -201,6 +203,88 @@ class ScreenTitleCommentControllerTest {
                 .andExpect(jsonPath("$.threadCount").value(0))
                 .andExpect(jsonPath("$.commentCount").value(0))
                 .andExpect(jsonPath("$.hasNext").value(false));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Guest can read discussion feed alias with sort NEWEST and episode origin badge")
+    void guestCanReadDiscussionFeedAliasWithSortNewest() throws Exception {
+        UUID entryId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        CommentReadDTO rootDTO = new CommentReadDTO(
+                ROOT_COMMENT_ID,
+                ACTOR_USER_ID,
+                null,
+                null,
+                "Root episode comment",
+                false,
+                NOW,
+                NOW,
+                new CommentAuthorDTO(ACTOR_USER_ID, "Screen Fan", null, "screen_fan"),
+                false,
+                false,
+                new ReactionSummaryResponseDTO(
+                        "COMMENT",
+                        ROOT_COMMENT_ID,
+                        java.util.Map.of("LIKE", 2L),
+                        2L,
+                        null
+                ),
+                new CommentOriginDTO(entryId, "Tập 1", "tap-1")
+        );
+        ScreenDiscussionFeedResponseDTO feedResponse = new ScreenDiscussionFeedResponseDTO(
+                List.of(new CommentThreadResponseDTO(rootDTO, List.of())),
+                1,
+                1,
+                0,
+                20,
+                false
+        );
+
+        when(screenTitleDiscussionQueryCoordinator.getDiscussionFeed(
+                eq(TITLE_ID), eq(0), eq(20), eq(null), eq(CommentSortMode.NEWEST)
+        )).thenReturn(feedResponse);
+
+        mockMvc.perform(get("/api/screen/titles/{titleId}/comments/feed", TITLE_ID)
+                        .param("sort", "NEWEST")
+                        .param("page", "0")
+                        .param("size", "20")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.threads[0].root.id").value(ROOT_COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.threads[0].root.origin.badgeText").value("Tập 1"))
+                .andExpect(jsonPath("$.threads[0].root.origin.entrySlug").value("tap-1"))
+                .andExpect(jsonPath("$.threads[0].root.reactionSummary.totalCount").value(2));
+    }
+
+    @Test
+    @WithMockUser(username = "screen_fan", roles = "USER")
+    @DisplayName("Authenticated viewer receives viewerUserId, sort, and pagination params on discussion feed")
+    void authenticatedViewerReceivesFeedWithViewerIdAndPagination() throws Exception {
+        ScreenDiscussionFeedResponseDTO feedResponse = new ScreenDiscussionFeedResponseDTO(
+                List.of(),
+                3,
+                5,
+                1,
+                10,
+                true
+        );
+
+        when(screenTitleDiscussionQueryCoordinator.getDiscussionFeed(
+                eq(TITLE_ID), eq(1), eq(10), eq(ACTOR_USER_ID), eq(CommentSortMode.NEWEST)
+        )).thenReturn(feedResponse);
+
+        mockMvc.perform(get("/api/screen/titles/{titleId}/comments", TITLE_ID)
+                        .with(authenticatedIdentity(ACTOR_USER_ID))
+                        .param("sort", "NEWEST")
+                        .param("page", "1")
+                        .param("size", "10")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.threadCount").value(3))
+                .andExpect(jsonPath("$.commentCount").value(5))
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.hasNext").value(true));
     }
 
     @Test

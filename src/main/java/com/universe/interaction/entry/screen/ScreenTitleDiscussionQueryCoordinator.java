@@ -27,11 +27,14 @@ import com.universe.screen.contracts.dto.ScreenEntryOriginDTO;
 import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -64,7 +67,9 @@ public class ScreenTitleDiscussionQueryCoordinator {
     private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
     private final UserIdentityContract userIdentityContract;
     private final GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
+    private final boolean diagnosticEnabled;
 
+    @Autowired
     public ScreenTitleDiscussionQueryCoordinator(
             ScreenDiscussionContract screenDiscussionContract,
             GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
@@ -73,7 +78,8 @@ public class ScreenTitleDiscussionQueryCoordinator {
             GetCommentThreadUseCase getCommentThreadUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
             UserIdentityContract userIdentityContract,
-            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
+            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase,
+            @Value("${screen.performance.diagnostic-enabled:false}") boolean diagnosticEnabled
     ) {
         this.screenDiscussionContract = Objects.requireNonNull(
                 screenDiscussionContract, "ScreenDiscussionContract cannot be null"
@@ -99,6 +105,30 @@ public class ScreenTitleDiscussionQueryCoordinator {
         this.getBatchReactionSummariesUseCase = Objects.requireNonNull(
                 getBatchReactionSummariesUseCase, "GetBatchReactionSummariesUseCase cannot be null"
         );
+        this.diagnosticEnabled = diagnosticEnabled;
+    }
+
+    public ScreenTitleDiscussionQueryCoordinator(
+            ScreenDiscussionContract screenDiscussionContract,
+            GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
+            ListCommentRootsUseCase listCommentRootsUseCase,
+            GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
+            GetCommentThreadUseCase getCommentThreadUseCase,
+            ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
+            UserIdentityContract userIdentityContract,
+            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
+    ) {
+        this(
+                screenDiscussionContract,
+                getCommentTargetMetricsUseCase,
+                listCommentRootsUseCase,
+                getCommentThreadsByRootIdsUseCase,
+                getCommentThreadUseCase,
+                validateCommentTargetScopeUseCase,
+                userIdentityContract,
+                getBatchReactionSummariesUseCase,
+                false
+        );
     }
 
     /**
@@ -121,23 +151,31 @@ public class ScreenTitleDiscussionQueryCoordinator {
             throw new IllegalArgumentException("size must be greater than zero: " + size);
         }
 
+        long t0 = diagnosticEnabled ? System.nanoTime() : 0L;
+        CommentSortMode effectiveSortMode = (sortMode != null) ? sortMode : CommentSortMode.FEATURED;
+        boolean authenticatedViewer = viewerUserId != null;
+
         // 1. Publication gate: fail closed if title is missing or not published
-        if (!screenDiscussionContract.isPublishedTitle(titleId)) {
+        boolean published = screenDiscussionContract.isPublishedTitle(titleId);
+        long tPublishEnd = diagnosticEnabled ? System.nanoTime() : 0L;
+        if (!published) {
+            logIneligibleDiagnostic(t0, tPublishEnd, effectiveSortMode, page, size, authenticatedViewer);
             throw new CommentTargetNotEligibleException("ScreenTitle is not published: " + titleId);
         }
 
-        CommentSortMode effectiveSortMode = (sortMode != null) ? sortMode : CommentSortMode.FEATURED;
         CommentTarget target = CommentTarget.screenTitle(titleId);
 
         // 2. Direct persistence aggregate: compute title metrics
         CommentTargetMetrics metrics = getCommentTargetMetricsUseCase.execute(target);
+        long tMetricsEnd = diagnosticEnabled ? System.nanoTime() : 0L;
         int threadCount = metrics.threadCount();
         int commentCount = metrics.commentCount();
 
         // 3. Interaction query: load active root comments slice for this screen title
         CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, effectiveSortMode, page, size);
+        long tSliceEnd = diagnosticEnabled ? System.nanoTime() : 0L;
         if (rootSlice.items().isEmpty()) {
-            return new ScreenDiscussionFeedResponseDTO(
+            ScreenDiscussionFeedResponseDTO emptyResponse = new ScreenDiscussionFeedResponseDTO(
                     List.of(),
                     threadCount,
                     commentCount,
@@ -145,6 +183,32 @@ public class ScreenTitleDiscussionQueryCoordinator {
                     rootSlice.size(),
                     rootSlice.hasNext()
             );
+            long tEnd = diagnosticEnabled ? System.nanoTime() : 0L;
+            logFeedDiagnostic(
+                    tEnd - t0,
+                    tPublishEnd - t0,
+                    tMetricsEnd - tPublishEnd,
+                    tSliceEnd - tMetricsEnd,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    tEnd - tSliceEnd,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                    rootSlice.hasNext(),
+                    effectiveSortMode,
+                    page,
+                    size,
+                    authenticatedViewer,
+                    true
+            );
+            return emptyResponse;
         }
 
         List<CommentReadItem> roots = rootSlice.items();
@@ -152,9 +216,12 @@ public class ScreenTitleDiscussionQueryCoordinator {
 
         // 3b. Screen query: lookup published entry origins for this title to format episode origin badges
         Map<UUID, ScreenEntryOriginDTO> publishedOriginsById = screenDiscussionContract.findPublishedEntryOriginsByTitleId(titleId);
+        long tOriginsEnd = diagnosticEnabled ? System.nanoTime() : 0L;
+        int originCount = publishedOriginsById != null ? publishedOriginsById.size() : 0;
 
         // 4. Interaction query: batch retrieve visible threads for all roots in this slice
         List<CommentThreadView> threadViews = getCommentThreadsByRootIdsUseCase.execute(target, rootIds);
+        long tThreadsEnd = diagnosticEnabled ? System.nanoTime() : 0L;
         Map<UUID, CommentThreadView> threadViewsByRootId = threadViews.stream()
                 .collect(Collectors.toMap(
                         tv -> tv.root().id(),
@@ -168,7 +235,7 @@ public class ScreenTitleDiscussionQueryCoordinator {
                 .toList();
 
         if (survivingRootIds.isEmpty()) {
-            return new ScreenDiscussionFeedResponseDTO(
+            ScreenDiscussionFeedResponseDTO emptySurvivingResponse = new ScreenDiscussionFeedResponseDTO(
                     List.of(),
                     threadCount,
                     commentCount,
@@ -176,6 +243,32 @@ public class ScreenTitleDiscussionQueryCoordinator {
                     rootSlice.size(),
                     rootSlice.hasNext()
             );
+            long tEnd = diagnosticEnabled ? System.nanoTime() : 0L;
+            logFeedDiagnostic(
+                    tEnd - t0,
+                    tPublishEnd - t0,
+                    tMetricsEnd - tPublishEnd,
+                    tSliceEnd - tMetricsEnd,
+                    tOriginsEnd - tSliceEnd,
+                    tThreadsEnd - tOriginsEnd,
+                    0L,
+                    0L,
+                    tEnd - tThreadsEnd,
+                    roots.size(),
+                    originCount,
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                    rootSlice.hasNext(),
+                    effectiveSortMode,
+                    page,
+                    size,
+                    authenticatedViewer,
+                    true
+            );
+            return emptySurvivingResponse;
         }
 
         // 6. Identity & Reaction targets: batch lookup public profiles and reaction summaries
@@ -203,13 +296,18 @@ public class ScreenTitleDiscussionQueryCoordinator {
                 }
             }
         }
+        long tCollectEnd = diagnosticEnabled ? System.nanoTime() : 0L;
 
         Map<UUID, UserPublicProfileDTO> authorsMap = authorUserIds.isEmpty()
                 ? Map.of()
                 : userIdentityContract.findPublicProfilesByIds(authorUserIds);
+        long tIdentityEnd = diagnosticEnabled ? System.nanoTime() : 0L;
 
         Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = Map.of();
+        long reactionsBatchNanos = 0L;
+        boolean reactionsFailed = false;
         if (!activeCommentIds.isEmpty()) {
+            long tReactionsStart = diagnosticEnabled ? System.nanoTime() : 0L;
             try {
                 Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
                         ReactionTargetType.COMMENT,
@@ -225,12 +323,19 @@ public class ScreenTitleDiscussionQueryCoordinator {
                             ));
                 }
             } catch (RuntimeException ex) {
+                reactionsFailed = true;
                 log.warn("Failed to load reaction summaries for screen title discussion feed: titleId={}", titleId, ex);
                 reactionSummariesByCommentId = Map.of();
+            } finally {
+                if (diagnosticEnabled) {
+                    reactionsBatchNanos = System.nanoTime() - tReactionsStart;
+                }
             }
         }
 
         // 7. Assemble threads preserving original slice ordering
+        long tComposeStart = diagnosticEnabled ? System.nanoTime() : 0L;
+        int totalReplyCount = 0;
         List<CommentThreadResponseDTO> threads = new ArrayList<>(survivingRootIds.size());
         for (UUID rootId : survivingRootIds) {
             CommentThreadView threadView = threadViewsByRootId.get(rootId);
@@ -249,6 +354,7 @@ public class ScreenTitleDiscussionQueryCoordinator {
 
             List<CommentReadDTO> replyDTOs = new ArrayList<>();
             if (threadView.replies() != null) {
+                totalReplyCount += threadView.replies().size();
                 for (CommentReadItem replyItem : threadView.replies()) {
                     if (replyItem == null) {
                         continue;
@@ -272,7 +378,7 @@ public class ScreenTitleDiscussionQueryCoordinator {
             threads.add(new CommentThreadResponseDTO(rootReadDTO, replyDTOs));
         }
 
-        return new ScreenDiscussionFeedResponseDTO(
+        ScreenDiscussionFeedResponseDTO response = new ScreenDiscussionFeedResponseDTO(
                 threads,
                 threadCount,
                 commentCount,
@@ -280,6 +386,35 @@ public class ScreenTitleDiscussionQueryCoordinator {
                 rootSlice.size(),
                 rootSlice.hasNext()
         );
+        if (diagnosticEnabled) {
+            long tEnd = System.nanoTime();
+            long composeNanos = (tCollectEnd - tThreadsEnd) + (tEnd - tComposeStart);
+            logFeedDiagnostic(
+                    tEnd - t0,
+                    tPublishEnd - t0,
+                    tMetricsEnd - tPublishEnd,
+                    tSliceEnd - tMetricsEnd,
+                    tOriginsEnd - tSliceEnd,
+                    tThreadsEnd - tOriginsEnd,
+                    tIdentityEnd - tCollectEnd,
+                    reactionsBatchNanos,
+                    composeNanos,
+                    roots.size(),
+                    originCount,
+                    threads.size(),
+                    totalReplyCount,
+                    authorUserIds.size(),
+                    activeCommentIds.size(),
+                    reactionsFailed,
+                    rootSlice.hasNext(),
+                    effectiveSortMode,
+                    page,
+                    size,
+                    authenticatedViewer,
+                    false
+            );
+        }
+        return response;
     }
 
     /**
@@ -398,5 +533,86 @@ public class ScreenTitleDiscussionQueryCoordinator {
             return null;
         }
         return new CommentOriginDTO(origin.entryId(), origin.displayBadge(), origin.slug());
+    }
+
+    private void logIneligibleDiagnostic(
+            long startNanos,
+            long endNanos,
+            CommentSortMode sortMode,
+            int page,
+            int size,
+            boolean authenticatedViewer
+    ) {
+        if (!diagnosticEnabled || !log.isInfoEnabled()) {
+            return;
+        }
+        long elapsedNanos = Math.max(0L, endNanos - startNanos);
+        log.info(
+                "[PERF-DIAGNOSTIC] /api/screen/titles/{titleId}/comments feed: total={}ms, publish_check={}ms, eligible=false, sort={}, page={}, size={}, auth={}",
+                formatMs(elapsedNanos),
+                formatMs(elapsedNanos),
+                sortMode.name(),
+                page,
+                size,
+                authenticatedViewer
+        );
+    }
+
+    private void logFeedDiagnostic(
+            long totalNanos,
+            long publishCheckNanos,
+            long targetMetricsNanos,
+            long rootSliceNanos,
+            long entryOriginsNanos,
+            long threadsBatchNanos,
+            long identityBatchNanos,
+            long reactionsBatchNanos,
+            long dtoComposeNanos,
+            int rootCount,
+            int originCount,
+            int threadCount,
+            int replyCount,
+            int authorCount,
+            int activeCommentCount,
+            boolean reactionsFailed,
+            boolean hasNext,
+            CommentSortMode sortMode,
+            int page,
+            int size,
+            boolean authenticatedViewer,
+            boolean emptyFeed
+    ) {
+        if (!diagnosticEnabled || !log.isInfoEnabled()) {
+            return;
+        }
+        log.info(
+                "[PERF-DIAGNOSTIC] /api/screen/titles/{titleId}/comments feed: total={}ms, publish_check={}ms, target_metrics={}ms, root_slice={}ms (roots={}), entry_origins={}ms (origins={}), threads_batch={}ms (threads={}, replies={}), identity_batch={}ms (authors={}), reactions_batch={}ms (active_comments={}, failed={}), dto_compose={}ms, sort={}, page={}, size={}, has_next={}, auth={}, empty={}",
+                formatMs(totalNanos),
+                formatMs(publishCheckNanos),
+                formatMs(targetMetricsNanos),
+                formatMs(rootSliceNanos),
+                rootCount,
+                formatMs(entryOriginsNanos),
+                originCount,
+                formatMs(threadsBatchNanos),
+                threadCount,
+                replyCount,
+                formatMs(identityBatchNanos),
+                authorCount,
+                formatMs(reactionsBatchNanos),
+                activeCommentCount,
+                reactionsFailed,
+                formatMs(dtoComposeNanos),
+                sortMode.name(),
+                page,
+                size,
+                hasNext,
+                authenticatedViewer,
+                emptyFeed
+        );
+    }
+
+    private static String formatMs(long nanos) {
+        return String.format(Locale.ROOT, "%.2f", Math.max(0L, nanos) / 1_000_000.0);
     }
 }

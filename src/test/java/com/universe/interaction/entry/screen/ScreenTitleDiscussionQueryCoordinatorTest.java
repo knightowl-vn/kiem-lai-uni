@@ -1,5 +1,8 @@
 package com.universe.interaction.entry.screen;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
@@ -20,6 +23,7 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
+import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
 import com.universe.screen.contracts.dto.ScreenEntryOriginDTO;
@@ -32,6 +36,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
@@ -45,7 +50,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -632,6 +639,212 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             assertThat(origin.badgeText()).isEqualTo("Bản chiếu chính");
             assertThat(origin.badgeText()).doesNotContain("Tập");
             assertThat(origin.entrySlug()).isEqualTo("ban-chieu-chinh");
+        }
+    }
+
+    @Nested
+    @DisplayName("Opt-In Diagnostic Instrumentation Tests")
+    class DiagnosticInstrumentationTests {
+
+        private ScreenTitleDiscussionQueryCoordinator diagnosticCoordinator() {
+            return new ScreenTitleDiscussionQueryCoordinator(
+                    screenDiscussionContract,
+                    getCommentTargetMetricsUseCase,
+                    listCommentRootsUseCase,
+                    getCommentThreadsByRootIdsUseCase,
+                    getCommentThreadUseCase,
+                    validateCommentTargetScopeUseCase,
+                    userIdentityContract,
+                    getBatchReactionSummariesUseCase,
+                    true
+            );
+        }
+
+        @Test
+        @DisplayName("Opt-in diagnostics preserve DTO output, invoke zero extra queries, and log no PII or UUIDs")
+        void shouldPreserveOutputAndZeroExtraQueriesWhenDiagnosticEnabled() {
+            UUID viewerId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 3));
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Sensitive root body text", NOW, EPISODE_1_ENTRY_ID);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+
+            Comment reply1 = Comment.createReply(REPLY_1_ID, root, AUTHOR_2_ID, "Sensitive reply body text", NOW.plusSeconds(5), EPISODE_2_ENTRY_ID);
+            CommentReadItem reply1Item = CommentReadItem.fromActiveReply(reply1, AUTHOR_1_ID);
+
+            Comment tombstoneReply = Comment.createReply(REPLY_2_ID, root, TOMBSTONE_AUTHOR_ID, "Tombstone hidden body", NOW.plusSeconds(10));
+            tombstoneReply.delete(NOW.plusSeconds(11));
+            CommentReadItem tombstoneReplyItem = CommentReadItem.fromTombstoneReply(tombstoneReply, AUTHOR_1_ID);
+
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.NEWEST, 1, 20))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 1, 20, true));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
+                    .thenReturn(Map.of(
+                            EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1"),
+                            EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")
+                    ));
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of(reply1Item, tombstoneReplyItem))));
+            // Deliberately omit AUTHOR_2_ID to verify identity fallback also stays identical
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
+                    .thenReturn(Map.of(
+                            AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Secret Display Name", null, "secret_handle")
+                    ));
+            when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID, REPLY_1_ID), viewerId))
+                    .thenReturn(Map.of(
+                            ROOT_1_ID, ReactionSummary.of(ReactionTarget.comment(ROOT_1_ID), Map.of(ReactionType.LIKE, 4L), ReactionType.LIKE)
+                    ));
+
+            Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            coordinatorLogger.addAppender(appender);
+            try {
+                // Default coordinator (diagnostics disabled)
+                ScreenDiscussionFeedResponseDTO defaultResult =
+                        coordinator.getDiscussionFeed(TITLE_ID, 1, 20, viewerId, CommentSortMode.NEWEST);
+                assertThat(appender.list.stream()
+                        .map(ILoggingEvent::getFormattedMessage)
+                        .filter(m -> m.contains("[PERF-DIAGNOSTIC]")))
+                        .isEmpty();
+
+                // Opt-in diagnostic coordinator
+                ScreenDiscussionFeedResponseDTO diagResult =
+                        diagnosticCoordinator().getDiscussionFeed(TITLE_ID, 1, 20, viewerId, CommentSortMode.NEWEST);
+
+                assertThat(diagResult).isEqualTo(defaultResult);
+                assertThat(diagResult.threads()).hasSize(1);
+                assertThat(diagResult.threads().get(0).root().origin().badgeText()).isEqualTo("Tập 1");
+                assertThat(diagResult.threads().get(0).replies().get(0).author().displayName()).isEqualTo(CommentAuthorDTO.DEFAULT_DISPLAY_NAME);
+                assertThat(diagResult.threads().get(0).replies().get(1).tombstone()).isTrue();
+                assertThat(diagResult.hasNext()).isTrue();
+
+                // Exactly 1 invocation per diagnostic run (= 2 total across both runs), zero extra queries
+                verify(screenDiscussionContract, times(2)).isPublishedTitle(TITLE_ID);
+                verify(getCommentTargetMetricsUseCase, times(2)).execute(target);
+                verify(listCommentRootsUseCase, times(2)).execute(target, CommentSortMode.NEWEST, 1, 20);
+                verify(screenDiscussionContract, times(2)).findPublishedEntryOriginsByTitleId(TITLE_ID);
+                verify(getCommentThreadsByRootIdsUseCase, times(2)).execute(target, List.of(ROOT_1_ID));
+                verify(userIdentityContract, times(2)).findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID));
+                verify(getBatchReactionSummariesUseCase, times(2))
+                        .execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID, REPLY_1_ID), viewerId);
+                verifyNoMoreInteractions(
+                        screenDiscussionContract,
+                        getCommentTargetMetricsUseCase,
+                        listCommentRootsUseCase,
+                        getCommentThreadsByRootIdsUseCase,
+                        userIdentityContract,
+                        getBatchReactionSummariesUseCase
+                );
+
+                List<String> diagLogs = appender.list.stream()
+                        .map(ILoggingEvent::getFormattedMessage)
+                        .filter(m -> m.contains("[PERF-DIAGNOSTIC]"))
+                        .toList();
+                assertThat(diagLogs).hasSize(1);
+                String diagLog = diagLogs.get(0);
+                assertThat(diagLog)
+                        .contains("/api/screen/titles/{titleId}/comments feed:")
+                        .contains("publish_check=")
+                        .contains("target_metrics=")
+                        .contains("root_slice=")
+                        .contains("entry_origins=")
+                        .contains("threads_batch=")
+                        .contains("identity_batch=")
+                        .contains("reactions_batch=")
+                        .contains("dto_compose=")
+                        .contains("sort=NEWEST")
+                        .contains("page=1")
+                        .contains("size=20")
+                        .contains("has_next=true")
+                        .contains("auth=true")
+                        .contains("empty=false")
+                        .doesNotContain(TITLE_ID.toString())
+                        .doesNotContain(ROOT_1_ID.toString())
+                        .doesNotContain(REPLY_1_ID.toString())
+                        .doesNotContain(REPLY_2_ID.toString())
+                        .doesNotContain(AUTHOR_1_ID.toString())
+                        .doesNotContain(AUTHOR_2_ID.toString())
+                        .doesNotContain(TOMBSTONE_AUTHOR_ID.toString())
+                        .doesNotContain(viewerId.toString())
+                        .doesNotContain(EPISODE_1_ENTRY_ID.toString())
+                        .doesNotContain(EPISODE_2_ENTRY_ID.toString())
+                        .doesNotContain("Secret Display Name")
+                        .doesNotContain("secret_handle")
+                        .doesNotContain("Sensitive root body")
+                        .doesNotContain("Sensitive reply body")
+                        .doesNotContain("Tombstone hidden body");
+            } finally {
+                coordinatorLogger.detachAppender(appender);
+                appender.stop();
+            }
+        }
+
+        @Test
+        @DisplayName("Opt-in diagnostics cover empty feed, ineligible title, and reaction failure degradation safely")
+        void shouldLogDiagnosticsForEmptyIneligibleAndReactionFailureWithoutSensitiveData() {
+            ScreenTitleDiscussionQueryCoordinator diagCoordinator = diagnosticCoordinator();
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            coordinatorLogger.addAppender(appender);
+            try {
+                // 1. Ineligible / unpublished title
+                when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(false);
+                assertThatThrownBy(() -> diagCoordinator.getDiscussionFeed(TITLE_ID, 0, 20, null, CommentSortMode.FEATURED))
+                        .isInstanceOf(CommentTargetNotEligibleException.class);
+
+                // 2. Empty feed
+                when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+                when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(CommentTargetMetrics.EMPTY);
+                when(listCommentRootsUseCase.execute(target, CommentSortMode.NEWEST, 0, 20))
+                        .thenReturn(new CommentReadSlice(List.of(), 0, 20, false));
+                ScreenDiscussionFeedResponseDTO emptyRes =
+                        diagCoordinator.getDiscussionFeed(TITLE_ID, 0, 20, null, CommentSortMode.NEWEST);
+                assertThat(emptyRes.threads()).isEmpty();
+
+                // 3. Reaction failure degradation
+                Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Body that fails reaction", NOW);
+                CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+                when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
+                when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
+                        .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 20, false));
+                when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
+                when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                        .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
+                when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                        .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "User One", null, "user_one")));
+                when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
+                        .thenThrow(new RuntimeException("Simulated reaction failure"));
+
+                ScreenDiscussionFeedResponseDTO fallbackRes =
+                        diagCoordinator.getDiscussionFeed(TITLE_ID, 0, 20, null, CommentSortMode.FEATURED);
+                assertThat(fallbackRes.threads()).hasSize(1);
+                assertThat(fallbackRes.threads().get(0).root().reactionSummary()).isNull();
+
+                List<String> diagLogs = appender.list.stream()
+                        .map(ILoggingEvent::getFormattedMessage)
+                        .filter(m -> m.contains("[PERF-DIAGNOSTIC]"))
+                        .toList();
+                assertThat(diagLogs).hasSize(3);
+                assertThat(diagLogs.get(0)).contains("eligible=false").doesNotContain(TITLE_ID.toString());
+                assertThat(diagLogs.get(1)).contains("empty=true").contains("auth=false").doesNotContain(TITLE_ID.toString());
+                assertThat(diagLogs.get(2))
+                        .contains("failed=true")
+                        .contains("empty=false")
+                        .doesNotContain(TITLE_ID.toString())
+                        .doesNotContain(AUTHOR_1_ID.toString())
+                        .doesNotContain("User One")
+                        .doesNotContain("Body that fails reaction");
+            } finally {
+                coordinatorLogger.detachAppender(appender);
+                appender.stop();
+            }
         }
     }
 }
