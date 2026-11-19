@@ -3,25 +3,23 @@ package com.universe.interaction.entry.screen;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
-import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
-import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.entry.screen.ScreenTitleDiscussionCoreReadService.CoreFeedReadResult;
 import com.universe.interaction.entry.screen.ScreenTitleDiscussionCoreReadService.CoreStageTimings;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService.ReactionEnrichmentResult;
+import com.universe.interaction.entry.shared.CommentThreadDtoAssembler;
+import com.universe.interaction.entry.shared.DiscussionParticipants;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
-import com.universe.interaction.domain.reaction.ReactionTargetType;
-import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentOriginDTO;
-import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
-import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
 import com.universe.screen.contracts.dto.ScreenEntryOriginDTO;
 import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
@@ -31,15 +29,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Cross-context query composition coordinator for reading Screen title discussion feeds.
@@ -48,10 +42,9 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>Interaction application has ZERO Screen domain imports;</li>
  *   <li>Screen module has ZERO Interaction domain imports;</li>
- *   <li>Entry-layer composition uses only scalar cross-context references (UUIDs);</li>
- *   <li>One publication check + one target metrics aggregate query + one root Slice query + one batch visible thread query for current page roots + one Identity profile query + one batch reaction summary query;</li>
- *   <li>Zero per-root N+1 access loops;</li>
- *   <li>Read-only operation without write transactional overhead.</li>
+ *   <li>Delegates generic Phase A core reading, active participant collection, Phase B Reaction
+ *       enrichment, and thread DTO assembly to shared {@code interaction.entry.shared} collaborators;</li>
+ *   <li>Retains Screen-specific publication gate, episode-origin enrichment, DTO envelope, and diagnostics.</li>
  * </ul>
  */
 @Service
@@ -61,20 +54,20 @@ public class ScreenTitleDiscussionQueryCoordinator {
 
     private final ScreenDiscussionContract screenDiscussionContract;
     private final ScreenTitleDiscussionCoreReadService coreReadService;
+    private final CommentReactionEnrichmentService reactionEnrichmentService;
     private final GetCommentThreadUseCase getCommentThreadUseCase;
     private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
     private final UserIdentityContract userIdentityContract;
-    private final GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
     private final boolean diagnosticEnabled;
 
     @Autowired
     public ScreenTitleDiscussionQueryCoordinator(
             ScreenDiscussionContract screenDiscussionContract,
             ScreenTitleDiscussionCoreReadService coreReadService,
+            CommentReactionEnrichmentService reactionEnrichmentService,
             GetCommentThreadUseCase getCommentThreadUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
             UserIdentityContract userIdentityContract,
-            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase,
             @Value("${screen.performance.diagnostic-enabled:false}") boolean diagnosticEnabled
     ) {
         this.screenDiscussionContract = Objects.requireNonNull(
@@ -82,6 +75,9 @@ public class ScreenTitleDiscussionQueryCoordinator {
         );
         this.coreReadService = Objects.requireNonNull(
                 coreReadService, "ScreenTitleDiscussionCoreReadService cannot be null"
+        );
+        this.reactionEnrichmentService = Objects.requireNonNull(
+                reactionEnrichmentService, "CommentReactionEnrichmentService cannot be null"
         );
         this.getCommentThreadUseCase = Objects.requireNonNull(
                 getCommentThreadUseCase, "GetCommentThreadUseCase cannot be null"
@@ -92,10 +88,27 @@ public class ScreenTitleDiscussionQueryCoordinator {
         this.userIdentityContract = Objects.requireNonNull(
                 userIdentityContract, "UserIdentityContract cannot be null"
         );
-        this.getBatchReactionSummariesUseCase = Objects.requireNonNull(
-                getBatchReactionSummariesUseCase, "GetBatchReactionSummariesUseCase cannot be null"
-        );
         this.diagnosticEnabled = diagnosticEnabled;
+    }
+
+    public ScreenTitleDiscussionQueryCoordinator(
+            ScreenDiscussionContract screenDiscussionContract,
+            ScreenTitleDiscussionCoreReadService coreReadService,
+            GetCommentThreadUseCase getCommentThreadUseCase,
+            ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
+            UserIdentityContract userIdentityContract,
+            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase,
+            boolean diagnosticEnabled
+    ) {
+        this(
+                screenDiscussionContract,
+                coreReadService,
+                new CommentReactionEnrichmentService(getBatchReactionSummariesUseCase),
+                getCommentThreadUseCase,
+                validateCommentTargetScopeUseCase,
+                userIdentityContract,
+                diagnosticEnabled
+        );
     }
 
     public ScreenTitleDiscussionQueryCoordinator(
@@ -118,10 +131,10 @@ public class ScreenTitleDiscussionQueryCoordinator {
                         getCommentThreadsByRootIdsUseCase,
                         userIdentityContract
                 ),
+                new CommentReactionEnrichmentService(getBatchReactionSummariesUseCase),
                 getCommentThreadUseCase,
                 validateCommentTargetScopeUseCase,
                 userIdentityContract,
-                getBatchReactionSummariesUseCase,
                 diagnosticEnabled
         );
     }
@@ -227,88 +240,27 @@ public class ScreenTitleDiscussionQueryCoordinator {
 
         // Phase B: Execute supplemental Reaction batch query in an independent sequential transaction
         List<UUID> activeCommentIds = coreResult.activeCommentIds();
-        Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = Map.of();
-        long reactionsBatchNanos = 0L;
-        boolean reactionsFailed = false;
-        if (!activeCommentIds.isEmpty()) {
-            long tReactionsStart = diagnosticEnabled ? System.nanoTime() : 0L;
-            try {
-                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
-                        ReactionTargetType.COMMENT,
-                        activeCommentIds,
-                        viewerUserId
-                );
-                if (summaries != null && !summaries.isEmpty()) {
-                    reactionSummariesByCommentId = summaries.entrySet().stream()
-                            .filter(e -> e.getValue() != null)
-                            .collect(Collectors.toMap(
-                                    Map.Entry::getKey,
-                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
-                            ));
-                }
-            } catch (RuntimeException ex) {
-                reactionsFailed = true;
-                log.warn(
-                        "Failed to load reaction summaries for screen title discussion feed; using empty fallback: exceptionType={}, activeCommentCount={}, authenticatedViewer={}",
-                        ex.getClass().getSimpleName(),
-                        activeCommentIds.size(),
-                        authenticatedViewer
-                );
-                reactionSummariesByCommentId = Map.of();
-            } finally {
-                if (diagnosticEnabled) {
-                    reactionsBatchNanos = System.nanoTime() - tReactionsStart;
-                }
-            }
-        }
+        ReactionEnrichmentResult reactionResult = reactionEnrichmentService.loadCommentReactionSummaries(
+                "screen title feed",
+                activeCommentIds,
+                viewerUserId,
+                diagnosticEnabled
+        );
 
         // Assemble threads preserving original slice ordering
         long tComposeStart = diagnosticEnabled ? System.nanoTime() : 0L;
-        Map<UUID, CommentThreadView> threadViewsByRootId = coreResult.threadViewsByRootId();
-        Map<UUID, UserPublicProfileDTO> authorsMap = coreResult.authorsMap();
         Map<UUID, ScreenEntryOriginDTO> publishedOriginsById = coreResult.publishedOriginsById();
-        int totalReplyCount = 0;
-        List<CommentThreadResponseDTO> threads = new ArrayList<>(survivingRootIds.size());
-        for (UUID rootId : survivingRootIds) {
-            CommentThreadView threadView = threadViewsByRootId.get(rootId);
-            CommentReadItem authoritativeRoot = threadView.root();
-
-            UserPublicProfileDTO rootProfile = (authorsMap != null && authoritativeRoot.authorUserId() != null)
-                    ? authorsMap.get(authoritativeRoot.authorUserId())
-                    : null;
-            CommentAuthorDTO rootAuthorDTO = (rootProfile != null)
-                    ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl(), rootProfile.publicHandle())
-                    : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
-
-            ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(rootId);
-            CommentOriginDTO rootOrigin = resolveCommentOrigin(authoritativeRoot.originScreenEntryId(), publishedOriginsById);
-            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary, rootOrigin);
-
-            List<CommentReadDTO> replyDTOs = new ArrayList<>();
-            if (threadView.replies() != null) {
-                totalReplyCount += threadView.replies().size();
-                for (CommentReadItem replyItem : threadView.replies()) {
-                    if (replyItem == null) {
-                        continue;
-                    }
-                    if (replyItem.tombstone()) {
-                        replyDTOs.add(CommentReadDTO.from(replyItem, viewerUserId));
-                    } else {
-                        UserPublicProfileDTO replyProfile = (authorsMap != null && replyItem.authorUserId() != null)
-                                ? authorsMap.get(replyItem.authorUserId())
-                                : null;
-                        CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
-                                ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
-                                : CommentAuthorDTO.fallback(replyItem.authorUserId());
-                        ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
-                        CommentOriginDTO replyOrigin = resolveCommentOrigin(replyItem.originScreenEntryId(), publishedOriginsById);
-                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary, replyOrigin));
-                    }
-                }
-            }
-
-            threads.add(new CommentThreadResponseDTO(rootReadDTO, replyDTOs));
-        }
+        List<CommentThreadResponseDTO> threads = CommentThreadDtoAssembler.toThreadDtos(
+                survivingRootIds,
+                coreResult.threadViewsByRootId(),
+                coreResult.authorsMap(),
+                viewerUserId,
+                reactionResult.summariesByCommentId(),
+                item -> resolveCommentOrigin(item.originScreenEntryId(), publishedOriginsById)
+        );
+        int totalReplyCount = threads.stream()
+                .mapToInt(thread -> thread.replies().size())
+                .sum();
 
         ScreenDiscussionFeedResponseDTO response = new ScreenDiscussionFeedResponseDTO(
                 threads,
@@ -329,7 +281,7 @@ public class ScreenTitleDiscussionQueryCoordinator {
                     coreTimings.entryOriginsNanos(),
                     coreTimings.threadsBatchNanos(),
                     coreTimings.identityBatchNanos(),
-                    reactionsBatchNanos,
+                    reactionResult.elapsedNanos(),
                     composeNanos,
                     coreResult.rawRootCount(),
                     publishedOriginsById.size(),
@@ -337,7 +289,7 @@ public class ScreenTitleDiscussionQueryCoordinator {
                     totalReplyCount,
                     coreResult.authorUserIds().size(),
                     activeCommentIds.size(),
-                    reactionsFailed,
+                    reactionResult.failed(),
                     coreResult.hasNext(),
                     effectiveSortMode,
                     page,
@@ -368,92 +320,28 @@ public class ScreenTitleDiscussionQueryCoordinator {
         validateCommentTargetScopeUseCase.executeRoot(rootCommentId, expectedTarget);
 
         CommentThreadView threadView = getCommentThreadUseCase.execute(rootCommentId);
+        DiscussionParticipants participants = DiscussionParticipants.collectForSingleThread(threadView);
 
-        Set<UUID> authorUserIds = new HashSet<>();
-        List<UUID> activeCommentIds = new ArrayList<>();
-
-        if (threadView.root() != null) {
-            if (!threadView.root().tombstone()) {
-                activeCommentIds.add(threadView.root().id());
-            }
-            if (threadView.root().authorUserId() != null) {
-                authorUserIds.add(threadView.root().authorUserId());
-            }
-        }
-        if (threadView.replies() != null) {
-            for (CommentReadItem reply : threadView.replies()) {
-                if (reply != null && !reply.tombstone()) {
-                    activeCommentIds.add(reply.id());
-                    if (reply.authorUserId() != null) {
-                        authorUserIds.add(reply.authorUserId());
-                    }
-                }
-            }
-        }
-
-        Map<UUID, UserPublicProfileDTO> authorsMap = authorUserIds.isEmpty()
+        Map<UUID, UserPublicProfileDTO> authorsMap = participants.authorUserIds().isEmpty()
                 ? Map.of()
-                : userIdentityContract.findPublicProfilesByIds(authorUserIds);
+                : userIdentityContract.findPublicProfilesByIds(participants.authorUserIds());
 
-        Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = Map.of();
-        if (!activeCommentIds.isEmpty()) {
-            try {
-                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
-                        ReactionTargetType.COMMENT,
-                        activeCommentIds,
-                        viewerUserId
-                );
-                if (summaries != null && !summaries.isEmpty()) {
-                    reactionSummariesByCommentId = summaries.entrySet().stream()
-                            .filter(e -> e.getValue() != null)
-                            .collect(Collectors.toMap(
-                                    Map.Entry::getKey,
-                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
-                            ));
-                }
-            } catch (RuntimeException ex) {
-                log.warn("Failed to load reaction summaries for screen title comment thread: titleId={}, rootCommentId={}", titleId, rootCommentId, ex);
-                reactionSummariesByCommentId = Map.of();
-            }
-        }
+        ReactionEnrichmentResult reactionResult = reactionEnrichmentService.loadCommentReactionSummaries(
+                "screen title thread",
+                participants.activeCommentIds(),
+                viewerUserId,
+                false
+        );
 
         Map<UUID, ScreenEntryOriginDTO> publishedOriginsById = screenDiscussionContract.findPublishedEntryOriginsByTitleId(titleId);
 
-        CommentReadItem authoritativeRoot = threadView.root();
-        UserPublicProfileDTO rootProfile = (authorsMap != null && authoritativeRoot.authorUserId() != null)
-                ? authorsMap.get(authoritativeRoot.authorUserId())
-                : null;
-        CommentAuthorDTO rootAuthorDTO = (rootProfile != null)
-                ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl(), rootProfile.publicHandle())
-                : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
-
-        ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(authoritativeRoot.id());
-        CommentOriginDTO rootOrigin = resolveCommentOrigin(authoritativeRoot.originScreenEntryId(), publishedOriginsById);
-        CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary, rootOrigin);
-
-        List<CommentReadDTO> replyDTOs = new ArrayList<>();
-        if (threadView.replies() != null) {
-            for (CommentReadItem replyItem : threadView.replies()) {
-                if (replyItem == null) {
-                    continue;
-                }
-                if (replyItem.tombstone()) {
-                    replyDTOs.add(CommentReadDTO.from(replyItem, viewerUserId));
-                } else {
-                    UserPublicProfileDTO replyProfile = (authorsMap != null && replyItem.authorUserId() != null)
-                            ? authorsMap.get(replyItem.authorUserId())
-                            : null;
-                    CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
-                            ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
-                            : CommentAuthorDTO.fallback(replyItem.authorUserId());
-                    ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
-                    CommentOriginDTO replyOrigin = resolveCommentOrigin(replyItem.originScreenEntryId(), publishedOriginsById);
-                    replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary, replyOrigin));
-                }
-            }
-        }
-
-        return new CommentThreadResponseDTO(rootReadDTO, replyDTOs);
+        return CommentThreadDtoAssembler.toThreadDto(
+                threadView,
+                authorsMap,
+                viewerUserId,
+                reactionResult.summariesByCommentId(),
+                item -> resolveCommentOrigin(item.originScreenEntryId(), publishedOriginsById)
+        );
     }
 
     private CommentOriginDTO resolveCommentOrigin(UUID originScreenEntryId, Map<UUID, ScreenEntryOriginDTO> publishedOriginsById) {

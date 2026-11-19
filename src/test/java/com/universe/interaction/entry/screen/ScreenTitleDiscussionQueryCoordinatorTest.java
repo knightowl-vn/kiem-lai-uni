@@ -26,6 +26,7 @@ import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService;
 import com.universe.screen.contracts.dto.ScreenEntryOriginDTO;
 import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import org.junit.jupiter.api.BeforeEach;
@@ -927,9 +928,11 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                     .thenReturn(Map.of());
 
             Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
+            Logger reactionLogger = (Logger) LoggerFactory.getLogger(CommentReactionEnrichmentService.class);
             ListAppender<ILoggingEvent> appender = new ListAppender<>();
             appender.start();
             coordinatorLogger.addAppender(appender);
+            reactionLogger.addAppender(appender);
             try {
                 ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(
                         TITLE_ID, 0, 20, null, CommentSortMode.NEWEST
@@ -939,6 +942,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                 assertThat(appender.list).isEmpty();
             } finally {
                 coordinatorLogger.detachAppender(appender);
+                reactionLogger.detachAppender(appender);
                 appender.stop();
             }
         }
@@ -975,9 +979,11 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             );
 
             Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
+            Logger reactionLogger = (Logger) LoggerFactory.getLogger(CommentReactionEnrichmentService.class);
             ListAppender<ILoggingEvent> appender = new ListAppender<>();
             appender.start();
             coordinatorLogger.addAppender(appender);
+            reactionLogger.addAppender(appender);
             try {
                 ScreenDiscussionFeedResponseDTO response = diagCoordinator.getDiscussionFeed(
                         TITLE_ID, 0, 20, viewerId, CommentSortMode.FEATURED
@@ -1009,6 +1015,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                 assertThat(diagLogs.get(0)).contains("failed=true");
             } finally {
                 coordinatorLogger.detachAppender(appender);
+                reactionLogger.detachAppender(appender);
                 appender.stop();
             }
         }

@@ -23,6 +23,8 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService;
 import com.universe.screen.contracts.dto.ScreenEntryOriginDTO;
 import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import org.junit.jupiter.api.BeforeEach;
@@ -200,15 +202,13 @@ class ScreenTitleDiscussionTransactionIntegrationTest {
         }
 
         @Bean
-        public ScreenTitleDiscussionCoreReadService screenTitleDiscussionCoreReadService(
-                ScreenDiscussionContract screenDiscussionContract,
+        public DiscussionCoreReadService discussionCoreReadService(
                 GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
                 ListCommentRootsUseCase listCommentRootsUseCase,
                 GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
                 UserIdentityContract userIdentityContract
         ) {
-            return new ScreenTitleDiscussionCoreReadService(
-                    screenDiscussionContract,
+            return new DiscussionCoreReadService(
                     getCommentTargetMetricsUseCase,
                     listCommentRootsUseCase,
                     getCommentThreadsByRootIdsUseCase,
@@ -217,21 +217,39 @@ class ScreenTitleDiscussionTransactionIntegrationTest {
         }
 
         @Bean
+        public CommentReactionEnrichmentService commentReactionEnrichmentService(
+                GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
+        ) {
+            return new CommentReactionEnrichmentService(getBatchReactionSummariesUseCase);
+        }
+
+        @Bean
+        public ScreenTitleDiscussionCoreReadService screenTitleDiscussionCoreReadService(
+                ScreenDiscussionContract screenDiscussionContract,
+                DiscussionCoreReadService discussionCoreReadService
+        ) {
+            return new ScreenTitleDiscussionCoreReadService(
+                    screenDiscussionContract,
+                    discussionCoreReadService
+            );
+        }
+
+        @Bean
         public ScreenTitleDiscussionQueryCoordinator screenTitleDiscussionQueryCoordinator(
                 ScreenDiscussionContract screenDiscussionContract,
                 ScreenTitleDiscussionCoreReadService coreReadService,
+                CommentReactionEnrichmentService reactionEnrichmentService,
                 GetCommentThreadUseCase getCommentThreadUseCase,
                 ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
-                UserIdentityContract userIdentityContract,
-                GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
+                UserIdentityContract userIdentityContract
         ) {
             return new ScreenTitleDiscussionQueryCoordinator(
                     screenDiscussionContract,
                     coreReadService,
+                    reactionEnrichmentService,
                     getCommentThreadUseCase,
                     validateCommentTargetScopeUseCase,
                     userIdentityContract,
-                    getBatchReactionSummariesUseCase,
                     false
             );
         }
@@ -242,6 +260,12 @@ class ScreenTitleDiscussionTransactionIntegrationTest {
 
     @Autowired
     private ScreenTitleDiscussionCoreReadService coreReadService;
+
+    @Autowired
+    private DiscussionCoreReadService sharedCoreReadService;
+
+    @Autowired
+    private CommentReactionEnrichmentService reactionEnrichmentService;
 
     @Autowired
     private GetBatchReactionSummariesUseCase batchReactionSummariesUseCase;
@@ -330,7 +354,9 @@ class ScreenTitleDiscussionTransactionIntegrationTest {
     @Test
     @DisplayName("Core collaborator is Spring-proxied and Phase A commits/closes before Phase B starts")
     void coreReadsShareOneTransactionAndCommitBeforeSequentialReactionsBegin() throws SQLException {
-        assertThat(AopUtils.isAopProxy(coreReadService)).isTrue();
+        assertThat(AopUtils.isAopProxy(sharedCoreReadService)).isTrue();
+        assertThat(AopUtils.isAopProxy(coreReadService)).isFalse();
+        assertThat(AopUtils.isAopProxy(reactionEnrichmentService)).isFalse();
         assertThat(AopUtils.isAopProxy(coordinator)).isFalse();
         assertThat(AopUtils.isAopProxy(userIdentityContract)).isTrue();
         assertThat(AopUtils.isAopProxy(batchReactionSummariesUseCase)).isTrue();

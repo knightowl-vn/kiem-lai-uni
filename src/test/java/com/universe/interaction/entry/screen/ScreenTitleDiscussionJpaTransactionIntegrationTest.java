@@ -9,6 +9,8 @@ import com.universe.interaction.application.exceptions.CommentTargetNotEligibleE
 import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.entry.screen.dto.ScreenDiscussionFeedResponseDTO;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService;
 import com.universe.test.TestDatabaseSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -216,7 +218,13 @@ class ScreenTitleDiscussionJpaTransactionIntegrationTest {
     private PlatformTransactionManager transactionManager;
 
     @Autowired
+    private DiscussionCoreReadService sharedCoreReadService;
+
+    @Autowired
     private ScreenTitleDiscussionCoreReadService coreReadService;
+
+    @Autowired
+    private CommentReactionEnrichmentService reactionEnrichmentService;
 
     @Autowired
     private ScreenTitleDiscussionQueryCoordinator coordinator;
@@ -277,7 +285,9 @@ class ScreenTitleDiscussionJpaTransactionIntegrationTest {
     @DisplayName("Real JpaTransactionManager executes Phase A + Phase B in 2 sequential transactions and returns Server-Timing")
     void realJpaPopulatedFeedUsesTwoSequentialTransactionsAndPreservesContracts() throws Exception {
         assertThat(transactionManager).isInstanceOf(JpaTransactionManager.class);
-        assertThat(AopUtils.isAopProxy(coreReadService)).isTrue();
+        assertThat(AopUtils.isAopProxy(sharedCoreReadService)).isTrue();
+        assertThat(AopUtils.isAopProxy(coreReadService)).isFalse();
+        assertThat(AopUtils.isAopProxy(reactionEnrichmentService)).isFalse();
         assertThat(AopUtils.isAopProxy(coordinator)).isFalse();
 
         // Guest populated feed (NEWEST)
@@ -397,9 +407,11 @@ class ScreenTitleDiscussionJpaTransactionIntegrationTest {
         }).when(reactionRepositoryPort).countReactionsByTargetIdsGroupedByType(any(), any());
 
         Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
+        Logger reactionLogger = (Logger) LoggerFactory.getLogger(CommentReactionEnrichmentService.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         coordinatorLogger.addAppender(appender);
+        reactionLogger.addAppender(appender);
         try {
             JdbcProbeTracker.resetAll();
             ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(
@@ -435,6 +447,7 @@ class ScreenTitleDiscussionJpaTransactionIntegrationTest {
             assertThat(diagLogs.get(0)).contains("failed=true");
         } finally {
             coordinatorLogger.detachAppender(appender);
+            reactionLogger.detachAppender(appender);
             appender.stop();
         }
     }
