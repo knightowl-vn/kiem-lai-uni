@@ -350,8 +350,9 @@ class ScreenTitleDiscussionJpaTransactionIntegrationTest {
                 .isNotNull()
                 .contains("conn;dur=")
                 .contains("desc=\"2 acquisitions\"");
+        assertThat(JdbcProbeTracker.SQL_EXEC_COUNT.get()).isEqualTo(7);
 
-        // Authenticated MockMvc GET verifies AccountStatusFilter (1 acq) + Phase A (1 acq) + Phase B (1 acq) = 3 acquisitions
+        // Authenticated MockMvc GET verifies AccountStatusFilter (1 acq, 1 SQL) + Phase A (1 acq, 6 SQL) + Phase B (1 acq, 2 SQL) = 3 acquisitions, 9 SQL
         JdbcProbeTracker.resetAll();
         MvcResult authMvcResult = mockMvc.perform(get("/api/screen/titles/{titleId}/comments", publishedTitleId)
                         .with(SecurityMockMvcRequestPostProcessors.user("u_" + viewerId.toString().replace("-", "") + "@test.local").roles("USER"))
@@ -369,6 +370,7 @@ class ScreenTitleDiscussionJpaTransactionIntegrationTest {
                 .isNotNull()
                 .contains("conn;dur=")
                 .contains("desc=\"3 acquisitions\"");
+        assertThat(JdbcProbeTracker.SQL_EXEC_COUNT.get()).isEqualTo(9);
     }
 
     @Test

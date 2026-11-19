@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,15 +22,24 @@ import java.util.UUID;
  *
  * <p>Preserves clean architecture, ordering, and performance invariants:
  * <ul>
- *   <li>Executes at most 2 bulk queries (one for roots, one for replies), avoiding N+1 loops;</li>
+ *   <li>Executes at most 1 bulk statement returning active roots and replies from one snapshot, avoiding N+1 loops;</li>
  *   <li>Excludes deleted or non-root comments from root positions;</li>
- *   <li>Preserves target scope: comments belonging to another target cannot be returned;</li>
+ *   <li>Preserves target scope: comments belonging to another target cannot be returned as roots;</li>
  *   <li>Preserves standard root ordering ({@code createdAt DESC, id DESC}) and reply ordering ({@code createdAt ASC, id ASC});</li>
  *   <li>Delegates flat reply tombstone retention to {@link CommentThreadVisibilityResolver}.</li>
  * </ul>
  */
 @Service
 public class GetCommentThreadsByRootIdsUseCase {
+
+    // Compare canonical lowercase UUID string (CHAR(36)) to match MySQL utf8mb4_unicode_ci tie-breaking.
+    private static final Comparator<Comment> ROOT_ORDER = Comparator
+            .comparing(Comment::getCreatedAt, Comparator.reverseOrder())
+            .thenComparing(comment -> comment.getId().toString(), Comparator.reverseOrder());
+
+    private static final Comparator<Comment> REPLY_ORDER = Comparator
+            .comparing(Comment::getCreatedAt)
+            .thenComparing(comment -> comment.getId().toString());
 
     private final CommentRepositoryPort commentRepositoryPort;
     private final CommentThreadVisibilityResolver visibilityResolver;
@@ -61,26 +71,45 @@ public class GetCommentThreadsByRootIdsUseCase {
             return List.of();
         }
 
-        List<Comment> roots = commentRepositoryPort.findActiveRootsByIds(target, rootCommentIds);
-        if (roots.isEmpty()) {
+        List<Comment> comments = commentRepositoryPort.findActiveThreadCommentsByRootIds(target, rootCommentIds);
+        if (comments == null || comments.isEmpty()) {
             return List.of();
         }
 
-        List<UUID> activeRootIds = roots.stream()
-                .map(Comment::getId)
-                .toList();
-
-        List<Comment> allReplies = commentRepositoryPort.findThreadRepliesByRootIds(activeRootIds);
-
+        Map<UUID, Comment> activeRootsById = new LinkedHashMap<>();
         Map<UUID, List<Comment>> repliesByRootId = new LinkedHashMap<>();
-        for (Comment reply : allReplies) {
-            repliesByRootId.computeIfAbsent(reply.getThreadRootCommentId(), k -> new ArrayList<>())
-                    .add(reply);
+        for (Comment comment : comments) {
+            if (comment == null) {
+                continue;
+            }
+            if (comment.isRoot()) {
+                if (comment.isActive() && target.equals(comment.getTarget())) {
+                    activeRootsById.putIfAbsent(comment.getId(), comment);
+                }
+            } else {
+                UUID threadRootId = comment.getThreadRootCommentId();
+                if (threadRootId != null) {
+                    repliesByRootId.computeIfAbsent(threadRootId, k -> new ArrayList<>())
+                            .add(comment);
+                }
+            }
+        }
+
+        if (activeRootsById.isEmpty()) {
+            return List.of();
+        }
+
+        List<Comment> roots = new ArrayList<>(activeRootsById.values());
+        if (roots.size() > 1) {
+            roots.sort(ROOT_ORDER);
         }
 
         List<CommentThreadView> result = new ArrayList<>(roots.size());
         for (Comment root : roots) {
             List<Comment> threadReplies = repliesByRootId.getOrDefault(root.getId(), Collections.emptyList());
+            if (threadReplies.size() > 1) {
+                threadReplies.sort(REPLY_ORDER);
+            }
             List<CommentReadItem> visibleReplies = visibilityResolver.resolve(root, threadReplies);
             CommentReadItem rootItem = CommentReadItem.fromRoot(root);
             result.add(new CommentThreadView(rootItem, visibleReplies));

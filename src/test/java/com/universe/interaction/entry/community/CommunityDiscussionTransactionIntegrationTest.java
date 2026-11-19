@@ -350,6 +350,7 @@ class CommunityDiscussionTransactionIntegrationTest {
         assertThat(feed.roots().get(0).root().reactionSummary().totalCount()).isEqualTo(5L);
 
         // Negative assertions: never hydrates thread replies or reply authors
+        verify(commentRepositoryPort, never()).findActiveThreadCommentsByRootIds(any(), any());
         verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
         verify(commentRepositoryPort, never()).findThreadReplies(any());
         verify(commentRepositoryPort, never()).findActiveRootsByIds(any(), any());

@@ -453,13 +453,12 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
         // 1. SELECT exists on wiki_articles (Wiki publication check)
         // 2. SELECT countTargetMetrics on interaction_comments (Target metrics: threadCount & commentCount)
         // 3. SELECT findActiveRoots on interaction_comments (Root slice pagination, limit 21)
-        // 4. SELECT findActiveRootsByIds on interaction_comments (Batch load active roots)
-        // 5. SELECT findThreadRepliesByRootIds on interaction_comments (Batch load thread replies)
-        // 6. SELECT findPublicProfilesByIds on identity_users (Batch load author public profiles)
-        // 7. SELECT batch reaction counts on interaction_reactions (Batch load reaction summaries)
+        // 4. SELECT findActiveThreadCommentsByRootIds on interaction_comments (Atomic active roots + replies UNION ALL)
+        // 5. SELECT findPublicProfilesByIds on identity_users (Batch load author public profiles)
+        // 6. SELECT batch reaction counts on interaction_reactions (Batch load reaction summaries)
         assertThat(feedQueries)
-                .as("Wiki discussion feed must execute exactly 7 queries: 1 publication check + 1 metrics aggregate + 1 root slice + 2 batch thread queries + 1 batch author profile query + 1 batch reaction count query")
-                .isEqualTo(7);
+                .as("Wiki discussion feed must execute exactly 6 queries: 1 publication check + 1 metrics aggregate + 1 root slice + 1 atomic root/reply batch query + 1 batch author profile query + 1 batch reaction count query")
+                .isEqualTo(6);
 
         // --- PATH B: SINGLE THREAD READ ---
         StatementCounter.reset();

@@ -174,6 +174,43 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
     );
 
     /**
+     * Atomically revalidates active target-scoped roots and retrieves all replies belonging to those
+     * surviving roots in a single disjoint {@code UNION ALL} SQL statement.
+     */
+    @Query(value = """
+            (
+                SELECT r.id, r.target_type, r.target_id, r.author_user_id, r.parent_comment_id,
+                       r.thread_root_comment_id, r.body, r.status, r.created_at, r.updated_at,
+                       r.deleted_at, r.origin_screen_entry_id
+                FROM interaction_comments r
+                WHERE r.id IN (:ids)
+                  AND r.target_type = :targetType
+                  AND r.target_id = :targetId
+                  AND r.parent_comment_id IS NULL
+                  AND r.status = 'ACTIVE'
+            )
+            UNION ALL
+            (
+                SELECT c.id, c.target_type, c.target_id, c.author_user_id, c.parent_comment_id,
+                       c.thread_root_comment_id, c.body, c.status, c.created_at, c.updated_at,
+                       c.deleted_at, c.origin_screen_entry_id
+                FROM interaction_comments c
+                INNER JOIN interaction_comments r
+                    ON c.thread_root_comment_id = r.id
+                WHERE r.id IN (:ids)
+                  AND r.target_type = :targetType
+                  AND r.target_id = :targetId
+                  AND r.parent_comment_id IS NULL
+                  AND r.status = 'ACTIVE'
+            )
+            """, nativeQuery = true)
+    List<CommentJpaEntity> findActiveThreadCommentsByRootIds(
+            @Param("targetType") String targetType,
+            @Param("targetId") String targetId,
+            @Param("ids") Collection<String> ids
+    );
+
+    /**
      * Counts visible active replies grouped by thread root ID.
      *
      * <p>Excludes tombstones (DELETED replies) and non-reply records.

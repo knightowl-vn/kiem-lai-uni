@@ -111,6 +111,19 @@ public interface CommentRepositoryPort {
     List<Comment> findThreadRepliesByRootIds(Collection<UUID> threadRootCommentIds);
 
     /**
+     * Atomically revalidates active root comments matching the specified IDs for the given target
+     * and retrieves all replies belonging to those surviving roots in a single read operation.
+     *
+     * <p>Returned items contain both active roots and their thread replies (both ACTIVE and DELETED)
+     * observed from the same persistence statement snapshot.
+     *
+     * @param target target entity (cannot be null)
+     * @param rootCommentIds collection of root comment IDs to revalidate and hydrate
+     * @return list of active root and reply domain comments
+     */
+    List<Comment> findActiveThreadCommentsByRootIds(CommentTarget target, Collection<UUID> rootCommentIds);
+
+    /**
      * Counts visible active replies grouped by thread root ID.
      *
      * <p>Excludes tombstones and deleted replies.

@@ -332,8 +332,7 @@ class WikiArticleDiscussionTransactionIntegrationTest {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return new CommentSlice(List.of(root), 0, 20, false);
         });
-        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
         when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID))).thenAnswer(inv -> {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author One", null, "author_one"));

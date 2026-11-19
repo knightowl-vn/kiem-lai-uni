@@ -1,7 +1,12 @@
 package com.universe.interaction.infrastructure.persistence;
 
+import com.universe.interaction.application.exceptions.CommentThreadIntegrityException;
 import com.universe.interaction.application.ports.CommentSlice;
+import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentTargetMetrics;
+import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.CommentThreadVisibilityResolver;
+import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentStatus;
@@ -49,7 +54,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 })
 @Import({
         CommentPersistenceAdapter.class,
-        CommentPersistenceMapper.class
+        CommentPersistenceMapper.class,
+        CommentThreadVisibilityResolver.class,
+        GetCommentThreadsByRootIdsUseCase.class
 })
 @DisplayName("CommentPersistenceAdapter Real MySQL Integration Tests")
 class CommentPersistenceAdapterMySQLTest {
@@ -65,6 +72,12 @@ class CommentPersistenceAdapterMySQLTest {
 
     @Autowired
     private CommentPersistenceAdapter adapter;
+
+    @Autowired
+    private GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
+
+    @Autowired
+    private jakarta.persistence.EntityManager entityManager;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -1188,5 +1201,196 @@ class CommentPersistenceAdapterMySQLTest {
         CommentTargetMetrics novelMetrics = adapter.getMetricsForTarget(novelTarget);
         assertThat(novelMetrics.threadCount()).isZero();
         assertThat(novelMetrics.commentCount()).isZero();
+    }
+
+    // =========================================================================
+    // ATOMIC SINGLE-STATEMENT ROOT VALIDATION + REPLY HYDRATION (SHARED-OPT1B)
+    // =========================================================================
+
+    @Test
+    @DisplayName("Atomic UNION ALL maps all fields, keeps 0-reply roots, keeps tombstone ancestry, excludes other targets, and fails closed on corrupt cross-target reply")
+    void shouldHydrateActiveThreadCommentsAtomicallyWithFullIntegrityAndMapping() {
+        UUID titleId = UUID.randomUUID();
+        UUID otherTitleId = UUID.randomUUID();
+        CommentTarget screenTarget = CommentTarget.screenTitle(titleId);
+        CommentTarget otherTarget = CommentTarget.screenTitle(otherTitleId);
+        UUID authorA = UUID.randomUUID();
+        UUID authorB = UUID.randomUUID();
+        UUID originEntryId = UUID.randomUUID();
+        Instant t0 = Instant.parse("2026-11-19T10:00:00Z");
+
+        // Zero-reply root with high-hex UUID (> '8') and originScreenEntryId
+        UUID zeroReplyRootId = UUID.fromString("f0000000-0000-0000-0000-000000000001");
+        Comment zeroReplyRoot = adapter.save(Comment.createRoot(
+                zeroReplyRootId, screenTarget, authorA, "Zero-reply root", t0, originEntryId
+        ));
+
+        // Nested root with low-hex UUID (< '8') at same timestamp (tie-break test: f... DESC before 1...)
+        UUID nestedRootId = UUID.fromString("10000000-0000-0000-0000-000000000001");
+        Comment nestedRoot = adapter.save(Comment.createRoot(
+                nestedRootId, screenTarget, authorA, "Nested root", t0, null
+        ));
+
+        Comment tombstoneParent = adapter.save(Comment.createReply(
+                UUID.randomUUID(), nestedRoot, authorB, "Parent deleted later", t0.plusSeconds(1)
+        ));
+        Comment activeChild = adapter.save(Comment.createReply(
+                UUID.randomUUID(), tombstoneParent, authorA, "Active nested child", t0.plusSeconds(2)
+        ));
+        Comment deletedLeaf = adapter.save(Comment.createReply(
+                UUID.randomUUID(), nestedRoot, authorB, "Deleted leaf", t0.plusSeconds(3)
+        ));
+        tombstoneParent.delete(t0.plusSeconds(10));
+        adapter.save(tombstoneParent);
+        deletedLeaf.delete(t0.plusSeconds(11));
+        adapter.save(deletedLeaf);
+
+        // Deleted root + foreign-target root (must both be excluded)
+        Comment deletedRoot = adapter.save(Comment.createRoot(
+                UUID.randomUUID(), screenTarget, authorA, "Deleted root", t0.plusSeconds(4)
+        ));
+        deletedRoot.delete(t0.plusSeconds(12));
+        adapter.save(deletedRoot);
+
+        Comment foreignRoot = adapter.save(Comment.createRoot(
+                UUID.randomUUID(), otherTarget, authorA, "Foreign root", t0.plusSeconds(5)
+        ));
+        adapter.save(Comment.createReply(
+                UUID.randomUUID(), foreignRoot, authorB, "Foreign reply", t0.plusSeconds(6)
+        ));
+
+        List<Comment> rawBatch = adapter.findActiveThreadCommentsByRootIds(
+                screenTarget,
+                List.of(zeroReplyRootId, nestedRootId, zeroReplyRootId, deletedRoot.getId(), foreignRoot.getId())
+        );
+        // 2 active roots + 3 replies (tombstoneParent, activeChild, deletedLeaf) = 5 rows
+        assertThat(rawBatch).hasSize(5);
+
+        Comment reloadedDeletedLeaf = rawBatch.stream()
+                .filter(c -> c.getId().equals(deletedLeaf.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(reloadedDeletedLeaf.isDeleted()).isTrue();
+        assertThat(reloadedDeletedLeaf.getDeletedAt()).isEqualTo(t0.plusSeconds(11));
+        assertThat(reloadedDeletedLeaf.getBody()).isNull();
+
+        List<CommentThreadView> threads = getCommentThreadsByRootIdsUseCase.execute(
+                screenTarget,
+                List.of(nestedRootId, zeroReplyRootId, deletedRoot.getId(), foreignRoot.getId())
+        );
+        assertThat(threads).hasSize(2);
+        // Zero-reply root first due to CHAR(36) DESC tie-breaker ('f...' > '1...')
+        assertThat(threads.get(0).root().id()).isEqualTo(zeroReplyRoot.getId());
+        assertThat(threads.get(0).root().originScreenEntryId()).isEqualTo(originEntryId);
+        assertThat(threads.get(0).replies()).isEmpty();
+
+        assertThat(threads.get(1).root().id()).isEqualTo(nestedRoot.getId());
+        assertThat(threads.get(1).replies()).hasSize(2);
+        assertThat(threads.get(1).replies().get(0).id()).isEqualTo(tombstoneParent.getId());
+        assertThat(threads.get(1).replies().get(0).tombstone()).isTrue();
+        assertThat(threads.get(1).replies().get(0).replyToAuthorUserId()).isEqualTo(authorA);
+        assertThat(threads.get(1).replies().get(1).id()).isEqualTo(activeChild.getId());
+        assertThat(threads.get(1).replies().get(1).tombstone()).isFalse();
+        assertThat(threads.get(1).replies().get(1).replyToAuthorUserId()).isNull();
+
+        // Corrupt foreign-target reply under active root must still surface and fail closed
+        UUID corruptReplyId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO interaction_comments (id, target_type, target_id, author_user_id, parent_comment_id, thread_root_comment_id, body, status, created_at, updated_at, deleted_at, origin_screen_entry_id)
+                VALUES (?, 'WIKI_ARTICLE', ?, ?, ?, ?, 'Corrupt cross-target reply', 'ACTIVE', ?, ?, NULL, NULL)
+                """,
+                corruptReplyId.toString(),
+                otherTitleId.toString(),
+                authorB.toString(),
+                zeroReplyRootId.toString(),
+                zeroReplyRootId.toString(),
+                java.sql.Timestamp.from(t0.plusSeconds(7)),
+                java.sql.Timestamp.from(t0.plusSeconds(7))
+        );
+
+        assertThatThrownBy(() -> getCommentThreadsByRootIdsUseCase.execute(screenTarget, List.of(zeroReplyRootId)))
+                .isInstanceOf(CommentThreadIntegrityException.class);
+    }
+
+    @Test
+    @DisplayName("Real multi-TX READ COMMITTED: concurrent delete, moderator root+replies delete, concurrent edit, and same-EntityManager L1 delete safety")
+    void shouldMaintainConcurrencySafetyAcrossRealReadCommittedTransactions() {
+        UUID titleId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.screenTitle(titleId);
+        UUID authorId = UUID.randomUUID();
+        Instant t0 = Instant.parse("2026-11-19T12:00:00Z");
+
+        Comment survivingRoot = adapter.save(Comment.createRoot(UUID.randomUUID(), target, authorId, "Surviving initial", t0));
+        Comment leafRootToDelete = adapter.save(Comment.createRoot(UUID.randomUUID(), target, authorId, "Leaf root", t0.plusSeconds(1)));
+        Comment moderatedRoot = adapter.save(Comment.createRoot(UUID.randomUUID(), target, authorId, "Moderated root", t0.plusSeconds(2)));
+        Comment moderatedReply = adapter.save(Comment.createReply(UUID.randomUUID(), moderatedRoot, authorId, "Moderated reply", t0.plusSeconds(3)));
+
+        TransactionTemplate readCommittedTx = new TransactionTemplate(transactionManager);
+        readCommittedTx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        readCommittedTx.setReadOnly(true);
+
+        TransactionTemplate writeTx = new TransactionTemplate(transactionManager);
+        writeTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        writeTx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+
+        // 1. Concurrent edits + deletes executed in a separate committed TX between slice query and thread query
+        List<CommentThreadView> resultAfterSeparateDeletes = readCommittedTx.execute(status -> {
+            // Simulate initial slice read in same EntityManager (loads survivingRoot, leafRootToDelete, moderatedRoot into L1!)
+            CommentSlice slice = adapter.findActiveRoots(target, CommentSortMode.NEWEST, 0, 20);
+            assertThat(slice.items()).hasSize(3);
+
+            // External writer commits concurrently on a separate REQUIRES_NEW DB connection:
+            writeTx.executeWithoutResult(wStatus -> {
+                // a) Author hard-deletes leafRootToDelete
+                jdbcTemplate.update("DELETE FROM interaction_comments WHERE id = ?", leafRootToDelete.getId().toString());
+                // b) Moderator atomically deletes moderatedRoot + moderatedReply
+                jdbcTemplate.update(
+                        "DELETE FROM interaction_comments WHERE id IN (?, ?)",
+                        moderatedReply.getId().toString(),
+                        moderatedRoot.getId().toString()
+                );
+                // c) Author adds a new reply to survivingRoot and edits survivingRoot
+                jdbcTemplate.update(
+                        "UPDATE interaction_comments SET body = 'Surviving edited', updated_at = ? WHERE id = ?",
+                        java.sql.Timestamp.from(t0.plusSeconds(20)),
+                        survivingRoot.getId().toString()
+                );
+                jdbcTemplate.update(
+                        """
+                        INSERT INTO interaction_comments (id, target_type, target_id, author_user_id, parent_comment_id, thread_root_comment_id, body, status, created_at, updated_at, deleted_at, origin_screen_entry_id)
+                        VALUES (?, 'SCREEN_TITLE', ?, ?, ?, ?, 'Concurrent new reply', 'ACTIVE', ?, ?, NULL, NULL)
+                        """,
+                        UUID.randomUUID().toString(),
+                        titleId.toString(),
+                        authorId.toString(),
+                        survivingRoot.getId().toString(),
+                        survivingRoot.getId().toString(),
+                        java.sql.Timestamp.from(t0.plusSeconds(21)),
+                        java.sql.Timestamp.from(t0.plusSeconds(21))
+                );
+            });
+
+            // Within same EntityManager under READ COMMITTED: deleted roots are NOT in JDBC ResultSet so L1 does NOT resurrect them!
+            return getCommentThreadsByRootIdsUseCase.execute(
+                    target,
+                    List.of(moderatedRoot.getId(), leafRootToDelete.getId(), survivingRoot.getId())
+            );
+        });
+
+        assertThat(resultAfterSeparateDeletes).hasSize(1);
+        assertThat(resultAfterSeparateDeletes.get(0).root().id()).isEqualTo(survivingRoot.getId());
+        assertThat(resultAfterSeparateDeletes.get(0).replies())
+                .extracting(CommentReadItem::body)
+                .containsExactly("Concurrent new reply");
+
+        // Fresh EntityManager in next READ COMMITTED transaction observes edited root body too
+        entityManager.clear();
+        List<CommentThreadView> freshTxResult = readCommittedTx.execute(status ->
+                getCommentThreadsByRootIdsUseCase.execute(target, List.of(survivingRoot.getId()))
+        );
+        assertThat(freshTxResult).hasSize(1);
+        assertThat(freshTxResult.get(0).root().body()).isEqualTo("Surviving edited");
+        assertThat(freshTxResult.get(0).replies()).hasSize(1);
     }
 }

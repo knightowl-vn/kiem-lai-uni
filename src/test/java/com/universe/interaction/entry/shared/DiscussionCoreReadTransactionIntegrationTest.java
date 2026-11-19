@@ -281,8 +281,7 @@ class DiscussionCoreReadTransactionIntegrationTest {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return new CommentSlice(List.of(root), 0, 20, false);
         });
-        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
         when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID))).thenAnswer(inv -> {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author", null, "author"));
@@ -443,13 +442,12 @@ class DiscussionCoreReadTransactionIntegrationTest {
         List<String> coreTxNames = new ArrayList<>();
         List<Boolean> coreReadOnlyFlags = new ArrayList<>();
 
-        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenAnswer(inv -> {
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_ID))).thenAnswer(inv -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
             coreReadOnlyFlags.add(TransactionSynchronizationManager.isCurrentTransactionReadOnly());
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return List.of(root);
         });
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
         when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID))).thenAnswer(inv -> {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author", null, "author"));
@@ -534,6 +532,7 @@ class DiscussionCoreReadTransactionIntegrationTest {
 
         assertThat(feedResult.commentCount()).isEqualTo(3L);
         assertThat(feedResult.replyCountsByRootId()).containsEntry(ROOT_ID, 2L);
+        verify(commentRepositoryPort, never()).findActiveThreadCommentsByRootIds(any(), any());
         verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
         verify(commentRepositoryPort, never()).findThreadReplies(any());
         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();

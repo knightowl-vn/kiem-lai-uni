@@ -57,6 +57,7 @@ class GetCommentThreadsByRootIdsUseCaseTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("CommentTarget cannot be null.");
 
+        verify(commentRepositoryPort, never()).findActiveThreadCommentsByRootIds(any(), any());
         verify(commentRepositoryPort, never()).findActiveRootsByIds(any(), any());
         verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
     }
@@ -68,6 +69,7 @@ class GetCommentThreadsByRootIdsUseCaseTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Root comment IDs collection cannot be null.");
 
+        verify(commentRepositoryPort, never()).findActiveThreadCommentsByRootIds(any(), any());
         verify(commentRepositoryPort, never()).findActiveRootsByIds(any(), any());
         verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
     }
@@ -78,6 +80,7 @@ class GetCommentThreadsByRootIdsUseCaseTest {
         List<CommentThreadView> result = useCase.execute(TARGET, Collections.emptyList());
 
         assertThat(result).isNotNull().isEmpty();
+        verify(commentRepositoryPort, never()).findActiveThreadCommentsByRootIds(any(), any());
         verify(commentRepositoryPort, never()).findActiveRootsByIds(any(), any());
         verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
     }
@@ -85,19 +88,20 @@ class GetCommentThreadsByRootIdsUseCaseTest {
     @Test
     @DisplayName("Should return empty list when none of the requested roots exist or are active")
     void shouldReturnEmptyListWhenNoRootsFound() {
-        when(commentRepositoryPort.findActiveRootsByIds(TARGET, List.of(ROOT_1_ID)))
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(TARGET, List.of(ROOT_1_ID)))
                 .thenReturn(Collections.emptyList());
 
         List<CommentThreadView> result = useCase.execute(TARGET, List.of(ROOT_1_ID));
 
         assertThat(result).isNotNull().isEmpty();
-        verify(commentRepositoryPort).findActiveRootsByIds(TARGET, List.of(ROOT_1_ID));
+        verify(commentRepositoryPort).findActiveThreadCommentsByRootIds(TARGET, List.of(ROOT_1_ID));
+        verify(commentRepositoryPort, never()).findActiveRootsByIds(any(), any());
         verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
         verify(visibilityResolver, never()).resolve(any(), any());
     }
 
     @Test
-    @DisplayName("Should load root threads and query replies in exactly one batch query")
+    @DisplayName("Should load root threads and replies in a single batch query with deterministic SQL-equivalent ordering")
     void shouldLoadThreadsAndRepliesInBatch() {
         Comment root1 = Comment.createRoot(ROOT_1_ID, TARGET, AUTHOR_1, "Root 1", T1);
         Comment root2 = Comment.createRoot(ROOT_2_ID, TARGET, AUTHOR_2, "Root 2", T0);
@@ -110,10 +114,9 @@ class GetCommentThreadsByRootIdsUseCaseTest {
         CommentReadItem itemReply1 = CommentReadItem.fromActiveReply(reply1, AUTHOR_1);
         CommentReadItem itemReply2 = CommentReadItem.fromActiveReply(reply2, AUTHOR_2);
 
-        when(commentRepositoryPort.findActiveRootsByIds(TARGET, List.of(ROOT_1_ID, ROOT_2_ID)))
-                .thenReturn(List.of(root1, root2));
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_1_ID, ROOT_2_ID)))
-                .thenReturn(List.of(reply1, reply2));
+        // Return in arbitrary UNION ALL order to confirm deterministic partitioning and sorting
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(TARGET, List.of(ROOT_1_ID, ROOT_2_ID)))
+                .thenReturn(List.of(reply2, root2, root1, reply1));
 
         when(visibilityResolver.resolve(root1, List.of(reply1))).thenReturn(List.of(itemReply1));
         when(visibilityResolver.resolve(root2, List.of(reply2))).thenReturn(List.of(itemReply2));
@@ -122,22 +125,51 @@ class GetCommentThreadsByRootIdsUseCaseTest {
 
         assertThat(threads).hasSize(2);
 
-        // Thread 1
+        // Thread 1 (newer createdAt T1 comes first)
         assertThat(threads.get(0).getRoot().getId()).isEqualTo(ROOT_1_ID);
         assertThat(threads.get(0).getRoot().getBody()).isEqualTo("Root 1");
         assertThat(threads.get(0).getReplies()).hasSize(1);
         assertThat(threads.get(0).getReplies().get(0).getId()).isEqualTo(reply1Id);
 
-        // Thread 2
+        // Thread 2 (older createdAt T0 comes second)
         assertThat(threads.get(1).getRoot().getId()).isEqualTo(ROOT_2_ID);
         assertThat(threads.get(1).getRoot().getBody()).isEqualTo("Root 2");
         assertThat(threads.get(1).getReplies()).hasSize(1);
         assertThat(threads.get(1).getReplies().get(0).getId()).isEqualTo(reply2Id);
 
-        verify(commentRepositoryPort).findActiveRootsByIds(TARGET, List.of(ROOT_1_ID, ROOT_2_ID));
-        verify(commentRepositoryPort).findThreadRepliesByRootIds(List.of(ROOT_1_ID, ROOT_2_ID));
+        verify(commentRepositoryPort).findActiveThreadCommentsByRootIds(TARGET, List.of(ROOT_1_ID, ROOT_2_ID));
+        verify(commentRepositoryPort, never()).findActiveRootsByIds(any(), any());
+        verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
         verify(visibilityResolver).resolve(root1, List.of(reply1));
         verify(visibilityResolver).resolve(root2, List.of(reply2));
+    }
+
+    @Test
+    @DisplayName("Should tie-break equal-timestamp roots (DESC) and replies (ASC) using CHAR(36) hex string order, not signed UUID.compareTo")
+    void shouldTieBreakEqualTimestampsUsingStringUuidOrder() {
+        UUID lowHexId = UUID.fromString("10000000-0000-0000-0000-000000000001");
+        UUID highHexId = UUID.fromString("f0000000-0000-0000-0000-000000000001");
+        Comment lowRoot = Comment.createRoot(lowHexId, TARGET, AUTHOR_1, "Low hex", T0);
+        Comment highRoot = Comment.createRoot(highHexId, TARGET, AUTHOR_2, "High hex", T0);
+
+        UUID lowReplyId = UUID.fromString("20000000-0000-0000-0000-000000000001");
+        UUID highReplyId = UUID.fromString("e0000000-0000-0000-0000-000000000001");
+        Comment lowReply = Comment.createReply(lowReplyId, highRoot, AUTHOR_1, "Low reply", T1);
+        Comment highReply = Comment.createReply(highReplyId, highRoot, AUTHOR_2, "High reply", T1);
+
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(TARGET, List.of(lowHexId, highHexId)))
+                .thenReturn(List.of(lowRoot, highReply, highRoot, lowReply));
+        when(visibilityResolver.resolve(highRoot, List.of(lowReply, highReply)))
+                .thenReturn(List.of(
+                        CommentReadItem.fromActiveReply(lowReply, AUTHOR_2),
+                        CommentReadItem.fromActiveReply(highReply, AUTHOR_2)
+                ));
+        when(visibilityResolver.resolve(lowRoot, Collections.emptyList())).thenReturn(Collections.emptyList());
+
+        List<CommentThreadView> threads = useCase.execute(TARGET, List.of(lowHexId, highHexId));
+
+        assertThat(threads).extracting(tv -> tv.getRoot().getId()).containsExactly(highHexId, lowHexId);
+        verify(visibilityResolver).resolve(highRoot, List.of(lowReply, highReply));
     }
 
     @Test
@@ -145,10 +177,8 @@ class GetCommentThreadsByRootIdsUseCaseTest {
     void shouldHandleRootsWithNoReplies() {
         Comment root1 = Comment.createRoot(ROOT_1_ID, TARGET, AUTHOR_1, "Root without replies", T0);
 
-        when(commentRepositoryPort.findActiveRootsByIds(TARGET, List.of(ROOT_1_ID)))
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(TARGET, List.of(ROOT_1_ID)))
                 .thenReturn(List.of(root1));
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_1_ID)))
-                .thenReturn(Collections.emptyList());
         when(visibilityResolver.resolve(root1, Collections.emptyList())).thenReturn(Collections.emptyList());
 
         List<CommentThreadView> threads = useCase.execute(TARGET, List.of(ROOT_1_ID));

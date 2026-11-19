@@ -187,6 +187,34 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
     }
 
     @Override
+    public List<Comment> findActiveThreadCommentsByRootIds(CommentTarget target, Collection<UUID> rootCommentIds) {
+        if (target == null) {
+            throw new IllegalArgumentException("CommentTarget cannot be null.");
+        }
+        if (rootCommentIds == null || rootCommentIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> idStrings = rootCommentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .distinct()
+                .toList();
+        if (idStrings.isEmpty()) {
+            return List.of();
+        }
+
+        List<CommentJpaEntity> entities = repository.findActiveThreadCommentsByRootIds(
+                target.type().name(),
+                target.targetId().toString(),
+                idStrings
+        );
+        return entities.stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
+
+    @Override
     public Map<UUID, Long> countActiveRepliesByThreadRootIds(Collection<UUID> threadRootCommentIds) {
         if (threadRootCommentIds == null || threadRootCommentIds.isEmpty()) {
             return Map.of();

@@ -363,8 +363,7 @@ class NovelDiscussionTransactionIntegrationTest {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return new CommentSlice(List.of(root), 0, 20, false);
         });
-        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
         when(anchorRepositoryPort.findByRootCommentIds(List.of(ROOT_ID))).thenAnswer(inv -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
             coreReadOnlyFlags.add(TransactionSynchronizationManager.isCurrentTransactionReadOnly());
@@ -436,11 +435,10 @@ class NovelDiscussionTransactionIntegrationTest {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return List.of(anchor);
         });
-        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenAnswer(inv -> {
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_ID))).thenAnswer(inv -> {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return List.of(root);
         });
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
         when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID))).thenAnswer(inv -> {
             coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author One", null, "author_one"));
@@ -482,8 +480,7 @@ class NovelDiscussionTransactionIntegrationTest {
 
         when(commentRepositoryPort.findActiveRoots(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentSlice(List.of(root), 0, 20, false));
-        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
         when(anchorRepositoryPort.findByRootCommentIds(List.of(ROOT_ID))).thenReturn(List.of(anchor));
         when(anchorRepositoryPort.findByChapterId(CHAPTER_ID)).thenReturn(List.of(anchor));
         when(resolutionSourcePort.loadCurrent(CHAPTER_ID)).thenReturn(snapshot);
@@ -505,8 +502,7 @@ class NovelDiscussionTransactionIntegrationTest {
         setUp();
         when(resolutionSourcePort.loadCurrent(CHAPTER_ID)).thenReturn(snapshot);
         when(anchorRepositoryPort.findByChapterId(CHAPTER_ID)).thenReturn(List.of(anchor));
-        when(commentRepositoryPort.findActiveRootsByIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
-        when(commentRepositoryPort.findThreadRepliesByRootIds(List.of(ROOT_ID))).thenReturn(List.of());
+        when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_ID))).thenReturn(List.of(root));
         when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID)))
                 .thenReturn(Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author One", null, "author_one")));
         when(reactionRepositoryPort.countReactionsByTargetIdsGroupedByType(ReactionTargetType.COMMENT, Set.of(ROOT_ID)))
