@@ -7,11 +7,13 @@ import com.universe.screen.contracts.dto.ScreenTitleNavigationDTO;
 import com.universe.screen.contracts.dto.ScreenTitleReportTargetDTO;
 import com.universe.screen.contracts.interfaces.ScreenDiscussionContract;
 import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
 import com.universe.screen.domain.ScreenTitle;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -88,6 +90,41 @@ public class ScreenDiscussionContractAdapter implements ScreenDiscussionContract
     }
 
     @Override
+    public Map<UUID, ScreenEntryOriginDTO> findPublishedEntryOriginsByTitleIdAndEntryIds(
+            UUID titleId,
+            Set<UUID> entryIds
+    ) {
+        if (titleId == null || entryIds == null || entryIds.isEmpty()) {
+            return Map.of();
+        }
+        Set<UUID> cleanIds = new LinkedHashSet<>();
+        for (UUID entryId : entryIds) {
+            if (entryId != null) {
+                cleanIds.add(entryId);
+            }
+        }
+        if (cleanIds.isEmpty()) {
+            return Map.of();
+        }
+        List<ScreenEntryRepositoryPort.PublishedEntryOrigin> publishedOrigins =
+                screenEntryRepositoryPort.findPublishedEntryOriginsByTitleIdAndEntryIds(titleId, cleanIds);
+        if (publishedOrigins == null || publishedOrigins.isEmpty()) {
+            return Map.of();
+        }
+        return publishedOrigins.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toUnmodifiableMap(
+                        ScreenEntryRepositoryPort.PublishedEntryOrigin::id,
+                        origin -> new ScreenEntryOriginDTO(
+                                origin.id(),
+                                origin.slug(),
+                                formatEntryBadge(origin.type(), origin.number())
+                        ),
+                        (existing, replacement) -> existing
+                ));
+    }
+
+    @Override
     public Map<UUID, ScreenTitleReportTargetDTO> findReportTargetTitlesByIds(Set<UUID> titleIds) {
         if (titleIds == null || titleIds.isEmpty()) {
             return Map.of();
@@ -150,14 +187,21 @@ public class ScreenDiscussionContractAdapter implements ScreenDiscussionContract
     }
 
     public static String formatEntryBadge(ScreenEntry entry) {
-        if (entry == null || entry.getType() == null) {
+        if (entry == null) {
             return "";
         }
-        return switch (entry.getType()) {
-            case EPISODE -> "Tập " + (entry.getNumber() != null ? entry.getNumber() : "");
+        return formatEntryBadge(entry.getType(), entry.getNumber());
+    }
+
+    public static String formatEntryBadge(ScreenEntryType type, Integer number) {
+        if (type == null) {
+            return "";
+        }
+        return switch (type) {
+            case EPISODE -> "Tập " + (number != null ? number : "");
             case FEATURE -> "Bản chiếu chính";
-            case SPECIAL -> entry.getNumber() != null ? "Ngoại truyện " + entry.getNumber() : "Ngoại truyện";
-            case TRAILER -> entry.getNumber() != null ? "Trailer " + entry.getNumber() : "Trailer";
+            case SPECIAL -> number != null ? "Ngoại truyện " + number : "Ngoại truyện";
+            case TRAILER -> number != null ? "Trailer " + number : "Trailer";
         };
     }
 }

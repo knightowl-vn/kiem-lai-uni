@@ -192,6 +192,38 @@ class ScreenDiscussionContractAdapterTest {
     }
 
     @Test
+    @DisplayName("findPublishedEntryOriginsByTitleIdAndEntryIds should map lightweight projections and short-circuit empty inputs")
+    void findPublishedEntryOriginsByTitleIdAndEntryIdsShouldMapAndShortCircuit() {
+        UUID ep1Id = UUID.randomUUID();
+        UUID featId = UUID.randomUUID();
+        UUID spId = UUID.randomUUID();
+        UUID trId = UUID.randomUUID();
+        Set<UUID> requestedIds = Set.of(ep1Id, featId, spId, trId);
+
+        when(entryRepositoryPort.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, requestedIds))
+                .thenReturn(List.of(
+                        new ScreenEntryRepositoryPort.PublishedEntryOrigin(ep1Id, "tap-1", ScreenEntryType.EPISODE, 1),
+                        new ScreenEntryRepositoryPort.PublishedEntryOrigin(featId, "ban-chieu-chinh", ScreenEntryType.FEATURE, null),
+                        new ScreenEntryRepositoryPort.PublishedEntryOrigin(spId, "ngoai-truyen-1", ScreenEntryType.SPECIAL, 1),
+                        new ScreenEntryRepositoryPort.PublishedEntryOrigin(trId, "trailer-1", ScreenEntryType.TRAILER, 1)
+                ));
+
+        Map<UUID, ScreenEntryOriginDTO> origins =
+                adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, requestedIds);
+
+        assertThat(origins).hasSize(4);
+        assertThat(origins.get(ep1Id)).isEqualTo(new ScreenEntryOriginDTO(ep1Id, "tap-1", "Tập 1"));
+        assertThat(origins.get(featId)).isEqualTo(new ScreenEntryOriginDTO(featId, "ban-chieu-chinh", "Bản chiếu chính"));
+        assertThat(origins.get(spId)).isEqualTo(new ScreenEntryOriginDTO(spId, "ngoai-truyen-1", "Ngoại truyện 1"));
+        assertThat(origins.get(trId)).isEqualTo(new ScreenEntryOriginDTO(trId, "trailer-1", "Trailer 1"));
+
+        assertThat(adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(null, requestedIds)).isEmpty();
+        assertThat(adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, null)).isEmpty();
+        assertThat(adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, Set.of())).isEmpty();
+        verify(entryRepositoryPort).findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, requestedIds);
+    }
+
+    @Test
     @DisplayName("findReportTargetTitlesByIds should map title targets for report queue")
     void findReportTargetTitlesByIdsShouldMapTargets() {
         ScreenTitle title = createTitle(TITLE_ID, "kiem-lai", ScreenPublicationStatus.PUBLISHED);

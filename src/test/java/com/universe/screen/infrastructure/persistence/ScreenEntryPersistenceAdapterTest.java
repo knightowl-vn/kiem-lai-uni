@@ -520,4 +520,36 @@ class ScreenEntryPersistenceAdapterTest {
         );
         assertThat(adapter.findEntryVideoBindingsByTitleIdCurrentRead(null)).isEmpty();
     }
+
+    @Test
+    @DisplayName("PersistenceAdapter: findPublishedEntryOriginsByTitleIdAndEntryIds maps lightweight scalar rows and skips empty inputs")
+    void shouldMapLightweightPublishedEntryOriginsAndSkipEmptyInputs() {
+        UUID entry1Id = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID entry2Id = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
+        when(repository.findPublishedEntryOriginsByTitleIdAndEntryIds(
+                titleId.toString(),
+                List.of(entry1Id.toString(), entry2Id.toString())
+        )).thenReturn(List.of(
+                new Object[]{entry1Id.toString(), "tap-1", "EPISODE", 1},
+                new Object[]{entry2Id.toString(), "ban-chieu-chinh", "FEATURE", null}
+        ));
+
+        List<UUID> inputWithDuplicateAndNull = java.util.Arrays.asList(entry1Id, null, entry1Id, entry2Id);
+        List<ScreenEntryRepositoryPort.PublishedEntryOrigin> origins =
+                adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(titleId, inputWithDuplicateAndNull);
+
+        assertThat(origins).containsExactly(
+                new ScreenEntryRepositoryPort.PublishedEntryOrigin(entry1Id, "tap-1", ScreenEntryType.EPISODE, 1),
+                new ScreenEntryRepositoryPort.PublishedEntryOrigin(entry2Id, "ban-chieu-chinh", ScreenEntryType.FEATURE, null)
+        );
+
+        assertThat(adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(null, List.of(entry1Id))).isEmpty();
+        assertThat(adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(titleId, List.of())).isEmpty();
+        assertThat(adapter.findPublishedEntryOriginsByTitleIdAndEntryIds(titleId, Collections.singletonList(null))).isEmpty();
+        verify(repository).findPublishedEntryOriginsByTitleIdAndEntryIds(
+                titleId.toString(),
+                List.of(entry1Id.toString(), entry2Id.toString())
+        );
+    }
 }

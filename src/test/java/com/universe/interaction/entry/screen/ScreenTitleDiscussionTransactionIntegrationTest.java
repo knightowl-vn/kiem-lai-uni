@@ -383,11 +383,12 @@ class ScreenTitleDiscussionTransactionIntegrationTest {
             txNamesObserved.add(TransactionSynchronizationManager.getCurrentTransactionName());
             return new CommentSlice(List.of(root), 0, 20, false);
         });
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenAnswer(inv -> {
-            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
-            txNamesObserved.add(TransactionSynchronizationManager.getCurrentTransactionName());
-            return Map.of(ENTRY_1_ID, new ScreenEntryOriginDTO(ENTRY_1_ID, "tap-1", "Tập 1"));
-        });
+        when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, Set.of(ENTRY_1_ID)))
+                .thenAnswer(inv -> {
+                    assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+                    txNamesObserved.add(TransactionSynchronizationManager.getCurrentTransactionName());
+                    return Map.of(ENTRY_1_ID, new ScreenEntryOriginDTO(ENTRY_1_ID, "tap-1", "Tập 1"));
+                });
         when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_1_ID))).thenReturn(List.of(root));
         when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_1_ID))).thenAnswer(inv -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
@@ -454,7 +455,6 @@ class ScreenTitleDiscussionTransactionIntegrationTest {
         when(commentRepositoryPort.getMetricsForTarget(target)).thenReturn(new CommentTargetMetrics(1, 1));
         when(commentRepositoryPort.findActiveRoots(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentSlice(List.of(root), 0, 20, false));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
         when(commentRepositoryPort.findActiveThreadCommentsByRootIds(target, List.of(ROOT_1_ID))).thenReturn(List.of(root));
         when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                 .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));

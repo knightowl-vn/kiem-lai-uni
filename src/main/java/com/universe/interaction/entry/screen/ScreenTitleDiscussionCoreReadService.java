@@ -3,6 +3,7 @@ package com.universe.interaction.entry.screen;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
+import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -84,7 +86,7 @@ public class ScreenTitleDiscussionCoreReadService {
             throw new IllegalArgumentException("titleId cannot be null");
         }
 
-        CoreThreadedFeedResult<Map<UUID, ScreenEntryOriginDTO>> core = discussionCoreReadService.readThreadedFeed(
+        CoreThreadedFeedResult<Map<UUID, ScreenEntryOriginDTO>> core = discussionCoreReadService.readThreadedFeedForSurvivingThreads(
                 CommentTarget.screenTitle(titleId),
                 page,
                 size,
@@ -96,7 +98,11 @@ public class ScreenTitleDiscussionCoreReadService {
                         throw new CommentTargetNotEligibleException("ScreenTitle is not published: " + titleId);
                     }
                 },
-                () -> screenDiscussionContract.findPublishedEntryOriginsByTitleId(titleId)
+                (survivingRootIds, threadViewsByRootId) -> loadPublishedOriginsForIds(
+                        screenDiscussionContract,
+                        titleId,
+                        collectVisibleOriginEntryIds(survivingRootIds, threadViewsByRootId)
+                )
         );
 
         DiscussionCoreReadService.CoreStageTimings sharedTimings = core.timings();
@@ -127,6 +133,63 @@ public class ScreenTitleDiscussionCoreReadService {
                 core.authorsMap(),
                 screenTimings
         );
+    }
+
+    static Set<UUID> collectVisibleOriginEntryIds(
+            List<UUID> survivingRootIds,
+            Map<UUID, CommentThreadView> threadViewsByRootId
+    ) {
+        if (survivingRootIds == null || survivingRootIds.isEmpty()
+                || threadViewsByRootId == null || threadViewsByRootId.isEmpty()) {
+            return Set.of();
+        }
+        Set<UUID> originIds = new LinkedHashSet<>();
+        for (UUID rootId : survivingRootIds) {
+            if (rootId == null) {
+                continue;
+            }
+            appendVisibleOriginEntryIds(threadViewsByRootId.get(rootId), originIds);
+        }
+        return originIds.isEmpty() ? Set.of() : Collections.unmodifiableSet(originIds);
+    }
+
+    static Set<UUID> collectVisibleOriginEntryIds(CommentThreadView threadView) {
+        if (threadView == null) {
+            return Set.of();
+        }
+        Set<UUID> originIds = new LinkedHashSet<>();
+        appendVisibleOriginEntryIds(threadView, originIds);
+        return originIds.isEmpty() ? Set.of() : Collections.unmodifiableSet(originIds);
+    }
+
+    static Map<UUID, ScreenEntryOriginDTO> loadPublishedOriginsForIds(
+            ScreenDiscussionContract screenDiscussionContract,
+            UUID titleId,
+            Set<UUID> originEntryIds
+    ) {
+        if (originEntryIds == null || originEntryIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, ScreenEntryOriginDTO> loaded =
+                screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(titleId, originEntryIds);
+        return (loaded != null) ? loaded : Map.of();
+    }
+
+    private static void appendVisibleOriginEntryIds(CommentThreadView threadView, Set<UUID> originIds) {
+        if (threadView == null) {
+            return;
+        }
+        CommentReadItem root = threadView.root();
+        if (root != null && !root.tombstone() && root.originScreenEntryId() != null) {
+            originIds.add(root.originScreenEntryId());
+        }
+        if (threadView.replies() != null) {
+            for (CommentReadItem reply : threadView.replies()) {
+                if (reply != null && !reply.tombstone() && reply.originScreenEntryId() != null) {
+                    originIds.add(reply.originScreenEntryId());
+                }
+            }
+        }
     }
 
     public record CoreStageTimings(

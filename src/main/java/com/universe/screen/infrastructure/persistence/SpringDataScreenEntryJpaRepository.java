@@ -30,6 +30,19 @@ public interface SpringDataScreenEntryJpaRepository extends JpaRepository<Screen
     List<ScreenEntryJpaEntity> findPublishedByTitleId(@Param("titleId") String titleId);
 
     @Query("""
+            SELECT e.id, e.slug, e.type, e.number
+            FROM ScreenEntryJpaEntity e
+            WHERE e.titleId = :titleId
+              AND e.status = 'PUBLISHED'
+              AND e.id IN :entryIds
+            ORDER BY e.id ASC
+            """)
+    List<Object[]> findPublishedEntryOriginsByTitleIdAndEntryIds(
+            @Param("titleId") String titleId,
+            @Param("entryIds") java.util.Collection<String> entryIds
+    );
+
+    @Query("""
             SELECT e FROM ScreenEntryJpaEntity e
             WHERE e.titleId = :titleId
               AND e.status = 'PUBLISHED'

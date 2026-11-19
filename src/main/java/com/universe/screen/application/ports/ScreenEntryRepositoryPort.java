@@ -1,9 +1,14 @@
 package com.universe.screen.application.ports;
 
 import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
 
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -49,11 +54,52 @@ public interface ScreenEntryRepositoryPort {
     }
 
     /**
+     * Lightweight scalar projection containing only fields needed to format public comment origin badges.
+     */
+    record PublishedEntryOrigin(
+            UUID id,
+            String slug,
+            ScreenEntryType type,
+            Integer number
+    ) {
+        public PublishedEntryOrigin {
+            Objects.requireNonNull(id, "id cannot be null.");
+            Objects.requireNonNull(type, "type cannot be null.");
+        }
+    }
+
+    /**
      * Generic retrieval of published entries for a title (excludes DRAFT and ARCHIVED).
      * NOTE: GENERIC ENTRY ORDER != PUBLIC NAVIGATION ORDER.
      * Total order is deterministic by id ASC only.
      */
     List<ScreenEntry> findPublishedByTitleId(UUID titleId);
+
+    /**
+     * Retrieves lightweight origin metadata strictly for published entries belonging to {@code titleId}
+     * whose IDs appear in {@code entryIds}.
+     */
+    default List<PublishedEntryOrigin> findPublishedEntryOriginsByTitleIdAndEntryIds(
+            UUID titleId,
+            Collection<UUID> entryIds
+    ) {
+        if (titleId == null || entryIds == null || entryIds.isEmpty()) {
+            return List.of();
+        }
+        Set<UUID> requestedIds = new LinkedHashSet<>();
+        for (UUID entryId : entryIds) {
+            if (entryId != null) {
+                requestedIds.add(entryId);
+            }
+        }
+        if (requestedIds.isEmpty()) {
+            return List.of();
+        }
+        return findPublishedByTitleId(titleId).stream()
+                .filter(entry -> entry != null && requestedIds.contains(entry.getId()))
+                .map(entry -> new PublishedEntryOrigin(entry.getId(), entry.getSlug(), entry.getType(), entry.getNumber()))
+                .toList();
+    }
 
     /**
      * Executes an InnoDB locking current-read returning authoritative scalar

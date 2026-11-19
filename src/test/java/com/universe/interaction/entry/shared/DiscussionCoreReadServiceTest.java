@@ -293,6 +293,66 @@ class DiscussionCoreReadServiceTest {
     }
 
     @Test
+    @DisplayName("Surviving-threads attachment loader receives surviving root IDs and thread views, and is skipped when empty")
+    void shouldLoadPostThreadsAttachmentWithSurvivingThreadViews() {
+        CommentTarget target = CommentTarget.screenTitle(TARGET_ID);
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1", NOW);
+        Comment root2 = Comment.createRoot(ROOT_2_ID, target, AUTHOR_1_ID, "Root 2", NOW.plusSeconds(1));
+        CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
+        CommentReadItem root2Item = CommentReadItem.fromRoot(root2);
+
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.NEWEST, 0, 20))
+                .thenReturn(new CommentReadSlice(List.of(root1Item, root2Item), 0, 20, false));
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID, ROOT_2_ID)))
+                .thenReturn(List.of(new CommentThreadView(root1Item, List.of())));
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+
+        AtomicBoolean receivedExpectedViews = new AtomicBoolean(false);
+        CoreThreadedFeedResult<String> result = service.readThreadedFeedForSurvivingThreads(
+                target,
+                0,
+                20,
+                CommentSortMode.NEWEST,
+                false,
+                true,
+                () -> {},
+                (survivingRootIds, threadViewsByRootId) -> {
+                    receivedExpectedViews.set(
+                            survivingRootIds.equals(List.of(ROOT_1_ID))
+                                    && threadViewsByRootId.size() == 1
+                                    && threadViewsByRootId.containsKey(ROOT_1_ID)
+                    );
+                    return "views-for-" + survivingRootIds.size();
+                }
+        );
+
+        assertThat(receivedExpectedViews.get()).isTrue();
+        assertThat(result.contextAttachment()).isEqualTo("views-for-1");
+        assertThat(result.survivingRootIds()).containsExactly(ROOT_1_ID);
+
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID, ROOT_2_ID)))
+                .thenReturn(List.of());
+        AtomicBoolean calledOnEmpty = new AtomicBoolean(false);
+        CoreThreadedFeedResult<String> emptyResult = service.readThreadedFeedForSurvivingThreads(
+                target,
+                0,
+                20,
+                CommentSortMode.NEWEST,
+                false,
+                false,
+                () -> {},
+                (ids, views) -> {
+                    calledOnEmpty.set(true);
+                    return "should-not-run";
+                }
+        );
+
+        assertThat(calledOnEmpty.get()).isFalse();
+        assertThat(emptyResult.contextAttachment()).isNull();
+    }
+
+    @Test
     @DisplayName("Known-roots core skips threads and identity when rootIds are empty, and returns immutable snapshots when populated")
     void shouldReadKnownRootsCoreSafely() {
         CommentTarget target = CommentTarget.novelChapter(TARGET_ID);

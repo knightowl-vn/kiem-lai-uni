@@ -286,6 +286,7 @@ public class DiscussionCoreReadService {
                 diagnosticEnabled,
                 eligibilityGate,
                 attachmentLoader,
+                null,
                 null
         );
     }
@@ -325,7 +326,37 @@ public class DiscussionCoreReadService {
                 diagnosticEnabled,
                 eligibilityGate,
                 null,
-                survivingRootsAttachmentLoader
+                survivingRootsAttachmentLoader,
+                null
+        );
+    }
+
+    /**
+     * Executes mandatory Phase A core discussion feed reads inside one read-only transaction,
+     * invoking an optional post-thread attachment lookup with the surviving root IDs and resolved
+     * visible thread views so callers can scope supplemental metadata lookups strictly to visible items.
+     */
+    public <T> CoreThreadedFeedResult<T> readThreadedFeedForSurvivingThreads(
+            CommentTarget target,
+            int page,
+            int size,
+            CommentSortMode sortMode,
+            boolean includeMetrics,
+            boolean diagnosticEnabled,
+            TargetEligibilityGate eligibilityGate,
+            SurvivingThreadsAttachmentLoader<T> survivingThreadsAttachmentLoader
+    ) {
+        return executeThreadedFeedRead(
+                target,
+                page,
+                size,
+                sortMode,
+                includeMetrics,
+                diagnosticEnabled,
+                eligibilityGate,
+                null,
+                null,
+                survivingThreadsAttachmentLoader
         );
     }
 
@@ -338,7 +369,8 @@ public class DiscussionCoreReadService {
             boolean diagnosticEnabled,
             TargetEligibilityGate eligibilityGate,
             ContextAttachmentLoader<T> preThreadsAttachmentLoader,
-            SurvivingRootsAttachmentLoader<T> postThreadsAttachmentLoader
+            SurvivingRootsAttachmentLoader<T> postThreadsAttachmentLoader,
+            SurvivingThreadsAttachmentLoader<T> postThreadsWithViewsAttachmentLoader
     ) {
         if (target == null) {
             throw new IllegalArgumentException("target cannot be null");
@@ -458,10 +490,15 @@ public class DiscussionCoreReadService {
             );
         }
 
-        // 7. Optional post-thread attachment resolved strictly for surviving roots
+        // 7. Optional post-thread attachment resolved strictly for surviving roots/threads
         long tPostAttachStart = diagnosticEnabled ? System.nanoTime() : 0L;
         if (postThreadsAttachmentLoader != null) {
             contextAttachment = postThreadsAttachmentLoader.load(survivingRootIds);
+        } else if (postThreadsWithViewsAttachmentLoader != null) {
+            contextAttachment = postThreadsWithViewsAttachmentLoader.load(
+                    survivingRootIds,
+                    Collections.unmodifiableMap(threadViewsByRootId)
+            );
         }
         long tPostAttachEnd = diagnosticEnabled ? System.nanoTime() : 0L;
 
@@ -828,6 +865,15 @@ public class DiscussionCoreReadService {
     @FunctionalInterface
     public interface SurvivingRootsAttachmentLoader<T> {
         T load(List<UUID> survivingRootIds);
+    }
+
+    /**
+     * Optional context metadata callback executed within Phase A's read-only transaction
+     * after thread reconciliation, receiving surviving root IDs and resolved visible threads.
+     */
+    @FunctionalInterface
+    public interface SurvivingThreadsAttachmentLoader<T> {
+        T load(List<UUID> survivingRootIds, Map<UUID, CommentThreadView> threadViewsByRootId);
     }
 
     /**

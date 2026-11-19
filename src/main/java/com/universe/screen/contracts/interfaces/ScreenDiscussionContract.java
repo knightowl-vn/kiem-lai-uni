@@ -46,6 +46,16 @@ public interface ScreenDiscussionContract {
     Map<UUID, ScreenEntryOriginDTO> findPublishedEntryOriginsByTitleId(UUID titleId);
 
     /**
+     * Resolves published entry origins strictly for the requested entry IDs belonging to {@code titleId}.
+     * Returns an empty map immediately when {@code entryIds} is null or empty without querying persistence.
+     *
+     * @param titleId ScreenTitle UUID
+     * @param entryIds referenced ScreenEntry UUIDs
+     * @return map of matching published entryId to ScreenEntryOriginDTO
+     */
+    Map<UUID, ScreenEntryOriginDTO> findPublishedEntryOriginsByTitleIdAndEntryIds(UUID titleId, Set<UUID> entryIds);
+
+    /**
      * Resolves title display metadata for Admin comment report queue in batch.
      *
      * @param titleIds set of ScreenTitle UUIDs

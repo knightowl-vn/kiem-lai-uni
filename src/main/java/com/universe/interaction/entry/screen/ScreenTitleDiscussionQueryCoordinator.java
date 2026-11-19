@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -333,7 +334,13 @@ public class ScreenTitleDiscussionQueryCoordinator {
                 false
         );
 
-        Map<UUID, ScreenEntryOriginDTO> publishedOriginsById = screenDiscussionContract.findPublishedEntryOriginsByTitleId(titleId);
+        Set<UUID> originEntryIds = ScreenTitleDiscussionCoreReadService.collectVisibleOriginEntryIds(threadView);
+        Map<UUID, ScreenEntryOriginDTO> publishedOriginsById =
+                ScreenTitleDiscussionCoreReadService.loadPublishedOriginsForIds(
+                        screenDiscussionContract,
+                        titleId,
+                        originEntryIds
+                );
 
         return CommentThreadDtoAssembler.toThreadDto(
                 threadView,

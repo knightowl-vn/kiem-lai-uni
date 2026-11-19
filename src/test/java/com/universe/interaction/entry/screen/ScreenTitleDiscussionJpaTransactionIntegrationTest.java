@@ -398,6 +398,70 @@ class ScreenTitleDiscussionJpaTransactionIntegrationTest {
     }
 
     @Test
+    @DisplayName("No-origin feed and single-thread reads skip screen_entries completely (8 SQL auth / 6 SQL guest) and redact tombstone origins")
+    void noOriginFeedAndSingleThreadSkipScreenEntryQueryAndExcludeTombstoneOrigin() throws Exception {
+        UUID noOriginTitleId = UUID.randomUUID();
+        UUID noOriginRootId = UUID.randomUUID();
+        UUID noOriginTombstoneId = UUID.randomUUID();
+        UUID noOriginReplyId = UUID.randomUUID();
+
+        insertTitle(noOriginTitleId, "screen-no-origin-" + noOriginTitleId, "No Origin Title", "PUBLISHED", Timestamp.from(NOW));
+        insertComment(noOriginRootId, noOriginTitleId, author1Id, null, null, null, "No-origin root", "ACTIVE", NOW, NOW, null);
+        // Tombstone carries a historical published originScreenEntryId that MUST NOT trigger a screen_entries query
+        insertComment(noOriginTombstoneId, noOriginTitleId, tombstoneAuthorId, noOriginRootId, noOriginRootId, entryId, null, "DELETED", NOW.plusSeconds(1), NOW.plusSeconds(2), NOW.plusSeconds(2));
+        insertComment(noOriginReplyId, noOriginTitleId, author2Id, noOriginTombstoneId, noOriginRootId, null, "Active child", "ACTIVE", NOW.plusSeconds(3), NOW.plusSeconds(3), null);
+
+        try {
+            // Guest feed without any visible origins -> 6 SQL (skips screen_entries) and 2 acquisitions
+            JdbcProbeTracker.resetAll();
+            mockMvc.perform(get("/api/screen/titles/{titleId}/comments", noOriginTitleId)
+                            .param("sort", "NEWEST")
+                            .param("page", "0")
+                            .param("size", "20")
+                            .accept(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.threads[0].root.origin").doesNotExist())
+                    .andExpect(jsonPath("$.threads[0].replies[0].tombstone").value(true))
+                    .andExpect(jsonPath("$.threads[0].replies[0].origin").doesNotExist())
+                    .andExpect(jsonPath("$.threads[0].replies[1].origin").doesNotExist());
+            assertThat(JdbcProbeTracker.CONNECTION_ACQ_COUNT.get()).isEqualTo(2);
+            assertThat(JdbcProbeTracker.SQL_EXEC_COUNT.get()).isEqualTo(6);
+
+            // Authenticated feed without any visible origins -> 8 SQL (AccountStatusFilter 1 + Phase A 5 + Phase B 2) and 3 acquisitions
+            JdbcProbeTracker.resetAll();
+            mockMvc.perform(get("/api/screen/titles/{titleId}/comments", noOriginTitleId)
+                            .with(SecurityMockMvcRequestPostProcessors.user("u_" + viewerId.toString().replace("-", "") + "@test.local").roles("USER"))
+                            .param("sort", "FEATURED")
+                            .param("page", "0")
+                            .param("size", "20")
+                            .accept(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.threads[0].root.origin").doesNotExist())
+                    .andExpect(jsonPath("$.threads[0].replies[0].origin").doesNotExist());
+            assertThat(JdbcProbeTracker.CONNECTION_ACQ_COUNT.get()).isEqualTo(3);
+            assertThat(JdbcProbeTracker.SQL_EXEC_COUNT.get()).isEqualTo(8);
+
+            // Single-thread comparison: root1 (with Tập 1 origin) executes +1 SQL compared to root2 (no origin)
+            JdbcProbeTracker.resetAll();
+            var withOriginThread = coordinator.getCommentThread(publishedTitleId, root1Id, null);
+            int sqlWithOrigin = JdbcProbeTracker.SQL_EXEC_COUNT.get();
+            assertThat(withOriginThread.root().origin()).isNotNull();
+            assertThat(withOriginThread.root().origin().badgeText()).isEqualTo("Tập 1");
+
+            JdbcProbeTracker.resetAll();
+            var noOriginThread = coordinator.getCommentThread(publishedTitleId, root2Id, null);
+            int sqlNoOrigin = JdbcProbeTracker.SQL_EXEC_COUNT.get();
+            assertThat(noOriginThread.root().origin()).isNull();
+            assertThat(sqlNoOrigin).isEqualTo(sqlWithOrigin - 1);
+        } finally {
+            jdbcTemplate.update("SET FOREIGN_KEY_CHECKS = 0");
+            jdbcTemplate.update("DELETE FROM interaction_comments WHERE target_id = ?", noOriginTitleId.toString());
+            jdbcTemplate.update("SET FOREIGN_KEY_CHECKS = 1");
+            jdbcTemplate.update("DELETE FROM screen_titles WHERE id = ?", noOriginTitleId.toString());
+        }
+    }
+
+    @Test
     @DisplayName("Real JpaTransactionManager rolls back ONLY Phase B when Reaction query throws DB failure after Phase A commits")
     void realJpaReactionFailureRollsBackOnlyPhaseBWithoutUnexpectedRollbackException() {
         // Verify core connection has ALREADY committed (COMMIT_COUNT == 1) and closed (ACTIVE_CONNECTIONS == 1 for Phase B only)

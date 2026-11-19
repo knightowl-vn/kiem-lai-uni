@@ -710,4 +710,61 @@ class ScreenEntryJpaPersistenceIntegrationTest {
         // Empty input returns empty map
         assertThat(entryRepository.findLatestPublishedEpisodeNumbersByTitleIds(List.of())).isEmpty();
     }
+
+    @Test
+    @DisplayName("findPublishedEntryOriginsByTitleIdAndEntryIds returns only PUBLISHED entries scoped to exact titleId and requested entryIds")
+    void shouldLoadOnlyMatchingPublishedOriginsScopedToTitleAndIds() {
+        Instant now = Instant.parse("2026-11-19T12:00:00Z");
+
+        ScreenTitle targetTitle = ScreenTitle.createDraft(
+                UUID.randomUUID(), "origin-target-title", "Origin Target",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        targetTitle.publish(now);
+        titleRepository.save(targetTitle);
+
+        ScreenTitle otherTitle = ScreenTitle.createDraft(
+                UUID.randomUUID(), "origin-other-title", "Origin Other",
+                ScreenStructure.SERIES, ScreenPresentation.ANIMATION_3D, now
+        );
+        otherTitle.publish(now);
+        titleRepository.save(otherTitle);
+
+        ScreenEntry ep1 = ScreenEntry.createDraft(UUID.randomUUID(), targetTitle.getId(), "tap-1", ScreenEntryType.EPISODE, 1, "Tập 1", now);
+        ep1.publish(now);
+        entryRepository.save(ep1);
+
+        ScreenEntry feat = ScreenEntry.createDraft(UUID.randomUUID(), targetTitle.getId(), "ban-chieu-chinh", ScreenEntryType.FEATURE, null, "Chính", now);
+        feat.publish(now);
+        entryRepository.save(feat);
+
+        ScreenEntry extraPublished = ScreenEntry.createDraft(UUID.randomUUID(), targetTitle.getId(), "tap-2", ScreenEntryType.EPISODE, 2, "Tập 2", now);
+        extraPublished.publish(now);
+        entryRepository.save(extraPublished);
+
+        ScreenEntry draftEntry = ScreenEntry.createDraft(UUID.randomUUID(), targetTitle.getId(), "tap-3-draft", ScreenEntryType.EPISODE, 3, "Tập 3", now);
+        entryRepository.save(draftEntry);
+
+        ScreenEntry archivedEntry = ScreenEntry.createDraft(UUID.randomUUID(), targetTitle.getId(), "tap-4-arch", ScreenEntryType.EPISODE, 4, "Tập 4", now);
+        archivedEntry.publish(now);
+        archivedEntry.archive(now.plusSeconds(10));
+        entryRepository.save(archivedEntry);
+
+        ScreenEntry foreignPublished = ScreenEntry.createDraft(UUID.randomUUID(), otherTitle.getId(), "foreign-tap-1", ScreenEntryType.EPISODE, 1, "Foreign 1", now);
+        foreignPublished.publish(now);
+        entryRepository.save(foreignPublished);
+
+        UUID missingId = UUID.randomUUID();
+        List<ScreenEntryRepositoryPort.PublishedEntryOrigin> origins =
+                entryRepository.findPublishedEntryOriginsByTitleIdAndEntryIds(
+                        targetTitle.getId(),
+                        List.of(ep1.getId(), feat.getId(), draftEntry.getId(), archivedEntry.getId(), foreignPublished.getId(), missingId)
+                );
+
+        assertThat(origins).containsExactlyInAnyOrder(
+                new ScreenEntryRepositoryPort.PublishedEntryOrigin(ep1.getId(), "tap-1", ScreenEntryType.EPISODE, 1),
+                new ScreenEntryRepositoryPort.PublishedEntryOrigin(feat.getId(), "ban-chieu-chinh", ScreenEntryType.FEATURE, null)
+        );
+        assertThat(entryRepository.findPublishedEntryOriginsByTitleIdAndEntryIds(targetTitle.getId(), List.of())).isEmpty();
+    }
 }

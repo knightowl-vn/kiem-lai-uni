@@ -3,11 +3,13 @@ package com.universe.screen.infrastructure.persistence;
 import com.universe.screen.application.exceptions.ScreenEntrySlugAlreadyExistsException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.domain.ScreenEntry;
+import com.universe.screen.domain.ScreenEntryType;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -150,6 +152,28 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
     }
 
     @Override
+    public List<PublishedEntryOrigin> findPublishedEntryOriginsByTitleIdAndEntryIds(
+            UUID titleId,
+            Collection<UUID> entryIds
+    ) {
+        if (titleId == null || entryIds == null || entryIds.isEmpty()) {
+            return List.of();
+        }
+        List<String> idStrings = entryIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .distinct()
+                .toList();
+        if (idStrings.isEmpty()) {
+            return List.of();
+        }
+        return repository.findPublishedEntryOriginsByTitleIdAndEntryIds(titleId.toString(), idStrings)
+                .stream()
+                .map(ScreenEntryPersistenceAdapter::toPublishedEntryOrigin)
+                .toList();
+    }
+
+    @Override
     public List<ScreenEntry> findPublishedEpisodesByTitleId(UUID titleId) {
         if (titleId == null) {
             return Collections.emptyList();
@@ -283,5 +307,13 @@ public class ScreenEntryPersistenceAdapter implements ScreenEntryRepositoryPort 
                 ? UUID.fromString(row[1].toString())
                 : null;
         return new EntryVideoBinding(entryId, videoMediaAssetId);
+    }
+
+    private static PublishedEntryOrigin toPublishedEntryOrigin(Object[] row) {
+        UUID entryId = UUID.fromString(row[0].toString());
+        String slug = row.length > 1 && row[1] != null ? row[1].toString() : null;
+        ScreenEntryType type = ScreenEntryType.valueOf(row[2].toString());
+        Integer number = row.length > 3 && row[3] != null ? ((Number) row[3]).intValue() : null;
+        return new PublishedEntryOrigin(entryId, slug, type, number);
     }
 }

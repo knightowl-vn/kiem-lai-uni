@@ -192,7 +192,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                         AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
                         AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 2, null, CommentSortMode.FEATURED);
 
@@ -235,7 +234,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                         AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
                         AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
@@ -276,7 +274,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                 .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
@@ -297,11 +294,12 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
         when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(threadView);
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                 .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
 
         CommentThreadResponseDTO response = coordinator.getCommentThread(TITLE_ID, ROOT_1_ID, null);
 
         verify(validateCommentTargetScopeUseCase).executeRoot(ROOT_1_ID, target);
+        verify(screenDiscussionContract, never()).findPublishedEntryOriginsByTitleId(any());
+        verify(screenDiscussionContract, never()).findPublishedEntryOriginsByTitleIdAndEntryIds(any(), any());
         assertThat(response.root().id()).isEqualTo(ROOT_1_ID);
     }
 
@@ -346,7 +344,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                 ROOT_1_ID, ReactionSummary.of(ReactionTarget.comment(ROOT_1_ID), Map.of(ReactionType.LIKE, 3L), ReactionType.LIKE),
                 REPLY_1_ID, ReactionSummary.of(ReactionTarget.comment(REPLY_1_ID), Map.of(ReactionType.LIKE, 1L), null)
         ));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, viewerId, CommentSortMode.FEATURED);
 
@@ -391,7 +388,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
         )).thenReturn(Map.of(
                 ROOT_1_ID, ReactionSummary.of(ReactionTarget.comment(ROOT_1_ID), Map.of(ReactionType.LIKE, 2L), null)
         ));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
 
         CommentThreadResponseDTO response = coordinator.getCommentThread(TITLE_ID, ROOT_1_ID, viewerId);
 
@@ -424,7 +420,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
 
         when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
                 .thenThrow(new RuntimeException("Reaction service unavailable"));
-        when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
 
         ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
@@ -454,13 +449,12 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                     .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
 
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
-                    .thenReturn(Map.of(EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1")));
-
             ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
             assertThat(response.threads()).hasSize(1);
             assertThat(response.threads().get(0).root().origin()).isNull();
+            verify(screenDiscussionContract, never()).findPublishedEntryOriginsByTitleId(any());
+            verify(screenDiscussionContract, never()).findPublishedEntryOriginsByTitleIdAndEntryIds(any(), any());
         }
 
         @Test
@@ -481,7 +475,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                     .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
 
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, Set.of(EPISODE_1_ENTRY_ID)))
                     .thenReturn(Map.of(EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1")));
 
             ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
@@ -518,11 +512,8 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                             AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                     ));
 
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
-                    .thenReturn(Map.of(
-                            EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1"),
-                            EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")
-                    ));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, Set.of(EPISODE_2_ENTRY_ID)))
+                    .thenReturn(Map.of(EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")));
 
             ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
@@ -554,8 +545,8 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                     .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
 
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
-                    .thenReturn(Map.of(EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1")));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, Set.of(UNRELATED_ENTRY_ID)))
+                    .thenReturn(Map.of());
 
             ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
 
@@ -581,11 +572,13 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                             AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
                             AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                     ));
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
-                    .thenReturn(Map.of(
-                            EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1"),
-                            EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")
-                    ));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(
+                    TITLE_ID,
+                    Set.of(EPISODE_1_ENTRY_ID, EPISODE_2_ENTRY_ID)
+            )).thenReturn(Map.of(
+                    EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1"),
+                    EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")
+            ));
 
             // Feed execution
             when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 2));
@@ -631,7 +624,7 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(threadView);
             when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
                     .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(TITLE_ID, Set.of(FEATURE_ENTRY_ID)))
                     .thenReturn(Map.of(FEATURE_ENTRY_ID, new ScreenEntryOriginDTO(FEATURE_ENTRY_ID, "ban-chieu-chinh", "Bản chiếu chính")));
 
             CommentThreadResponseDTO threadResponse = coordinator.getCommentThread(TITLE_ID, ROOT_1_ID, null);
@@ -642,6 +635,58 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             assertThat(origin.badgeText()).isEqualTo("Bản chiếu chính");
             assertThat(origin.badgeText()).doesNotContain("Tập");
             assertThat(origin.entrySlug()).isEqualTo("ban-chieu-chinh");
+        }
+
+        @Test
+        @DisplayName("Tombstone origin IDs are excluded from scoped origin query and active replies preserve origins")
+        void shouldExcludeTombstoneOriginsAndBatchDistinctActiveOrigins() {
+            when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root on Ep 1", NOW, EPISODE_1_ENTRY_ID);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+
+            Comment tombstoneParent = Comment.createReply(
+                    REPLY_1_ID, root, TOMBSTONE_AUTHOR_ID, "Deleted parent", NOW.plusSeconds(2), FEATURE_ENTRY_ID
+            );
+            Comment activeChild = Comment.createReply(
+                    REPLY_2_ID, tombstoneParent, AUTHOR_2_ID, "Nested active reply", NOW.plusSeconds(4), EPISODE_2_ENTRY_ID
+            );
+            tombstoneParent.delete(NOW.plusSeconds(5));
+            CommentReadItem tombstoneItem = CommentReadItem.fromTombstoneReply(tombstoneParent, AUTHOR_1_ID);
+            CommentReadItem activeChildItem = CommentReadItem.fromActiveReply(activeChild, null);
+
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 2));
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 10, false));
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of(tombstoneItem, activeChildItem))));
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
+                    .thenReturn(Map.of(
+                            AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                            AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
+                    ));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(
+                    TITLE_ID,
+                    Set.of(EPISODE_1_ENTRY_ID, EPISODE_2_ENTRY_ID)
+            )).thenReturn(Map.of(
+                    EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1"),
+                    EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")
+            ));
+
+            ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(TITLE_ID, 0, 10, null, CommentSortMode.FEATURED);
+
+            assertThat(response.threads()).hasSize(1);
+            assertThat(response.threads().get(0).root().origin().badgeText()).isEqualTo("Tập 1");
+            assertThat(response.threads().get(0).replies().get(0).tombstone()).isTrue();
+            assertThat(response.threads().get(0).replies().get(0).origin()).isNull();
+            assertThat(response.threads().get(0).replies().get(1).origin().badgeText()).isEqualTo("Tập 2");
+
+            verify(screenDiscussionContract).findPublishedEntryOriginsByTitleIdAndEntryIds(
+                    TITLE_ID,
+                    Set.of(EPISODE_1_ENTRY_ID, EPISODE_2_ENTRY_ID)
+            );
+            verify(screenDiscussionContract, never()).findPublishedEntryOriginsByTitleId(any());
         }
     }
 
@@ -684,11 +729,13 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
 
             when(listCommentRootsUseCase.execute(target, CommentSortMode.NEWEST, 1, 20))
                     .thenReturn(new CommentReadSlice(List.of(rootItem), 1, 20, true));
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID))
-                    .thenReturn(Map.of(
-                            EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1"),
-                            EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")
-                    ));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleIdAndEntryIds(
+                    TITLE_ID,
+                    Set.of(EPISODE_1_ENTRY_ID, EPISODE_2_ENTRY_ID)
+            )).thenReturn(Map.of(
+                    EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1"),
+                    EPISODE_2_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_2_ENTRY_ID, "tap-2", "Tập 2")
+            ));
             when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
                     .thenReturn(List.of(new CommentThreadView(rootItem, List.of(reply1Item, tombstoneReplyItem))));
             // Deliberately omit AUTHOR_2_ID to verify identity fallback also stays identical
@@ -729,7 +776,10 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                 verify(screenDiscussionContract, times(2)).isPublishedTitle(TITLE_ID);
                 verify(getCommentTargetMetricsUseCase, times(2)).execute(target);
                 verify(listCommentRootsUseCase, times(2)).execute(target, CommentSortMode.NEWEST, 1, 20);
-                verify(screenDiscussionContract, times(2)).findPublishedEntryOriginsByTitleId(TITLE_ID);
+                verify(screenDiscussionContract, times(2)).findPublishedEntryOriginsByTitleIdAndEntryIds(
+                        TITLE_ID,
+                        Set.of(EPISODE_1_ENTRY_ID, EPISODE_2_ENTRY_ID)
+                );
                 verify(getCommentThreadsByRootIdsUseCase, times(2)).execute(target, List.of(ROOT_1_ID));
                 verify(userIdentityContract, times(2)).findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID));
                 verify(getBatchReactionSummariesUseCase, times(2))
@@ -817,7 +867,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                 when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
                 when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                         .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 20, false));
-                when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
                 when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
                         .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
                 when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
@@ -919,7 +968,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             CommentReadItem rootItem = CommentReadItem.fromRoot(root);
             when(listCommentRootsUseCase.execute(target, CommentSortMode.NEWEST, 0, 20))
                     .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 20, false));
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
             when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
                     .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
             when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
@@ -958,7 +1006,6 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
             CommentReadItem rootItem = CommentReadItem.fromRoot(root);
             when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                     .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 20, false));
-            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
             when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
                     .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
             when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
