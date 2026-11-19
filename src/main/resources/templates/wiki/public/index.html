@@ -193,7 +193,7 @@
 							th:alt="${article.title}"
 							loading="lazy"
 							th:style="'object-position: ' + ${article.coverObjectPosition()}"
-							onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
+							onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src') &amp;&amp; this.getAttribute('src') !== this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
 						<div class="wiki-public-index-card-placeholder"
 							th:style="${article.coverMediaAssetId != null ? 'display: none;' : ''}">
 							<svg class="wiki-public-index-card-placeholder-icon"

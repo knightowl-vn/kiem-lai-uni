@@ -53,6 +53,7 @@ import org.thymeleaf.spring6.view.ThymeleafViewResolver;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -256,6 +257,15 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.ports.WikiPublicCoverImageDeliveryPort wikiPublicCoverImageDeliveryPort;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.GetPublicWikiCatalogOverviewUseCase getPublicWikiCatalogOverviewUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.GetPublicWikiArticleDetailUseCase getPublicWikiArticleDetailUseCase;
 
     @MockBean
     private com.universe.interaction.entry.admin.AdminCommentReportQueueCoordinator adminCommentReportQueueCoordinator;
@@ -724,9 +734,14 @@ class SecurityAuthorizationTest {
     @WithAnonymousUser
     @DisplayName("Khách ẩn danh được phép truy cập danh sách Wiki công khai /wiki")
     void shouldAllowAnonymousAccessToPublicWiki() throws Exception {
-        when(listPublishedArticlesUseCase.execute(any()))
-                .thenReturn(new com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO(
-                        List.of(), 0, 20, 0, 0, true, true
+        when(getPublicWikiCatalogOverviewUseCase.execute(any()))
+                .thenReturn(new com.universe.wiki.application.article.query.published.PublicWikiCatalogOverviewResult(
+                        new com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO(
+                                List.of(), 0, 20, 0, 0, true, true
+                        ),
+                        Map.of(),
+                        Map.of(),
+                        com.universe.wiki.application.article.query.published.PublicWikiCatalogOverviewTimings.empty()
                 ));
 
         mockMvc.perform(get("/wiki"))
@@ -737,19 +752,29 @@ class SecurityAuthorizationTest {
     @WithAnonymousUser
     @DisplayName("Khách ẩn danh được phép truy cập chi tiết bài viết Wiki công khai /wiki/{type}/{slug}")
     void shouldAllowAnonymousAccessToPublicWikiArticleDetail() throws Exception {
+        com.universe.wiki.contracts.dto.PublishedWikiArticleDTO article = new com.universe.wiki.contracts.dto.PublishedWikiArticleDTO(
+                UUID.randomUUID(),
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "Tóm tắt",
+                "Nội dung",
+                Instant.now(),
+                Instant.now(),
+                1L
+        );
         when(articleTypePathMapper.fromPath("character"))
                 .thenReturn(com.universe.wiki.domain.article.ArticleType.CHARACTER);
-        when(getPublishedArticleUseCase.execute(any()))
-                .thenReturn(new com.universe.wiki.contracts.dto.PublishedWikiArticleDTO(
-                        UUID.randomUUID(),
-                        "Trần Bình An",
-                        "tran-binh-an",
-                        "CHARACTER",
-                        "Tóm tắt",
-                        "Nội dung",
-                        Instant.now(),
-                        Instant.now(),
-                        1L
+        when(getPublicWikiArticleDetailUseCase.execute(any()))
+                .thenReturn(new com.universe.wiki.application.article.query.published.PublicWikiArticleDetailResult(
+                        article,
+                        false,
+                        null,
+                        true,
+                        null,
+                        null,
+                        com.universe.wiki.contracts.dto.WikiPublicContributorsResult.empty(),
+                        com.universe.wiki.application.article.query.published.PublicWikiArticleDetailTimings.empty()
                 ));
         when(wikiMarkdownRenderer.render(any()))
                 .thenReturn(new com.universe.wiki.application.article.render.RenderedWikiContent("html", List.of()));

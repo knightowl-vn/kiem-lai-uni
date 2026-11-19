@@ -280,7 +280,7 @@
 								th:data-fallback-src="${article.fallbackCoverImageUrl()}"
 								th:alt="${article.title}"
 								th:style="'object-position: ' + ${article.coverObjectPosition()}"
-								onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.parentElement.style.display='none'; }">
+								onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src') &amp;&amp; this.getAttribute('src') !== this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.parentElement.style.display='none'; }">
 						</div>
 
 						<div class="wiki-public-profile-info">

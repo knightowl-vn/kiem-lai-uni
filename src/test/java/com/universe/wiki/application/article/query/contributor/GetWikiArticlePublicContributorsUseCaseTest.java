@@ -210,19 +210,49 @@ class GetWikiArticlePublicContributorsUseCaseTest {
     }
 
     @Test
-    @DisplayName("Gracefully returns empty result without throwing when Identity throws RuntimeException")
-    void shouldReturnEmptyResultGracefullyWhenIdentityFails() {
+    @DisplayName("Omits contributors with blank or null displayName safely without throwing")
+    void shouldOmitContributorsWithBlankOrNullDisplayName() {
+        UUID articleId = UUID.randomUUID();
+        UUID user1Id = UUID.randomUUID();
+        UUID user2Id = UUID.randomUUID();
+        UUID user3Id = UUID.randomUUID();
+
+        Instant now = Instant.now();
+        when(publicContributorQueryPort.findActiveContributorsByArticleId(articleId))
+                .thenReturn(List.of(
+                        new WikiArticlePublicContributorAggregate(user1Id, 3L, now),
+                        new WikiArticlePublicContributorAggregate(user2Id, 2L, now.minusSeconds(30)),
+                        new WikiArticlePublicContributorAggregate(user3Id, 1L, now.minusSeconds(60))
+                ));
+
+        Map<UUID, UserPublicProfileDTO> profileMap = new HashMap<>();
+        profileMap.put(user1Id, new UserPublicProfileDTO(user1Id, "   ", null, "blank_name"));
+        profileMap.put(user2Id, new UserPublicProfileDTO(user2Id, null, null, "null_name"));
+        profileMap.put(user3Id, new UserPublicProfileDTO(user3Id, "Hợp Lệ", null, "hop_le"));
+
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(user1Id, user2Id, user3Id)))
+                .thenReturn(profileMap);
+
+        WikiPublicContributorsResult result = useCase.execute(articleId);
+
+        assertThat(result.contributors()).hasSize(1);
+        assertThat(result.contributors().get(0).displayName()).isEqualTo("Hợp Lệ");
+        assertThat(result.candidateLimitReached()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Propagates RuntimeException cleanly when Identity lookup fails rather than masking rollback-only errors")
+    void shouldPropagateRuntimeExceptionWhenIdentityFails() {
         UUID articleId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
 
         when(publicContributorQueryPort.findActiveContributorsByArticleId(articleId))
                 .thenReturn(List.of(new WikiArticlePublicContributorAggregate(userId, 1L, Instant.now())));
         when(userIdentityContract.findPublicProfilesByIds(Set.of(userId)))
-                .thenThrow(new RuntimeException("Identity service temporarily unavailable"));
+                .thenThrow(new IllegalStateException("Identity service temporarily unavailable"));
 
-        WikiPublicContributorsResult result = useCase.execute(articleId);
-
-        assertThat(result.contributors()).isEmpty();
-        assertThat(result.candidateLimitReached()).isFalse();
+        assertThatThrownBy(() -> useCase.execute(articleId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Identity service temporarily unavailable");
     }
 }

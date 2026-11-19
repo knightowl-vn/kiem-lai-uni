@@ -2,29 +2,21 @@ package com.universe.wiki.entry.web;
 
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
-import com.universe.wiki.application.article.query.published.GetPublishedWikiArticleQuery;
-import com.universe.wiki.application.article.query.published.GetPublishedWikiArticleUseCase;
-import com.universe.wiki.application.article.query.published.ListPublishedWikiArticlesQuery;
-import com.universe.wiki.application.article.query.published.ListPublishedWikiArticlesUseCase;
+import com.universe.wiki.application.article.query.published.GetPublicWikiArticleDetailQuery;
+import com.universe.wiki.application.article.query.published.GetPublicWikiArticleDetailUseCase;
+import com.universe.wiki.application.article.query.published.GetPublicWikiCatalogOverviewQuery;
+import com.universe.wiki.application.article.query.published.GetPublicWikiCatalogOverviewUseCase;
+import com.universe.wiki.application.article.query.published.PublicWikiArticleDetailResult;
+import com.universe.wiki.application.article.query.published.PublicWikiArticleDetailTimings;
+import com.universe.wiki.application.article.query.published.PublicWikiCatalogOverviewResult;
+import com.universe.wiki.application.article.query.published.PublicWikiCatalogOverviewTimings;
 
 import com.universe.wiki.application.article.render.RenderedWikiContent;
 import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 
-import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
-import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
-import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
-import com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase;
-import com.universe.wiki.application.appreciation.GetWikiAppreciationSummariesUseCase;
-import com.universe.wiki.contracts.dto.appreciation.WikiAppreciationDetailState;
-import com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO;
-import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import com.universe.wiki.domain.article.ArticleType;
 
-import com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase;
-import com.universe.wiki.contracts.dto.WikiPublicContributorDTO;
 import com.universe.wiki.contracts.dto.WikiPublicContributorsResult;
-import com.universe.identity.contracts.dto.UserPublicProfileDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,76 +29,68 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 
 @Controller
 @RequestMapping("/wiki")
 public class PublicWikiController {
 
+	private static final Logger logger = LoggerFactory.getLogger(PublicWikiController.class);
+
 	private static final int DEFAULT_PAGE_SIZE = 20;
 
-	private final ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase;
+	private final GetPublicWikiCatalogOverviewUseCase getPublicWikiCatalogOverviewUseCase;
 
-	private final GetPublishedWikiArticleUseCase getPublishedArticleUseCase;
+	private final GetPublicWikiArticleDetailUseCase getPublicWikiArticleDetailUseCase;
 
 	private final ArticleTypePathMapper articleTypePathMapper;
 
 	private final WikiMarkdownRenderer wikiMarkdownRenderer;
 
-	private final IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
-
-	private final GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase;
-
-	private final GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase;
-
-	private final UserIdentityContract userIdentityContract;
-
-	private final GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase;
+	private final boolean diagnosticEnabled;
 
 	@Autowired
-	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
-			GetPublishedWikiArticleUseCase getPublishedArticleUseCase,
+	public PublicWikiController(
+			GetPublicWikiCatalogOverviewUseCase getPublicWikiCatalogOverviewUseCase,
+			GetPublicWikiArticleDetailUseCase getPublicWikiArticleDetailUseCase,
 			ArticleTypePathMapper articleTypePathMapper,
 			WikiMarkdownRenderer wikiMarkdownRenderer,
-			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase,
-			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase,
-			GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase,
-			UserIdentityContract userIdentityContract,
-			GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase) {
-		this.listPublishedArticlesUseCase = listPublishedArticlesUseCase;
-
-		this.getPublishedArticleUseCase = getPublishedArticleUseCase;
-
-		this.articleTypePathMapper = articleTypePathMapper;
-
-		this.wikiMarkdownRenderer = wikiMarkdownRenderer;
-
-		this.isWikiArticleSavedUseCase = Objects.requireNonNull(
-				isWikiArticleSavedUseCase,
-				"IsWikiArticleSavedUseCase không được để trống."
+			@Value("${wiki.performance.diagnostic-enabled:false}") boolean diagnosticEnabled) {
+		this.getPublicWikiCatalogOverviewUseCase = Objects.requireNonNull(
+				getPublicWikiCatalogOverviewUseCase,
+				"GetPublicWikiCatalogOverviewUseCase không được để trống."
 		);
-
-		this.getWikiAppreciationDetailStateUseCase = Objects.requireNonNull(
-				getWikiAppreciationDetailStateUseCase,
-				"GetWikiAppreciationDetailStateUseCase không được để trống."
+		this.getPublicWikiArticleDetailUseCase = Objects.requireNonNull(
+				getPublicWikiArticleDetailUseCase,
+				"GetPublicWikiArticleDetailUseCase không được để trống."
 		);
-
-		this.getWikiAppreciationSummariesUseCase = Objects.requireNonNull(
-				getWikiAppreciationSummariesUseCase,
-				"GetWikiAppreciationSummariesUseCase không được để trống."
+		this.articleTypePathMapper = Objects.requireNonNull(
+				articleTypePathMapper,
+				"ArticleTypePathMapper không được để trống."
 		);
+		this.wikiMarkdownRenderer = Objects.requireNonNull(
+				wikiMarkdownRenderer,
+				"WikiMarkdownRenderer không được để trống."
+		);
+		this.diagnosticEnabled = diagnosticEnabled;
+	}
 
-		this.userIdentityContract = userIdentityContract;
-
-		this.getWikiArticlePublicContributorsUseCase = Objects.requireNonNull(
-				getWikiArticlePublicContributorsUseCase,
-				"GetWikiArticlePublicContributorsUseCase không được để trống."
+	public PublicWikiController(
+			GetPublicWikiCatalogOverviewUseCase getPublicWikiCatalogOverviewUseCase,
+			GetPublicWikiArticleDetailUseCase getPublicWikiArticleDetailUseCase,
+			ArticleTypePathMapper articleTypePathMapper,
+			WikiMarkdownRenderer wikiMarkdownRenderer) {
+		this(
+				getPublicWikiCatalogOverviewUseCase,
+				getPublicWikiArticleDetailUseCase,
+				articleTypePathMapper,
+				wikiMarkdownRenderer,
+				false
 		);
 	}
 
@@ -131,30 +115,45 @@ public class PublicWikiController {
 			@RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
 
 			Model model) {
+		long t0 = diagnosticEnabled ? System.nanoTime() : 0L;
 		ArticleType articleType = resolveOptionalArticleType(articleTypePath);
 
-		PublishedWikiArticlePageDTO articlePage = listPublishedArticlesUseCase
-				.execute(new ListPublishedWikiArticlesQuery(keyword, articleType, page, size));
+		GetPublicWikiCatalogOverviewQuery query = GetPublicWikiCatalogOverviewQuery.of(
+				keyword,
+				articleType,
+				page,
+				size
+		);
 
-		List<UUID> eligibleArticleIds = articlePage.items().stream()
-				.filter(article -> ArticleType.CHARACTER.name().equals(article.articleType())
-						|| ArticleType.FACTION.name().equals(article.articleType()))
-				.map(PublishedWikiArticleListItemDTO::id)
-				.toList();
+		PublicWikiCatalogOverviewResult result = getPublicWikiCatalogOverviewUseCase.execute(query);
+		long t1 = diagnosticEnabled ? System.nanoTime() : 0L;
 
-		Map<UUID, WikiAppreciationSummary> appreciationSummaries = eligibleArticleIds.isEmpty()
-				? Collections.emptyMap()
-				: getWikiAppreciationSummariesUseCase.execute(eligibleArticleIds);
+		PublicWikiArticlePageView pageView = PublicWikiArticlePageView.fromDTO(
+				result.articlePage(),
+				result.directCoverUrls()
+		);
 
-		model.addAttribute("articlePage", articlePage);
+		model.addAttribute("articlePage", pageView);
 
-		model.addAttribute("appreciationSummaries", appreciationSummaries);
+		model.addAttribute("appreciationSummaries", result.appreciationSummaries());
 
 		model.addAttribute("keyword", keyword == null ? "" : keyword);
 
 		model.addAttribute("selectedType", articleType);
 
 		model.addAttribute("articleTypes", ArticleType.values());
+		long t2 = diagnosticEnabled ? System.nanoTime() : 0L;
+
+		if (diagnosticEnabled) {
+			PublicWikiCatalogOverviewTimings timings = result.timings();
+			logger.info("[PERF-DIAGNOSTIC] /wiki index handler: total={}ms, coordinator={}ms, article_query={}ms (items={}), appreciation_query={}ms (eligible={}), media_batch_resolve={}ms (assets={}, resolved={}), model_prep={}ms",
+					String.format(Locale.ROOT, "%.2f", (t2 - t0) / 1_000_000.0),
+					String.format(Locale.ROOT, "%.2f", (t1 - t0) / 1_000_000.0),
+					String.format(Locale.ROOT, "%.2f", timings.articleQueryNanos() / 1_000_000.0), result.articlePage().items().size(),
+					String.format(Locale.ROOT, "%.2f", timings.appreciationQueryNanos() / 1_000_000.0), timings.eligibleAppreciationCount(),
+					String.format(Locale.ROOT, "%.2f", timings.mediaBatchResolveNanos() / 1_000_000.0), timings.coverAssetCount(), result.directCoverUrls().size(),
+					String.format(Locale.ROOT, "%.2f", (t2 - t1) / 1_000_000.0));
+		}
 
 		return "wiki/public/index";
 	}
@@ -174,93 +173,65 @@ public class PublicWikiController {
 			HttpServletRequest request,
 
 			Model model) {
+		long t0 = diagnosticEnabled ? System.nanoTime() : 0L;
 		ArticleType resolvedArticleType = articleTypePathMapper.fromPath(articleType);
 
-		PublishedWikiArticleDTO article = getPublishedArticleUseCase
-				.execute(new GetPublishedWikiArticleQuery(resolvedArticleType, slug));
+		UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+				.map(AuthenticatedRequestIdentity::userId)
+				.orElse(null);
 
-		RenderedWikiContent renderedContent = wikiMarkdownRenderer.render(article.content());
+		PublicWikiArticleDetailResult result = getPublicWikiArticleDetailUseCase.execute(
+				GetPublicWikiArticleDetailQuery.of(resolvedArticleType, slug, viewerUserId)
+		);
+		long t1 = diagnosticEnabled ? System.nanoTime() : 0L;
 
-		boolean isSaved = false;
-		Optional<AuthenticatedRequestIdentity> identityOptional =
-				AuthenticatedRequestIdentityAccessor.find(request);
-		if (identityOptional.isPresent()) {
-			isSaved = isWikiArticleSavedUseCase.execute(
-					identityOptional.get().userId(),
-					article.id()
-			);
-		}
+		RenderedWikiContent renderedContent = wikiMarkdownRenderer.render(result.article().content());
+		long t2 = diagnosticEnabled ? System.nanoTime() : 0L;
 
-		model.addAttribute("article", article);
+		PublicWikiArticleDetailView detailView = PublicWikiArticleDetailView.fromDTO(
+				result.article(),
+				result.directCoverUrl()
+		);
+
+		model.addAttribute("article", detailView);
 
 		model.addAttribute("articleTypePath", articleTypePathMapper.toPath(resolvedArticleType));
 
 		model.addAttribute("renderedContent", renderedContent);
 
-		model.addAttribute("isSaved", isSaved);
+		model.addAttribute("isSaved", result.saved());
 
-		boolean isAppreciationEligible = resolvedArticleType == ArticleType.CHARACTER
-				|| resolvedArticleType == ArticleType.FACTION;
+		model.addAttribute("isAppreciationEligible", result.appreciationEligible());
 
-		WikiAppreciationDetailState appreciationState = null;
-		if (isAppreciationEligible) {
-			UUID viewerUserId = identityOptional
-					.map(AuthenticatedRequestIdentity::userId)
-					.orElse(null);
-			appreciationState = getWikiAppreciationDetailStateUseCase.execute(article.id(), viewerUserId);
-		}
+		model.addAttribute("appreciationState", result.appreciationState());
 
-		model.addAttribute("isAppreciationEligible", isAppreciationEligible);
+		model.addAttribute("attributionLine", result.attributionLine());
 
-		model.addAttribute("appreciationState", appreciationState);
-
-		String attributionLine = resolveAttributionLine(article);
-		model.addAttribute("attributionLine", attributionLine);
-
-		WikiPublicContributorsResult contributorsResult =
-				getWikiArticlePublicContributorsUseCase.execute(article.id());
-		if (contributorsResult == null) {
-			contributorsResult = WikiPublicContributorsResult.empty();
-		}
+		WikiPublicContributorsResult contributorsResult = result.publicContributorsResult() != null
+				? result.publicContributorsResult()
+				: WikiPublicContributorsResult.empty();
 		model.addAttribute("publicContributors", contributorsResult.contributors());
 		model.addAttribute("publicContributorsLimitReached", contributorsResult.candidateLimitReached());
+		long t3 = diagnosticEnabled ? System.nanoTime() : 0L;
+
+		if (diagnosticEnabled) {
+			PublicWikiArticleDetailTimings timings = result.timings() != null
+					? result.timings()
+					: PublicWikiArticleDetailTimings.empty();
+			logger.info("[PERF-DIAGNOSTIC] /wiki detail handler: total={}ms, coordinator={}ms, article_query={}ms, saved_lookup={}ms (auth={}), cover_resolve={}ms (present={}, resolved={}), appreciation_query={}ms (eligible={}), attribution_lookup={}ms (resolved={}), contributors_query={}ms (count={}), markdown_render={}ms, model_prep={}ms",
+					String.format(Locale.ROOT, "%.2f", (t3 - t0) / 1_000_000.0),
+					String.format(Locale.ROOT, "%.2f", (t1 - t0) / 1_000_000.0),
+					String.format(Locale.ROOT, "%.2f", timings.articleQueryNanos() / 1_000_000.0),
+					String.format(Locale.ROOT, "%.2f", timings.savedStateQueryNanos() / 1_000_000.0), timings.authenticatedViewer(),
+					String.format(Locale.ROOT, "%.2f", timings.coverResolveNanos() / 1_000_000.0), timings.coverPresent(), timings.coverResolved(),
+					String.format(Locale.ROOT, "%.2f", timings.appreciationQueryNanos() / 1_000_000.0), timings.appreciationEligible(),
+					String.format(Locale.ROOT, "%.2f", timings.attributionQueryNanos() / 1_000_000.0), timings.attributionResolved(),
+					String.format(Locale.ROOT, "%.2f", timings.contributorsQueryNanos() / 1_000_000.0), timings.contributorCount(),
+					String.format(Locale.ROOT, "%.2f", (t2 - t1) / 1_000_000.0),
+					String.format(Locale.ROOT, "%.2f", (t3 - t2) / 1_000_000.0));
+		}
 
 		return "wiki/public/detail";
-	}
-
-	private String resolveAttributionLine(PublishedWikiArticleDTO article) {
-		if (article == null || userIdentityContract == null) {
-			return null;
-		}
-		if (article.contentVersion() > 1L && article.updatedBy() != null) {
-			String displayName = resolveDisplayName(article.updatedBy());
-			if (displayName != null && !displayName.isBlank()) {
-				return "Cập nhật bởi " + displayName;
-			}
-		} else if (article.createdBy() != null) {
-			String displayName = resolveDisplayName(article.createdBy());
-			if (displayName != null && !displayName.isBlank()) {
-				return "Đăng bởi " + displayName;
-			}
-		}
-		return null;
-	}
-
-	private String resolveDisplayName(UUID userId) {
-		if (userId == null) {
-			return null;
-		}
-		try {
-			Map<UUID, UserPublicProfileDTO> profiles =
-					userIdentityContract.findPublicProfilesByIds(Set.of(userId));
-			UserPublicProfileDTO profile = profiles.get(userId);
-			if (profile != null && profile.displayName() != null && !profile.displayName().isBlank()) {
-				return profile.displayName();
-			}
-		} catch (Exception ignored) {
-			// Gracefully omit attribution if identity service lookup fails
-		}
-		return null;
 	}
 
 	private ArticleType resolveOptionalArticleType(String articleTypePath) {

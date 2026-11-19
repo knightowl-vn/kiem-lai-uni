@@ -1,9 +1,26 @@
 package com.universe.wiki.entry.web;
 
 import com.universe.wiki.application.article.query.published
+        .GetPublicWikiArticleDetailQuery;
+import com.universe.wiki.application.article.query.published
+        .GetPublicWikiArticleDetailUseCase;
+import com.universe.wiki.application.article.query.published
         .GetPublishedWikiArticleQuery;
 import com.universe.wiki.application.article.query.published
         .GetPublishedWikiArticleUseCase;
+import com.universe.wiki.application.article.query.published
+        .GetPublicWikiCatalogOverviewQuery;
+import com.universe.wiki.application.article.query.published
+        .GetPublicWikiCatalogOverviewUseCase;
+import com.universe.wiki.application.article.query.published
+        .PublicWikiArticleDetailResult;
+import com.universe.wiki.application.article.query.published
+        .PublicWikiArticleDetailTimings;
+import com.universe.wiki.application.article.query.published
+        .PublicWikiCatalogOverviewResult;
+import com.universe.wiki.application.article.query.published
+        .PublicWikiCatalogOverviewTimings;
+import com.universe.wiki.application.ports.WikiPublicCoverImageDeliveryPort;
 import com.universe.wiki.application.article.query.published
         .ListPublishedWikiArticlesQuery;
 import com.universe.wiki.application.article.query.published
@@ -47,12 +64,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.ui.ExtendedModelMap;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -121,22 +140,37 @@ class PublicWikiControllerTest {
     private com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase
             getWikiArticlePublicContributorsUseCase;
 
+    @Mock
+    private GetPublicWikiCatalogOverviewUseCase
+            getPublicWikiCatalogOverviewUseCase;
+
+    @Mock
+    private WikiPublicCoverImageDeliveryPort
+            wikiPublicCoverImageDeliveryPort;
+
+    private GetPublicWikiArticleDetailUseCase
+            getPublicWikiArticleDetailUseCase;
+
     private PublicWikiController
             controller;
 
     @BeforeEach
     void setUp() {
-        controller =
-                new PublicWikiController(
-                        listPublishedArticlesUseCase,
+        getPublicWikiArticleDetailUseCase =
+                new GetPublicWikiArticleDetailUseCase(
                         getPublishedArticleUseCase,
-                        articleTypePathMapper,
-                        wikiMarkdownRenderer,
                         isWikiArticleSavedUseCase,
+                        wikiPublicCoverImageDeliveryPort,
                         getWikiAppreciationDetailStateUseCase,
-                        getWikiAppreciationSummariesUseCase,
                         userIdentityContract,
                         getWikiArticlePublicContributorsUseCase
+                );
+        controller =
+                new PublicWikiController(
+                        getPublicWikiCatalogOverviewUseCase,
+                        getPublicWikiArticleDetailUseCase,
+                        articleTypePathMapper,
+                        wikiMarkdownRenderer
                 );
         org.mockito.Mockito.lenient().when(getWikiArticlePublicContributorsUseCase.execute(any()))
                 .thenReturn(com.universe.wiki.contracts.dto.WikiPublicContributorsResult.empty());
@@ -159,8 +193,8 @@ class PublicWikiControllerTest {
         );
 
         when(
-                listPublishedArticlesUseCase.execute(
-                        new ListPublishedWikiArticlesQuery(
+                getPublicWikiCatalogOverviewUseCase.execute(
+                        new GetPublicWikiCatalogOverviewQuery(
                                 "Trần Bình",
                                 ArticleType.CHARACTER,
                                 0,
@@ -168,15 +202,12 @@ class PublicWikiControllerTest {
                         )
                 )
         ).thenReturn(
-                articlePage
-        );
-
-        when(
-                getWikiAppreciationSummariesUseCase.execute(
-                        List.of(ARTICLE_ID)
+                new PublicWikiCatalogOverviewResult(
+                        articlePage,
+                        Map.of(ARTICLE_ID, WikiAppreciationSummary.empty(ARTICLE_ID)),
+                        Map.of(),
+                        PublicWikiCatalogOverviewTimings.empty()
                 )
-        ).thenReturn(
-                Map.of(ARTICLE_ID, WikiAppreciationSummary.empty(ARTICLE_ID))
         );
 
         ExtendedModelMap model =
@@ -196,13 +227,25 @@ class PublicWikiControllerTest {
                         "wiki/public/index"
                 );
 
-        assertThat(
-                model.getAttribute(
-                        "articlePage"
-                )
-        ).isEqualTo(
-                articlePage
-        );
+        assertThat(model.getAttribute("articlePage"))
+                .isInstanceOf(PublicWikiArticlePageView.class);
+        PublicWikiArticlePageView pageView =
+                (PublicWikiArticlePageView) model.getAttribute("articlePage");
+        assertThat(pageView.page()).isEqualTo(articlePage.page());
+        assertThat(pageView.size()).isEqualTo(articlePage.size());
+        assertThat(pageView.totalElements()).isEqualTo(articlePage.totalElements());
+        assertThat(pageView.totalPages()).isEqualTo(articlePage.totalPages());
+        assertThat(pageView.first()).isEqualTo(articlePage.first());
+        assertThat(pageView.last()).isEqualTo(articlePage.last());
+        assertThat(pageView.items()).hasSize(1);
+        PublicWikiArticleCardView card = pageView.items().get(0);
+        assertThat(card.id()).isEqualTo(ARTICLE_ID);
+        assertThat(card.title()).isEqualTo("Trần Bình An");
+        assertThat(card.slug()).isEqualTo("tran-binh-an");
+        assertThat(card.articleType()).isEqualTo("CHARACTER");
+        assertThat(card.summary()).isEqualTo("Nhân vật chính của Kiếm Lai.");
+        assertThat(card.publishedAt()).isEqualTo(PUBLISHED_AT);
+        assertThat(card.updatedAt()).isEqualTo(UPDATED_AT);
 
         assertThat(
                 model.getAttribute(
@@ -228,9 +271,6 @@ class PublicWikiControllerTest {
                 Map.of(ARTICLE_ID, WikiAppreciationSummary.empty(ARTICLE_ID))
         );
 
-        verify(getWikiAppreciationSummariesUseCase, times(1))
-                .execute(List.of(ARTICLE_ID));
-
         ArticleType[] articleTypes =
                 (ArticleType[])
                         model.getAttribute(
@@ -247,9 +287,9 @@ class PublicWikiControllerTest {
                         "character"
                 );
 
-        verify(listPublishedArticlesUseCase)
+        verify(getPublicWikiCatalogOverviewUseCase)
                 .execute(
-                        new ListPublishedWikiArticlesQuery(
+                        new GetPublicWikiCatalogOverviewQuery(
                                 "Trần Bình",
                                 ArticleType.CHARACTER,
                                 0,
@@ -284,25 +324,39 @@ class PublicWikiControllerTest {
                 0, 20, 4L, 1, true, true
         );
 
-        when(listPublishedArticlesUseCase.execute(any())).thenReturn(mixedPage);
-
         Map<UUID, WikiAppreciationSummary> expectedSummaries = Map.of(
-                charId, new WikiAppreciationSummary(charId, new java.math.BigDecimal("4.7"), 128L),
-                factionId, WikiAppreciationSummary.empty(factionId)
+                charId, new WikiAppreciationSummary(charId, new BigDecimal("4.8"), 120L),
+                factionId, new WikiAppreciationSummary(factionId, new BigDecimal("4.2"), 45L)
         );
-        when(getWikiAppreciationSummariesUseCase.execute(List.of(charId, factionId)))
-                .thenReturn(expectedSummaries);
+
+        when(getPublicWikiCatalogOverviewUseCase.execute(any()))
+                .thenReturn(new PublicWikiCatalogOverviewResult(
+                        mixedPage,
+                        expectedSummaries,
+                        Map.of(),
+                        PublicWikiCatalogOverviewTimings.empty()
+                ));
 
         ExtendedModelMap model = new ExtendedModelMap();
         String viewName = controller.listPage(null, null, 0, 20, model);
 
         assertThat(viewName).isEqualTo("wiki/public/index");
-        assertThat(model.getAttribute("articlePage")).isEqualTo(mixedPage);
+        assertThat(model.getAttribute("articlePage"))
+                .isInstanceOf(PublicWikiArticlePageView.class);
+        PublicWikiArticlePageView pageView =
+                (PublicWikiArticlePageView) model.getAttribute("articlePage");
+        assertThat(pageView.page()).isEqualTo(mixedPage.page());
+        assertThat(pageView.size()).isEqualTo(mixedPage.size());
+        assertThat(pageView.totalElements()).isEqualTo(mixedPage.totalElements());
+        assertThat(pageView.totalPages()).isEqualTo(mixedPage.totalPages());
+        assertThat(pageView.first()).isEqualTo(mixedPage.first());
+        assertThat(pageView.last()).isEqualTo(mixedPage.last());
+        assertThat(pageView.items()).hasSize(4);
+        assertThat(pageView.items().stream().map(PublicWikiArticleCardView::id).toList())
+                .containsExactly(charId, factionId, itemId, realmId);
         assertThat(model.getAttribute("appreciationSummaries")).isEqualTo(expectedSummaries);
 
-        // Verification: called exactly once, and only for eligible IDs (no ITEM or REALM)
-        verify(getWikiAppreciationSummariesUseCase, times(1))
-                .execute(List.of(charId, factionId));
+        verify(getPublicWikiCatalogOverviewUseCase, times(1)).execute(any());
     }
 
     @Test
@@ -318,17 +372,32 @@ class PublicWikiControllerTest {
                 0, 20, 1L, 1, true, true
         );
 
-        when(listPublishedArticlesUseCase.execute(any())).thenReturn(ineligiblePage);
+        when(articleTypePathMapper.fromPath("item")).thenReturn(ArticleType.ITEM);
+        when(getPublicWikiCatalogOverviewUseCase.execute(any()))
+                .thenReturn(new PublicWikiCatalogOverviewResult(
+                        ineligiblePage,
+                        Map.of(),
+                        Map.of(),
+                        PublicWikiCatalogOverviewTimings.empty()
+                ));
 
         ExtendedModelMap model = new ExtendedModelMap();
         String viewName = controller.listPage(null, "item", 0, 20, model);
 
         assertThat(viewName).isEqualTo("wiki/public/index");
-        assertThat(model.getAttribute("articlePage")).isEqualTo(ineligiblePage);
+        assertThat(model.getAttribute("articlePage"))
+                .isInstanceOf(PublicWikiArticlePageView.class);
+        PublicWikiArticlePageView pageView =
+                (PublicWikiArticlePageView) model.getAttribute("articlePage");
+        assertThat(pageView.page()).isEqualTo(ineligiblePage.page());
+        assertThat(pageView.size()).isEqualTo(ineligiblePage.size());
+        assertThat(pageView.totalElements()).isEqualTo(ineligiblePage.totalElements());
+        assertThat(pageView.totalPages()).isEqualTo(ineligiblePage.totalPages());
+        assertThat(pageView.items()).hasSize(1);
+        assertThat(pageView.items().get(0).id()).isEqualTo(itemId);
         assertThat(model.getAttribute("appreciationSummaries")).isEqualTo(Map.of());
 
-        // Verification: query use case is NEVER invoked
-        verify(getWikiAppreciationSummariesUseCase, never()).execute(any());
+        verify(getPublicWikiCatalogOverviewUseCase, times(1)).execute(any());
     }
 
     @Test
@@ -348,8 +417,8 @@ class PublicWikiControllerTest {
                 );
 
         when(
-                listPublishedArticlesUseCase.execute(
-                        new ListPublishedWikiArticlesQuery(
+                getPublicWikiCatalogOverviewUseCase.execute(
+                        new GetPublicWikiCatalogOverviewQuery(
                                 null,
                                 null,
                                 0,
@@ -357,7 +426,12 @@ class PublicWikiControllerTest {
                         )
                 )
         ).thenReturn(
-                emptyPage
+                new PublicWikiCatalogOverviewResult(
+                        emptyPage,
+                        Map.of(),
+                        Map.of(),
+                        PublicWikiCatalogOverviewTimings.empty()
+                )
         );
 
         ExtendedModelMap model =
@@ -396,15 +470,16 @@ class PublicWikiControllerTest {
                 anyString()
         );
 
-        verify(listPublishedArticlesUseCase)
-                .execute(
-                        new ListPublishedWikiArticlesQuery(
-                                null,
-                                null,
-                                0,
-                                20
-                        )
-                );
+        verify(
+                getPublicWikiCatalogOverviewUseCase
+        ).execute(
+                new GetPublicWikiCatalogOverviewQuery(
+                        null,
+                        null,
+                        0,
+                        20
+                )
+        );
     }
 
     @Test
@@ -505,13 +580,19 @@ class PublicWikiControllerTest {
                         "wiki/public/detail"
                 );
 
-        assertThat(
-                model.getAttribute(
-                        "article"
-                )
-        ).isEqualTo(
-                article
-        );
+        assertThat(model.getAttribute("article"))
+                .isInstanceOf(PublicWikiArticleDetailView.class);
+        PublicWikiArticleDetailView detailView =
+                (PublicWikiArticleDetailView) model.getAttribute("article");
+        assertThat(detailView.id()).isEqualTo(article.id());
+        assertThat(detailView.title()).isEqualTo(article.title());
+        assertThat(detailView.slug()).isEqualTo(article.slug());
+        assertThat(detailView.articleType()).isEqualTo(article.articleType());
+        assertThat(detailView.summary()).isEqualTo(article.summary());
+        assertThat(detailView.content()).isEqualTo(article.content());
+        assertThat(detailView.publishedAt()).isEqualTo(article.publishedAt());
+        assertThat(detailView.updatedAt()).isEqualTo(article.updatedAt());
+        assertThat(detailView.contentVersion()).isEqualTo(article.contentVersion());
 
         assertThat(
                 model.getAttribute(
@@ -965,6 +1046,220 @@ class PublicWikiControllerTest {
         assertThat(model.getAttribute("publicContributors")).isEqualTo(contributors);
         assertThat(model.getAttribute("publicContributorsLimitReached")).isEqualTo(true);
         verify(getWikiArticlePublicContributorsUseCase, times(1)).execute(ARTICLE_ID);
+    }
+
+    @Test
+    void listPageWithPerformanceDiagnosticEnabledExecutesCleanly() {
+        PublicWikiController diagnosticController = new PublicWikiController(
+                getPublicWikiCatalogOverviewUseCase,
+                getPublicWikiArticleDetailUseCase,
+                articleTypePathMapper,
+                wikiMarkdownRenderer,
+                true
+        );
+
+        PublishedWikiArticlePageDTO emptyPage = new PublishedWikiArticlePageDTO(
+                List.of(), 0, 20, 0, 0, true, true
+        );
+        when(getPublicWikiCatalogOverviewUseCase.execute(any())).thenReturn(
+                new PublicWikiCatalogOverviewResult(
+                        emptyPage,
+                        Map.of(),
+                        Map.of(),
+                        PublicWikiCatalogOverviewTimings.empty()
+                )
+        );
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String view = diagnosticController.listPage(null, null, 0, 20, model);
+
+        assertThat(view).isEqualTo("wiki/public/index");
+        assertThat(model.getAttribute("articlePage")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("PublicWikiController delegates listPage to GetPublicWikiCatalogOverviewUseCase coordinator")
+    void listPageDelegatesToOverviewCoordinator() {
+        GetPublicWikiCatalogOverviewUseCase mockCoordinator =
+                org.mockito.Mockito.mock(GetPublicWikiCatalogOverviewUseCase.class);
+        PublicWikiController customController = new PublicWikiController(
+                mockCoordinator,
+                getPublicWikiArticleDetailUseCase,
+                articleTypePathMapper,
+                wikiMarkdownRenderer,
+                false
+        );
+
+        PublishedWikiArticlePageDTO pageDTO = createPageDTO();
+        PublicWikiCatalogOverviewResult result =
+                new PublicWikiCatalogOverviewResult(
+                        pageDTO,
+                        Map.of(ARTICLE_ID, WikiAppreciationSummary.empty(ARTICLE_ID)),
+                        Map.of(),
+                        PublicWikiCatalogOverviewTimings.empty()
+                );
+        when(mockCoordinator.execute(any())).thenReturn(result);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String view = customController.listPage("keyword", null, 0, 20, model);
+
+        assertThat(view).isEqualTo("wiki/public/index");
+        assertThat(model.getAttribute("articlePage")).isNotNull();
+        assertThat(model.getAttribute("appreciationSummaries")).isNotNull();
+        verify(mockCoordinator).execute(any());
+    }
+
+    @Test
+    @DisplayName("PublicWikiController delegates detailPage to GetPublicWikiArticleDetailUseCase coordinator")
+    void detailPageDelegatesToDetailCoordinator() {
+        GetPublicWikiArticleDetailUseCase mockDetailCoordinator =
+                org.mockito.Mockito.mock(GetPublicWikiArticleDetailUseCase.class);
+        PublicWikiController customController = new PublicWikiController(
+                getPublicWikiCatalogOverviewUseCase,
+                mockDetailCoordinator,
+                articleTypePathMapper,
+                wikiMarkdownRenderer,
+                false
+        );
+
+        PublishedWikiArticleDTO article = createPublishedDTO();
+        when(articleTypePathMapper.fromPath("character")).thenReturn(ArticleType.CHARACTER);
+        when(articleTypePathMapper.toPath(ArticleType.CHARACTER)).thenReturn("character");
+        when(wikiMarkdownRenderer.render(article.content()))
+                .thenReturn(new RenderedWikiContent("<p>Nội dung</p>", List.of()));
+        when(mockDetailCoordinator.execute(new GetPublicWikiArticleDetailQuery(
+                ArticleType.CHARACTER,
+                "tran-binh-an",
+                null
+        ))).thenReturn(new PublicWikiArticleDetailResult(
+                article,
+                false,
+                null,
+                true,
+                new WikiAppreciationDetailState(new BigDecimal("4.8"), 5L, null),
+                "Đăng bởi Tác giả",
+                com.universe.wiki.contracts.dto.WikiPublicContributorsResult.empty(),
+                PublicWikiArticleDetailTimings.empty()
+        ));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        String view = customController.detailPage("character", "tran-binh-an", request, model);
+
+        assertThat(view).isEqualTo("wiki/public/detail");
+        assertThat(model.getAttribute("article")).isInstanceOf(PublicWikiArticleDetailView.class);
+        assertThat(model.getAttribute("attributionLine")).isEqualTo("Đăng bởi Tác giả");
+        verify(mockDetailCoordinator).execute(new GetPublicWikiArticleDetailQuery(
+                ArticleType.CHARACTER,
+                "tran-binh-an",
+                null
+        ));
+    }
+
+    @Test
+    void detailPageWithPerformanceDiagnosticEnabledExecutesCleanly() {
+        PublicWikiController diagnosticController = new PublicWikiController(
+                getPublicWikiCatalogOverviewUseCase,
+                getPublicWikiArticleDetailUseCase,
+                articleTypePathMapper,
+                wikiMarkdownRenderer,
+                true
+        );
+
+        PublishedWikiArticleDTO article = createPublishedDTO();
+        when(articleTypePathMapper.fromPath("character")).thenReturn(ArticleType.CHARACTER);
+        when(articleTypePathMapper.toPath(ArticleType.CHARACTER)).thenReturn("character");
+        when(getPublishedArticleUseCase.execute(any())).thenReturn(article);
+        when(wikiMarkdownRenderer.render(any())).thenReturn(new RenderedWikiContent("<p>Nội dung</p>", List.of()));
+        when(getWikiAppreciationDetailStateUseCase.execute(any(), any()))
+                .thenReturn(new WikiAppreciationDetailState(null, 0L, null));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String view = diagnosticController.detailPage("character", "tran-binh-an", new MockHttpServletRequest(), model);
+
+        assertThat(view).isEqualTo("wiki/public/detail");
+        assertThat(model.getAttribute("article")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("listPage rejects negative page number with IllegalArgumentException")
+    void listPageRejectsNegativePage() {
+        ExtendedModelMap model = new ExtendedModelMap();
+        assertThatThrownBy(() -> controller.listPage(null, null, -1, 20, model))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Page không được nhỏ hơn 0.");
+        verifyNoInteractions(getPublicWikiCatalogOverviewUseCase);
+    }
+
+    @Test
+    @DisplayName("listPage rejects zero page size with IllegalArgumentException")
+    void listPageRejectsZeroSize() {
+        ExtendedModelMap model = new ExtendedModelMap();
+        assertThatThrownBy(() -> controller.listPage(null, null, 0, 0, model))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Page size phải lớn hơn hoặc bằng 1.");
+        verifyNoInteractions(getPublicWikiCatalogOverviewUseCase);
+    }
+
+    @Test
+    @DisplayName("listPage rejects negative page size with IllegalArgumentException")
+    void listPageRejectsNegativeSize() {
+        ExtendedModelMap model = new ExtendedModelMap();
+        assertThatThrownBy(() -> controller.listPage(null, null, 0, -5, model))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Page size phải lớn hơn hoặc bằng 1.");
+        verifyNoInteractions(getPublicWikiCatalogOverviewUseCase);
+    }
+
+    @Test
+    @DisplayName("listPage rejects page size exceeding 100 with IllegalArgumentException")
+    void listPageRejectsSizeExceedingMax() {
+        ExtendedModelMap model = new ExtendedModelMap();
+        assertThatThrownBy(() -> controller.listPage(null, null, 0, 101, model))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Page size không được vượt quá 100.");
+        verifyNoInteractions(getPublicWikiCatalogOverviewUseCase);
+    }
+
+    @Test
+    @DisplayName("listPage accepts maximum page size 100")
+    void listPageAcceptsMaxSize100() {
+        PublishedWikiArticlePageDTO emptyPage = new PublishedWikiArticlePageDTO(
+                List.of(), 0, 100, 0, 0, true, true
+        );
+        when(getPublicWikiCatalogOverviewUseCase.execute(any())).thenReturn(
+                new PublicWikiCatalogOverviewResult(emptyPage, Map.of(), Map.of(), PublicWikiCatalogOverviewTimings.empty())
+        );
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String view = controller.listPage(null, null, 0, 100, model);
+
+        assertThat(view).isEqualTo("wiki/public/index");
+        verify(getPublicWikiCatalogOverviewUseCase).execute(new GetPublicWikiCatalogOverviewQuery(null, null, 0, 100));
+    }
+
+    @Test
+    @DisplayName("PublicWikiController constructor rejects null GetPublicWikiCatalogOverviewUseCase")
+    void constructorRejectsNullCoordinator() {
+        assertThatThrownBy(() -> new PublicWikiController(
+                null,
+                getPublicWikiArticleDetailUseCase,
+                articleTypePathMapper,
+                wikiMarkdownRenderer
+        )).isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("GetPublicWikiCatalogOverviewUseCase không được để trống.");
+    }
+
+    @Test
+    @DisplayName("PublicWikiController constructor rejects null GetPublicWikiArticleDetailUseCase")
+    void constructorRejectsNullDetailCoordinator() {
+        assertThatThrownBy(() -> new PublicWikiController(
+                getPublicWikiCatalogOverviewUseCase,
+                null,
+                articleTypePathMapper,
+                wikiMarkdownRenderer
+        )).isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("GetPublicWikiArticleDetailUseCase không được để trống.");
     }
 
     private PublishedWikiArticlePageDTO

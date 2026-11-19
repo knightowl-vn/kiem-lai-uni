@@ -86,7 +86,10 @@ public class GetWikiArticlePublicContributorsUseCase {
                     articleId,
                     ex.getClass().getSimpleName()
             );
-            return WikiPublicContributorsResult.empty();
+            // Rethrow rather than swallowing inside a participating REQUIRED Spring transaction;
+            // swallowing an unchecked failure after UserIdentityQueryService marks the transaction
+            // rollback-only corrupts outer commit with UnexpectedRollbackException.
+            throw ex;
         }
 
         if (profileMap == null || profileMap.isEmpty()) {

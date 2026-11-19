@@ -39,6 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.universe.identity.contracts.currentuser.CurrentUserView;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -120,6 +121,15 @@ class PublicNavbarRenderingTest {
     @MockBean
     private com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase;
 
+    @MockBean
+    private com.universe.wiki.application.ports.WikiPublicCoverImageDeliveryPort wikiPublicCoverImageDeliveryPort;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.GetPublicWikiCatalogOverviewUseCase getPublicWikiCatalogOverviewUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.GetPublicWikiArticleDetailUseCase getPublicWikiArticleDetailUseCase;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -153,15 +163,20 @@ class PublicNavbarRenderingTest {
     @WithAnonymousUser
     @DisplayName("Trang Wiki /wiki render navbar với Wiki active")
     void wikiPageRendersNavbarWithActiveWikiLink() throws Exception {
-        when(listPublishedArticlesUseCase.execute(any(ListPublishedWikiArticlesQuery.class)))
-                .thenReturn(new PublishedWikiArticlePageDTO(
-                        List.of(),
-                        0,
-                        20,
-                        0L,
-                        0,
-                        true,
-                        true
+        when(getPublicWikiCatalogOverviewUseCase.execute(any(com.universe.wiki.application.article.query.published.GetPublicWikiCatalogOverviewQuery.class)))
+                .thenReturn(new com.universe.wiki.application.article.query.published.PublicWikiCatalogOverviewResult(
+                        new PublishedWikiArticlePageDTO(
+                                List.of(),
+                                0,
+                                20,
+                                0L,
+                                0,
+                                true,
+                                true
+                        ),
+                        Map.of(),
+                        Map.of(),
+                        com.universe.wiki.application.article.query.published.PublicWikiCatalogOverviewTimings.empty()
                 ));
 
         mockMvc.perform(get("/wiki"))
