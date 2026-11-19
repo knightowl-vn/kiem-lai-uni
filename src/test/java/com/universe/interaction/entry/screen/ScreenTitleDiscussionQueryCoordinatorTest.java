@@ -33,10 +33,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.QueryTimeoutException;
 
 import java.time.Instant;
 import java.util.List;
@@ -845,6 +847,185 @@ class ScreenTitleDiscussionQueryCoordinatorTest {
                 coordinatorLogger.detachAppender(appender);
                 appender.stop();
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("Phase A/B Isolation and Reaction Failure Handling Tests")
+    class PhaseIsolationAndReactionFailureTests {
+
+        @Test
+        @DisplayName("Primary coordinator constructor executes Phase A core read strictly before Phase B reactions")
+        void shouldInvokeCoreReadStrictlyBeforeReactionBatch() {
+            ScreenTitleDiscussionCoreReadService mockCoreReadService = Mockito.mock(ScreenTitleDiscussionCoreReadService.class);
+            ScreenTitleDiscussionQueryCoordinator primaryCoordinator = new ScreenTitleDiscussionQueryCoordinator(
+                    screenDiscussionContract,
+                    mockCoreReadService,
+                    getCommentThreadUseCase,
+                    validateCommentTargetScopeUseCase,
+                    userIdentityContract,
+                    getBatchReactionSummariesUseCase,
+                    false
+            );
+            UUID viewerId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root Body", NOW, EPISODE_1_ENTRY_ID);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+            var coreResult = new ScreenTitleDiscussionCoreReadService.CoreFeedReadResult(
+                    1,
+                    1,
+                    0,
+                    20,
+                    false,
+                    1,
+                    Map.of(EPISODE_1_ENTRY_ID, new ScreenEntryOriginDTO(EPISODE_1_ENTRY_ID, "tap-1", "Tập 1")),
+                    List.of(ROOT_1_ID),
+                    Map.of(ROOT_1_ID, new CommentThreadView(rootItem, List.of())),
+                    Set.of(AUTHOR_1_ID),
+                    List.of(ROOT_1_ID),
+                    Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")),
+                    ScreenTitleDiscussionCoreReadService.CoreStageTimings.ZERO
+            );
+            when(mockCoreReadService.readFeedCore(TITLE_ID, 0, 20, CommentSortMode.NEWEST, false))
+                    .thenReturn(coreResult);
+            when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID), viewerId))
+                    .thenReturn(Map.of(
+                            ROOT_1_ID, ReactionSummary.of(ReactionTarget.comment(ROOT_1_ID), Map.of(ReactionType.LIKE, 3L), ReactionType.LIKE)
+                    ));
+
+            ScreenDiscussionFeedResponseDTO response = primaryCoordinator.getDiscussionFeed(
+                    TITLE_ID, 0, 20, viewerId, CommentSortMode.NEWEST
+            );
+
+            assertThat(response.threads()).hasSize(1);
+            assertThat(response.threads().get(0).root().origin().badgeText()).isEqualTo("Tập 1");
+            assertThat(response.threads().get(0).root().reactionSummary().totalCount()).isEqualTo(3L);
+            assertThat(response.threads().get(0).root().reactionSummary().currentUserReaction()).isEqualTo("LIKE");
+
+            InOrder inOrder = Mockito.inOrder(mockCoreReadService, getBatchReactionSummariesUseCase);
+            inOrder.verify(mockCoreReadService).readFeedCore(TITLE_ID, 0, 20, CommentSortMode.NEWEST, false);
+            inOrder.verify(getBatchReactionSummariesUseCase)
+                    .execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID), viewerId);
+        }
+
+        @Test
+        @DisplayName("Empty reaction map degrades cleanly without failure logs")
+        void shouldPreserveFeedWhenReactionResultIsEmpty() {
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+            when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root Body", NOW);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.NEWEST, 0, 20))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 20, false));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                    .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+            when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID), null))
+                    .thenReturn(Map.of());
+
+            Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            coordinatorLogger.addAppender(appender);
+            try {
+                ScreenDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(
+                        TITLE_ID, 0, 20, null, CommentSortMode.NEWEST
+                );
+                assertThat(response.threads()).hasSize(1);
+                assertThat(response.threads().get(0).root().reactionSummary()).isNull();
+                assertThat(appender.list).isEmpty();
+            } finally {
+                coordinatorLogger.detachAppender(appender);
+                appender.stop();
+            }
+        }
+
+        @Test
+        @DisplayName("Reaction persistence exception degrades best-effort with sanitized warning without leaking UUID or SQL params")
+        void shouldEmitSanitizedWarningWhenReactionPersistenceExceptionOccurs() {
+            UUID viewerId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+            when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+            when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root Body", NOW);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+            when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
+                    .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 20, false));
+            when(screenDiscussionContract.findPublishedEntryOriginsByTitleId(TITLE_ID)).thenReturn(Map.of());
+            when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                    .thenReturn(List.of(new CommentThreadView(rootItem, List.of())));
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
+                    .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+            when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID), viewerId))
+                    .thenThrow(new QueryTimeoutException("SQL bind secret_token_xyz failed for " + viewerId));
+
+            ScreenTitleDiscussionQueryCoordinator diagCoordinator = new ScreenTitleDiscussionQueryCoordinator(
+                    screenDiscussionContract,
+                    getCommentTargetMetricsUseCase,
+                    listCommentRootsUseCase,
+                    getCommentThreadsByRootIdsUseCase,
+                    getCommentThreadUseCase,
+                    validateCommentTargetScopeUseCase,
+                    userIdentityContract,
+                    getBatchReactionSummariesUseCase,
+                    true
+            );
+
+            Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(ScreenTitleDiscussionQueryCoordinator.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            coordinatorLogger.addAppender(appender);
+            try {
+                ScreenDiscussionFeedResponseDTO response = diagCoordinator.getDiscussionFeed(
+                        TITLE_ID, 0, 20, viewerId, CommentSortMode.FEATURED
+                );
+
+                assertThat(response.threads()).hasSize(1);
+                assertThat(response.threads().get(0).root().body()).isEqualTo("Root Body");
+                assertThat(response.threads().get(0).root().reactionSummary()).isNull();
+
+                List<ILoggingEvent> warnings = appender.list.stream()
+                        .filter(e -> e.getLevel() == ch.qos.logback.classic.Level.WARN)
+                        .toList();
+                assertThat(warnings).hasSize(1);
+                String warnMsg = warnings.get(0).getFormattedMessage();
+                assertThat(warnMsg)
+                        .contains("QueryTimeoutException")
+                        .contains("activeCommentCount=1")
+                        .contains("authenticatedViewer=true")
+                        .doesNotContain(TITLE_ID.toString())
+                        .doesNotContain(viewerId.toString())
+                        .doesNotContain("secret_token_xyz");
+                assertThat(warnings.get(0).getThrowableProxy()).isNull();
+
+                List<String> diagLogs = appender.list.stream()
+                        .map(ILoggingEvent::getFormattedMessage)
+                        .filter(m -> m.contains("[PERF-DIAGNOSTIC]"))
+                        .toList();
+                assertThat(diagLogs).hasSize(1);
+                assertThat(diagLogs.get(0)).contains("failed=true");
+            } finally {
+                coordinatorLogger.detachAppender(appender);
+                appender.stop();
+            }
+        }
+
+        @Test
+        @DisplayName("Core persistence exception propagates and never calls reaction lookup")
+        void shouldPropagateCorePersistenceExceptionWithoutCallingReactions() {
+            CommentTarget target = CommentTarget.screenTitle(TITLE_ID);
+            when(screenDiscussionContract.isPublishedTitle(TITLE_ID)).thenReturn(true);
+            when(getCommentTargetMetricsUseCase.execute(target))
+                    .thenThrow(new QueryTimeoutException("Core metrics DB failure"));
+
+            assertThatThrownBy(() -> coordinator.getDiscussionFeed(TITLE_ID, 0, 20, null, CommentSortMode.NEWEST))
+                    .isInstanceOf(QueryTimeoutException.class)
+                    .hasMessageContaining("Core metrics DB failure");
+
+            verify(getBatchReactionSummariesUseCase, never()).execute(any(), any(), any());
         }
     }
 }
