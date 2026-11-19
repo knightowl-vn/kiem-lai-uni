@@ -6,6 +6,7 @@ import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
@@ -46,6 +47,7 @@ public class DiscussionCoreReadService {
     private final GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
     private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
     private final GetCommentThreadUseCase getCommentThreadUseCase;
+    private final CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase;
     private final UserIdentityContract userIdentityContract;
 
     @Autowired
@@ -55,6 +57,7 @@ public class DiscussionCoreReadService {
             GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
             GetCommentThreadUseCase getCommentThreadUseCase,
+            CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase,
             UserIdentityContract userIdentityContract
     ) {
         this.getCommentTargetMetricsUseCase = Objects.requireNonNull(
@@ -77,9 +80,36 @@ public class DiscussionCoreReadService {
                 getCommentThreadUseCase,
                 "GetCommentThreadUseCase cannot be null."
         );
+        this.countVisibleActiveRepliesByRootIdsUseCase = Objects.requireNonNull(
+                countVisibleActiveRepliesByRootIdsUseCase,
+                "CountVisibleActiveRepliesByRootIdsUseCase cannot be null."
+        );
         this.userIdentityContract = Objects.requireNonNull(
                 userIdentityContract,
                 "UserIdentityContract cannot be null."
+        );
+    }
+
+    /**
+     * Compatibility constructor for callers that do not exercise roots-only feed reads.
+     */
+    public DiscussionCoreReadService(
+            GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
+            ListCommentRootsUseCase listCommentRootsUseCase,
+            GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
+            ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
+            GetCommentThreadUseCase getCommentThreadUseCase,
+            UserIdentityContract userIdentityContract
+    ) {
+        this(
+                Objects.requireNonNull(getCommentTargetMetricsUseCase, "GetCommentTargetMetricsUseCase cannot be null."),
+                Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null."),
+                Objects.requireNonNull(getCommentThreadsByRootIdsUseCase, "GetCommentThreadsByRootIdsUseCase cannot be null."),
+                Objects.requireNonNull(validateCommentTargetScopeUseCase, "ValidateCommentTargetScopeUseCase cannot be null."),
+                Objects.requireNonNull(getCommentThreadUseCase, "GetCommentThreadUseCase cannot be null."),
+                null,
+                userIdentityContract,
+                true
         );
     }
 
@@ -89,17 +119,16 @@ public class DiscussionCoreReadService {
             GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
             GetCommentThreadUseCase getCommentThreadUseCase,
+            CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase,
             UserIdentityContract userIdentityContract,
             boolean internalMarker
     ) {
         this.getCommentTargetMetricsUseCase = getCommentTargetMetricsUseCase;
         this.listCommentRootsUseCase = listCommentRootsUseCase;
-        this.getCommentThreadsByRootIdsUseCase = Objects.requireNonNull(
-                getCommentThreadsByRootIdsUseCase,
-                "GetCommentThreadsByRootIdsUseCase cannot be null."
-        );
+        this.getCommentThreadsByRootIdsUseCase = getCommentThreadsByRootIdsUseCase;
         this.validateCommentTargetScopeUseCase = validateCommentTargetScopeUseCase;
         this.getCommentThreadUseCase = getCommentThreadUseCase;
+        this.countVisibleActiveRepliesByRootIdsUseCase = countVisibleActiveRepliesByRootIdsUseCase;
         this.userIdentityContract = Objects.requireNonNull(
                 userIdentityContract,
                 "UserIdentityContract cannot be null."
@@ -118,7 +147,8 @@ public class DiscussionCoreReadService {
         this(
                 Objects.requireNonNull(getCommentTargetMetricsUseCase, "GetCommentTargetMetricsUseCase cannot be null."),
                 Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null."),
-                getCommentThreadsByRootIdsUseCase,
+                Objects.requireNonNull(getCommentThreadsByRootIdsUseCase, "GetCommentThreadsByRootIdsUseCase cannot be null."),
+                null,
                 null,
                 null,
                 userIdentityContract,
@@ -137,7 +167,8 @@ public class DiscussionCoreReadService {
         return new DiscussionCoreReadService(
                 null,
                 Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null."),
-                getCommentThreadsByRootIdsUseCase,
+                Objects.requireNonNull(getCommentThreadsByRootIdsUseCase, "GetCommentThreadsByRootIdsUseCase cannot be null."),
+                null,
                 null,
                 null,
                 userIdentityContract,
@@ -155,9 +186,33 @@ public class DiscussionCoreReadService {
         return new DiscussionCoreReadService(
                 null,
                 null,
-                getCommentThreadsByRootIdsUseCase,
+                Objects.requireNonNull(getCommentThreadsByRootIdsUseCase, "GetCommentThreadsByRootIdsUseCase cannot be null."),
                 null,
                 null,
+                null,
+                userIdentityContract,
+                true
+        );
+    }
+
+    /**
+     * Compatibility factory for unit tests exercising roots-only feed and single-thread coordinators.
+     */
+    public static DiscussionCoreReadService forRootsOnlyFeedAndSingleThread(
+            GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
+            ListCommentRootsUseCase listCommentRootsUseCase,
+            CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase,
+            ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
+            GetCommentThreadUseCase getCommentThreadUseCase,
+            UserIdentityContract userIdentityContract
+    ) {
+        return new DiscussionCoreReadService(
+                Objects.requireNonNull(getCommentTargetMetricsUseCase, "GetCommentTargetMetricsUseCase cannot be null."),
+                Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null."),
+                null,
+                Objects.requireNonNull(validateCommentTargetScopeUseCase, "ValidateCommentTargetScopeUseCase cannot be null."),
+                Objects.requireNonNull(getCommentThreadUseCase, "GetCommentThreadUseCase cannot be null."),
+                Objects.requireNonNull(countVisibleActiveRepliesByRootIdsUseCase, "CountVisibleActiveRepliesByRootIdsUseCase cannot be null."),
                 userIdentityContract,
                 true
         );
@@ -297,6 +352,9 @@ public class DiscussionCoreReadService {
         Objects.requireNonNull(eligibilityGate, "eligibilityGate cannot be null");
         if (listCommentRootsUseCase == null) {
             throw new IllegalStateException("ListCommentRootsUseCase is required for threaded feed reads.");
+        }
+        if (getCommentThreadsByRootIdsUseCase == null) {
+            throw new IllegalStateException("GetCommentThreadsByRootIdsUseCase is required for threaded feed reads.");
         }
         if (includeMetrics && getCommentTargetMetricsUseCase == null) {
             throw new IllegalStateException("GetCommentTargetMetricsUseCase is required when includeMetrics is true.");
@@ -529,6 +587,9 @@ public class DiscussionCoreReadService {
         }
         Objects.requireNonNull(eligibilityGate, "eligibilityGate cannot be null");
         Objects.requireNonNull(rootsResolver, "rootsResolver cannot be null");
+        if (getCommentThreadsByRootIdsUseCase == null) {
+            throw new IllegalStateException("GetCommentThreadsByRootIdsUseCase is required for known-root reads.");
+        }
 
         // 1. Fail-closed target eligibility check
         eligibilityGate.verifyEligible();
@@ -574,6 +635,122 @@ public class DiscussionCoreReadService {
                 participants,
                 authorsMap != null ? authorsMap : Map.of()
         );
+    }
+
+    /**
+     * Executes mandatory Phase A roots-only discussion feed reads inside one read-only transaction.
+     *
+     * <p>Executes: eligibility gate -> target metrics -> active root slice -> batch active reply counts
+     * for returned root IDs -> root-only participant collection -> batched Identity profiles for root authors.
+     * Intentionally never invokes {@link GetCommentThreadsByRootIdsUseCase} or hydrates reply entities.
+     *
+     * @param target interaction comment target
+     * @param page zero-based page index
+     * @param size positive page size
+     * @param sortMode comment sort mode (defaults to {@link CommentSortMode#FEATURED} when null)
+     * @param eligibilityGate fail-closed module target eligibility check
+     * @return immutable {@link CoreRootsOnlyFeedResult}
+     */
+    public CoreRootsOnlyFeedResult readRootsOnlyFeed(
+            CommentTarget target,
+            int page,
+            int size,
+            CommentSortMode sortMode,
+            TargetEligibilityGate eligibilityGate
+    ) {
+        if (target == null) {
+            throw new IllegalArgumentException("target cannot be null");
+        }
+        if (page < 0) {
+            throw new IllegalArgumentException("page cannot be negative: " + page);
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("size must be greater than zero: " + size);
+        }
+        Objects.requireNonNull(eligibilityGate, "eligibilityGate cannot be null");
+        if (getCommentTargetMetricsUseCase == null
+                || listCommentRootsUseCase == null
+                || countVisibleActiveRepliesByRootIdsUseCase == null) {
+            throw new IllegalStateException(
+                    "GetCommentTargetMetricsUseCase, ListCommentRootsUseCase, and CountVisibleActiveRepliesByRootIdsUseCase are required for roots-only feed reads."
+            );
+        }
+
+        CommentSortMode effectiveSortMode = (sortMode != null) ? sortMode : CommentSortMode.FEATURED;
+
+        // 1. Fail-closed target eligibility check
+        eligibilityGate.verifyEligible();
+
+        // 2. Authoritative target metrics aggregate
+        CommentTargetMetrics metrics = getCommentTargetMetricsUseCase.execute(target);
+
+        // 3. Active root comments slice (no reply entity hydration)
+        CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, effectiveSortMode, page, size);
+        if (rootSlice.items().isEmpty()) {
+            return new CoreRootsOnlyFeedResult(
+                    metrics.threadCount(),
+                    metrics.commentCount(),
+                    rootSlice.page(),
+                    rootSlice.size(),
+                    rootSlice.hasNext(),
+                    List.of(),
+                    Map.of(),
+                    DiscussionParticipants.EMPTY,
+                    Map.of()
+            );
+        }
+
+        List<CommentReadItem> roots = List.copyOf(rootSlice.items());
+        List<UUID> rootIds = roots.stream().map(CommentReadItem::id).toList();
+
+        // 4. Batch active reply counts strictly for roots in this slice
+        Map<UUID, Long> replyCountsByRootId = countVisibleActiveRepliesByRootIdsUseCase.execute(rootIds);
+
+        // 5. Collect active root participants only (zero reply authors, zero reply IDs)
+        DiscussionParticipants participants = DiscussionParticipants.collectForRoots(roots);
+
+        // 6. Batch Identity public profile lookup strictly for root authors
+        Map<UUID, UserPublicProfileDTO> authorsMap = participants.authorUserIds().isEmpty()
+                ? Map.of()
+                : userIdentityContract.findPublicProfilesByIds(participants.authorUserIds());
+
+        return new CoreRootsOnlyFeedResult(
+                metrics.threadCount(),
+                metrics.commentCount(),
+                rootSlice.page(),
+                rootSlice.size(),
+                rootSlice.hasNext(),
+                roots,
+                replyCountsByRootId != null ? replyCountsByRootId : Map.of(),
+                participants,
+                authorsMap != null ? authorsMap : Map.of()
+        );
+    }
+
+    /**
+     * Immutable detached result of a Phase A roots-only discussion feed read.
+     */
+    public record CoreRootsOnlyFeedResult(
+            long threadCount,
+            long commentCount,
+            int page,
+            int size,
+            boolean hasNext,
+            List<CommentReadItem> roots,
+            Map<UUID, Long> replyCountsByRootId,
+            DiscussionParticipants participants,
+            Map<UUID, UserPublicProfileDTO> authorsMap
+    ) {
+        public CoreRootsOnlyFeedResult {
+            roots = (roots == null || roots.isEmpty()) ? List.of() : List.copyOf(roots);
+            replyCountsByRootId = (replyCountsByRootId == null || replyCountsByRootId.isEmpty())
+                    ? Map.of()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(replyCountsByRootId));
+            participants = participants == null ? DiscussionParticipants.EMPTY : participants;
+            authorsMap = (authorsMap == null || authorsMap.isEmpty())
+                    ? Map.of()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(authorsMap));
+        }
     }
 
     /**

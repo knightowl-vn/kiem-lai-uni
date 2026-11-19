@@ -105,6 +105,35 @@ public record DiscussionParticipants(
         return new DiscussionParticipants(authorUserIds, activeCommentIds);
     }
 
+    /**
+     * Collects active author user IDs and active root comment IDs strictly from root items
+     * without hydrating or collecting any reply participants.
+     *
+     * @param roots ordered root comment items (may be null or empty)
+     * @return immutable {@link DiscussionParticipants} snapshot for roots only
+     */
+    public static DiscussionParticipants collectForRoots(List<CommentReadItem> roots) {
+        if (roots == null || roots.isEmpty()) {
+            return EMPTY;
+        }
+
+        Set<UUID> authorUserIds = new LinkedHashSet<>();
+        List<UUID> activeCommentIds = new ArrayList<>(roots.size());
+        for (CommentReadItem root : roots) {
+            if (root != null && !root.tombstone()) {
+                activeCommentIds.add(root.id());
+                if (root.authorUserId() != null) {
+                    authorUserIds.add(root.authorUserId());
+                }
+            }
+        }
+
+        if (authorUserIds.isEmpty() && activeCommentIds.isEmpty()) {
+            return EMPTY;
+        }
+        return new DiscussionParticipants(authorUserIds, activeCommentIds);
+    }
+
     private static void appendThreadParticipants(
             CommentThreadView threadView,
             Set<UUID> authorUserIds,

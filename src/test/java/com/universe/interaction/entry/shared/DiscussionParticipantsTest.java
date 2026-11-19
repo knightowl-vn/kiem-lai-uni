@@ -111,4 +111,35 @@ class DiscussionParticipantsTest {
                 .containsExactly(ROOT_1_ID, REPLY_1_ID, ROOT_2_ID)
                 .doesNotContain(TOMBSTONE_REPLY_ID);
     }
+
+    @Test
+    @DisplayName("Roots-only collector preserves root order, excludes nulls/tombstones, and skips reply authors")
+    void shouldCollectForRootsExcludingTombstonesAndNulls() {
+        assertThat(DiscussionParticipants.collectForRoots(null)).isEqualTo(DiscussionParticipants.EMPTY);
+        assertThat(DiscussionParticipants.collectForRoots(List.of())).isEqualTo(DiscussionParticipants.EMPTY);
+
+        CommentTarget target = CommentTarget.communityPost(TARGET_ID);
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1", NOW);
+        Comment root2 = Comment.createRoot(ROOT_2_ID, target, AUTHOR_2_ID, "Root 2", NOW.plusSeconds(1));
+        Comment tombstoneReply = Comment.createReply(TOMBSTONE_REPLY_ID, root1, TOMBSTONE_AUTHOR_ID, "Deleted", NOW.plusSeconds(2));
+        tombstoneReply.delete(NOW.plusSeconds(3));
+
+        DiscussionParticipants rootsOnly = DiscussionParticipants.collectForRoots(java.util.Arrays.asList(
+                CommentReadItem.fromRoot(root2),
+                null,
+                CommentReadItem.fromTombstoneReply(tombstoneReply, AUTHOR_1_ID),
+                CommentReadItem.fromRoot(root1)
+        ));
+
+        assertThat(rootsOnly.authorUserIds())
+                .containsExactly(AUTHOR_2_ID, AUTHOR_1_ID)
+                .doesNotContain(TOMBSTONE_AUTHOR_ID);
+        assertThat(rootsOnly.activeCommentIds())
+                .containsExactly(ROOT_2_ID, ROOT_1_ID)
+                .doesNotContain(TOMBSTONE_REPLY_ID);
+        assertThatThrownBy(() -> rootsOnly.authorUserIds().add(UUID.randomUUID()))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> rootsOnly.activeCommentIds().add(UUID.randomUUID()))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
 }

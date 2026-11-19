@@ -8,6 +8,7 @@ import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
@@ -17,6 +18,7 @@ import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreKnownRootsResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreRootsOnlyFeedResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreSingleThreadResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.KnownRootsSelection;
@@ -69,6 +71,9 @@ class DiscussionCoreReadServiceTest {
     private GetCommentThreadUseCase getCommentThreadUseCase;
 
     @Mock
+    private CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase;
+
+    @Mock
     private UserIdentityContract userIdentityContract;
 
     private DiscussionCoreReadService service;
@@ -81,6 +86,7 @@ class DiscussionCoreReadServiceTest {
                 getCommentThreadsByRootIdsUseCase,
                 validateCommentTargetScopeUseCase,
                 getCommentThreadUseCase,
+                countVisibleActiveRepliesByRootIdsUseCase,
                 userIdentityContract
         );
     }
@@ -337,5 +343,66 @@ class DiscussionCoreReadServiceTest {
         assertThat(populated.authorsMap()).containsKey(AUTHOR_1_ID);
         assertThatThrownBy(() -> populated.authorsMap().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> populated.threadViews().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("Roots-only feed executes metrics, root slice, batch reply counts, and root authors without hydrating replies")
+    void shouldReadRootsOnlyFeedWithoutHydratingThreads() {
+        CommentTarget target = CommentTarget.communityPost(TARGET_ID);
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1", NOW);
+        Comment root2 = Comment.createRoot(ROOT_2_ID, target, AUTHOR_1_ID, "Root 2", NOW.plusSeconds(1));
+
+        when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(2L, 7L));
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
+                .thenReturn(new CommentReadSlice(List.of(CommentReadItem.fromRoot(root2), CommentReadItem.fromRoot(root1)), 0, 10, true));
+        Map<UUID, Long> mutableReplyCounts = new HashMap<>();
+        mutableReplyCounts.put(ROOT_2_ID, 4L);
+        mutableReplyCounts.put(ROOT_1_ID, 1L);
+        when(countVisibleActiveRepliesByRootIdsUseCase.execute(List.of(ROOT_2_ID, ROOT_1_ID)))
+                .thenReturn(mutableReplyCounts);
+        Map<UUID, UserPublicProfileDTO> mutableProfiles = new HashMap<>();
+        mutableProfiles.put(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"));
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID))).thenReturn(mutableProfiles);
+
+        CoreRootsOnlyFeedResult result = service.readRootsOnlyFeed(target, 0, 10, null, () -> {});
+
+        assertThat(result.threadCount()).isEqualTo(2L);
+        assertThat(result.commentCount()).isEqualTo(7L);
+        assertThat(result.hasNext()).isTrue();
+        assertThat(result.roots()).hasSize(2);
+        assertThat(result.replyCountsByRootId()).containsEntry(ROOT_2_ID, 4L).containsEntry(ROOT_1_ID, 1L);
+        assertThat(result.participants().activeCommentIds()).containsExactly(ROOT_2_ID, ROOT_1_ID);
+        assertThat(result.participants().authorUserIds()).containsExactly(AUTHOR_1_ID);
+
+        // Critical invariant: ZERO thread hydration in roots-only feed
+        verify(getCommentThreadsByRootIdsUseCase, never()).execute(any(), any());
+        verify(getCommentThreadUseCase, never()).execute(any());
+
+        // Returned snapshots remain immutable even if backing maps change
+        mutableReplyCounts.clear();
+        mutableProfiles.clear();
+        assertThat(result.replyCountsByRootId()).hasSize(2);
+        assertThat(result.authorsMap()).containsKey(AUTHOR_1_ID);
+        assertThatThrownBy(() -> result.replyCountsByRootId().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> result.authorsMap().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("Roots-only feed preserves metrics on empty slice while skipping reply counts and Identity lookup")
+    void shouldSkipReplyCountsAndIdentityWhenRootsOnlySliceEmpty() {
+        CommentTarget target = CommentTarget.communityPost(TARGET_ID);
+        when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(3L, 9L));
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.NEWEST, 2, 10))
+                .thenReturn(new CommentReadSlice(List.of(), 2, 10, false));
+
+        CoreRootsOnlyFeedResult result = service.readRootsOnlyFeed(target, 2, 10, CommentSortMode.NEWEST, () -> {});
+
+        assertThat(result.roots()).isEmpty();
+        assertThat(result.commentCount()).isEqualTo(9L);
+        assertThat(result.page()).isEqualTo(2);
+        assertThat(result.hasNext()).isFalse();
+        verify(countVisibleActiveRepliesByRootIdsUseCase, never()).execute(any());
+        verify(getCommentThreadsByRootIdsUseCase, never()).execute(any(), any());
+        verify(userIdentityContract, never()).findPublicProfilesByIds(any());
     }
 }

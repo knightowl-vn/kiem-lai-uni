@@ -11,6 +11,7 @@ import com.universe.interaction.application.ports.CommentSlice;
 import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadVisibilityResolver;
+import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
@@ -24,6 +25,7 @@ import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.entry.shared.CommentReactionEnrichmentService.ReactionEnrichmentResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreKnownRootsResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreRootsOnlyFeedResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreSingleThreadResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.KnownRootsSelection;
@@ -171,12 +173,18 @@ class DiscussionCoreReadTransactionIntegrationTest {
         }
 
         @Bean
+        public CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase(CommentRepositoryPort port) {
+            return new CountVisibleActiveRepliesByRootIdsUseCase(port);
+        }
+
+        @Bean
         public DiscussionCoreReadService discussionCoreReadService(
                 GetCommentTargetMetricsUseCase metricsUseCase,
                 ListCommentRootsUseCase listRootsUseCase,
                 GetCommentThreadsByRootIdsUseCase threadsUseCase,
                 ValidateCommentTargetScopeUseCase scopeUseCase,
                 GetCommentThreadUseCase threadUseCase,
+                CountVisibleActiveRepliesByRootIdsUseCase replyCountUseCase,
                 UserIdentityContract identityContract
         ) {
             return new DiscussionCoreReadService(
@@ -185,6 +193,7 @@ class DiscussionCoreReadTransactionIntegrationTest {
                     threadsUseCase,
                     scopeUseCase,
                     threadUseCase,
+                    replyCountUseCase,
                     identityContract
             );
         }
@@ -480,6 +489,73 @@ class DiscussionCoreReadTransactionIntegrationTest {
         assertThat(maxConcurrentConnections.get()).isEqualTo(1);
         assertThat(coreReadOnlyFlags).containsOnly(true);
         assertThat(coreTxNames).hasSize(4);
+        assertThat(coreTxNames.stream().distinct().count()).isEqualTo(1);
+        verify(reactionConnection, times(1)).commit();
+        verify(reactionConnection, times(1)).close();
+    }
+
+    @Test
+    @DisplayName("Shared roots-only feed executes metrics, roots, reply counts, and identity in 1 RO TX without hydrating replies")
+    void sharedRootsOnlyFeedCommitsAndClosesBeforeReactionStarts() throws SQLException {
+        CommentTarget target = CommentTarget.communityPost(TARGET_ID);
+        Comment root = Comment.createRoot(ROOT_ID, target, AUTHOR_ID, "Community root", NOW);
+        List<String> coreTxNames = new ArrayList<>();
+        List<Boolean> coreReadOnlyFlags = new ArrayList<>();
+
+        when(commentRepositoryPort.getMetricsForTarget(target)).thenAnswer(inv -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            coreReadOnlyFlags.add(TransactionSynchronizationManager.isCurrentTransactionReadOnly());
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return new CommentTargetMetrics(1L, 3L);
+        });
+        when(commentRepositoryPort.findActiveRoots(target, CommentSortMode.FEATURED, 0, 10)).thenAnswer(inv -> {
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return new CommentSlice(List.of(root), 0, 10, false);
+        });
+        when(commentRepositoryPort.countActiveRepliesByThreadRootIds(List.of(ROOT_ID))).thenAnswer(inv -> {
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return Map.of(ROOT_ID, 2L);
+        });
+        when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID))).thenAnswer(inv -> {
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author", null, "author"));
+        });
+
+        CoreRootsOnlyFeedResult feedResult = coreReadService.readRootsOnlyFeed(
+                target,
+                0,
+                10,
+                CommentSortMode.FEATURED,
+                () -> {
+                    assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+                    coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+                }
+        );
+
+        assertThat(feedResult.commentCount()).isEqualTo(3L);
+        assertThat(feedResult.replyCountsByRootId()).containsEntry(ROOT_ID, 2L);
+        verify(commentRepositoryPort, never()).findThreadRepliesByRootIds(any());
+        verify(commentRepositoryPort, never()).findThreadReplies(any());
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        assertThat(activeConnections.get()).isZero();
+        verify(coreConnection, times(1)).commit();
+        verify(coreConnection, times(1)).close();
+
+        when(reactionRepositoryPort.countReactionsByTargetIdsGroupedByType(ReactionTargetType.COMMENT, Set.of(ROOT_ID)))
+                .thenReturn(Map.of(ROOT_ID, Map.of(ReactionType.LIKE, 4L)));
+
+        ReactionEnrichmentResult reactionResult = reactionEnrichmentService.loadCommentReactionSummaries(
+                "shared roots-only test",
+                feedResult.participants().activeCommentIds(),
+                null,
+                false
+        );
+
+        assertThat(reactionResult.failed()).isFalse();
+        assertThat(reactionResult.summariesByCommentId().get(ROOT_ID).totalCount()).isEqualTo(4L);
+        assertThat(maxConcurrentConnections.get()).isEqualTo(1);
+        assertThat(coreReadOnlyFlags).containsOnly(true);
+        assertThat(coreTxNames).hasSize(5);
         assertThat(coreTxNames.stream().distinct().count()).isEqualTo(1);
         verify(reactionConnection, times(1)).commit();
         verify(reactionConnection, times(1)).close();
