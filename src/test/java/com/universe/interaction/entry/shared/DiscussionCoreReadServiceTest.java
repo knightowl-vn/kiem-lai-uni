@@ -2,17 +2,21 @@ package com.universe.interaction.entry.shared;
 
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
+import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreSingleThreadResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +61,12 @@ class DiscussionCoreReadServiceTest {
     private GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
 
     @Mock
+    private ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
+
+    @Mock
+    private GetCommentThreadUseCase getCommentThreadUseCase;
+
+    @Mock
     private UserIdentityContract userIdentityContract;
 
     private DiscussionCoreReadService service;
@@ -66,6 +77,8 @@ class DiscussionCoreReadServiceTest {
                 getCommentTargetMetricsUseCase,
                 listCommentRootsUseCase,
                 getCommentThreadsByRootIdsUseCase,
+                validateCommentTargetScopeUseCase,
+                getCommentThreadUseCase,
                 userIdentityContract
         );
     }
@@ -163,5 +176,54 @@ class DiscussionCoreReadServiceTest {
         assertThat(result.authorsMap()).containsKey(AUTHOR_1_ID);
         assertThatThrownBy(() -> result.authorsMap().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> result.threadViewsByRootId().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("Single-thread core enforces target scope, suppresses tombstone authors, and returns immutable snapshot")
+    void shouldReadSingleThreadCoreSafely() {
+        CommentTarget target = CommentTarget.wikiArticle(TARGET_ID);
+        UUID tombstoneReplyId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        UUID tombstoneAuthorId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1", NOW);
+        Comment deletedReply = Comment.createReply(tombstoneReplyId, root, tombstoneAuthorId, "Gone", NOW.plusSeconds(1));
+        deletedReply.delete(NOW.plusSeconds(2));
+
+        CommentThreadView view = new CommentThreadView(
+                CommentReadItem.fromRoot(root),
+                List.of(CommentReadItem.fromTombstoneReply(deletedReply, AUTHOR_1_ID))
+        );
+        when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(view);
+        Map<UUID, UserPublicProfileDTO> mutableProfiles = new HashMap<>();
+        mutableProfiles.put(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"));
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID))).thenReturn(mutableProfiles);
+
+        CoreSingleThreadResult<String> single = service.readSingleThreadCore(
+                target,
+                ROOT_1_ID,
+                () -> {},
+                () -> "thread-attachment"
+        );
+
+        verify(validateCommentTargetScopeUseCase).executeRoot(ROOT_1_ID, target);
+        assertThat(single.participants().activeCommentIds()).containsExactly(ROOT_1_ID);
+        assertThat(single.participants().authorUserIds()).containsExactly(AUTHOR_1_ID).doesNotContain(tombstoneAuthorId);
+        assertThat(single.contextAttachment()).isEqualTo("thread-attachment");
+        mutableProfiles.clear();
+        assertThat(single.authorsMap()).containsKey(AUTHOR_1_ID);
+        assertThatThrownBy(() -> single.authorsMap().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("Single-thread core stops before thread retrieval when scope validation fails")
+    void shouldStopBeforeThreadRetrievalOnScopeMismatch() {
+        CommentTarget target = CommentTarget.wikiArticle(TARGET_ID);
+        doThrow(new CommentNotFoundException("Mismatch"))
+                .when(validateCommentTargetScopeUseCase).executeRoot(ROOT_1_ID, target);
+
+        assertThatThrownBy(() -> service.readSingleThreadCore(target, ROOT_1_ID, () -> {}))
+                .isInstanceOf(CommentNotFoundException.class);
+
+        verify(getCommentThreadUseCase, never()).execute(any());
+        verify(userIdentityContract, never()).findPublicProfilesByIds(any());
     }
 }

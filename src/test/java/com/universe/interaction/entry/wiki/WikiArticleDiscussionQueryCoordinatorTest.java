@@ -19,18 +19,30 @@ import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
+import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService;
+import com.universe.interaction.entry.shared.CommentReactionEnrichmentService.ReactionEnrichmentResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreSingleThreadResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreStageTimings;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
+import com.universe.interaction.entry.shared.DiscussionParticipants;
 import com.universe.interaction.entry.wiki.dto.WikiDiscussionFeedResponseDTO;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.QueryTimeoutException;
 
 import java.time.Instant;
 import java.util.List;
@@ -415,5 +427,145 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         assertThat(response.threads()).hasSize(1);
         assertThat(response.threads().get(0).root().reactionSummary()).isNull();
+    }
+
+    @Nested
+    @DisplayName("Shared Core Delegation, Single-Thread, and Phase A/B Isolation Tests")
+    class SharedCoreDelegationAndIsolationTests {
+
+        @Test
+        @DisplayName("Primary constructor invokes shared DiscussionCoreReadService strictly before Reaction enrichment on feed")
+        void shouldInvokeSharedCoreStrictlyBeforeReactionEnrichmentOnFeed() {
+            DiscussionCoreReadService mockCore = Mockito.mock(DiscussionCoreReadService.class);
+            CommentReactionEnrichmentService mockReact = Mockito.mock(CommentReactionEnrichmentService.class);
+            WikiArticleDiscussionQueryCoordinator primary = new WikiArticleDiscussionQueryCoordinator(
+                    wikiArticleQueryPort, mockCore, mockReact
+            );
+
+            CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root text", NOW);
+            CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+            CoreThreadedFeedResult<Void> coreResult = new CoreThreadedFeedResult<>(
+                    1,
+                    1,
+                    0,
+                    20,
+                    false,
+                    1,
+                    null,
+                    List.of(ROOT_1_ID),
+                    Map.of(ROOT_1_ID, new CommentThreadView(rootItem, List.of())),
+                    new DiscussionParticipants(Set.of(AUTHOR_1_ID), List.of(ROOT_1_ID)),
+                    Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")),
+                    CoreStageTimings.ZERO
+            );
+            when(mockCore.readThreadedFeed(eq(target), eq(0), eq(20), eq(CommentSortMode.NEWEST), eq(true), eq(false), any()))
+                    .thenReturn(coreResult);
+            when(mockReact.loadCommentReactionSummaries("wiki article feed", List.of(ROOT_1_ID), AUTHOR_2_ID, false))
+                    .thenReturn(new ReactionEnrichmentResult(
+                            Map.of(ROOT_1_ID, new ReactionSummaryResponseDTO("COMMENT", ROOT_1_ID, Map.of("LIKE", 4L), 4L, "LIKE")),
+                            false,
+                            0L
+                    ));
+
+            WikiDiscussionFeedResponseDTO response = primary.getDiscussionFeed(ARTICLE_ID, 0, 20, AUTHOR_2_ID, CommentSortMode.NEWEST);
+
+            assertThat(response.threads()).hasSize(1);
+            assertThat(response.threads().get(0).root().reactionSummary().totalCount()).isEqualTo(4L);
+
+            InOrder order = Mockito.inOrder(mockCore, mockReact);
+            order.verify(mockCore).readThreadedFeed(eq(target), eq(0), eq(20), eq(CommentSortMode.NEWEST), eq(true), eq(false), any());
+            order.verify(mockReact).loadCommentReactionSummaries("wiki article feed", List.of(ROOT_1_ID), AUTHOR_2_ID, false);
+        }
+
+        @Test
+        @DisplayName("Primary constructor invokes shared readSingleThreadCore strictly before Reaction enrichment")
+        void shouldInvokeSharedSingleThreadCoreStrictlyBeforeReactionEnrichment() {
+            DiscussionCoreReadService mockCore = Mockito.mock(DiscussionCoreReadService.class);
+            CommentReactionEnrichmentService mockReact = Mockito.mock(CommentReactionEnrichmentService.class);
+            WikiArticleDiscussionQueryCoordinator primary = new WikiArticleDiscussionQueryCoordinator(
+                    wikiArticleQueryPort, mockCore, mockReact
+            );
+
+            CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Thread root", NOW);
+            CommentThreadView view = new CommentThreadView(CommentReadItem.fromRoot(root), List.of());
+            CoreSingleThreadResult<Void> singleCore = new CoreSingleThreadResult<>(
+                    view,
+                    new DiscussionParticipants(Set.of(AUTHOR_1_ID), List.of(ROOT_1_ID)),
+                    Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")),
+                    null
+            );
+
+            when(mockCore.readSingleThreadCore(eq(target), eq(ROOT_1_ID), any())).thenReturn(singleCore);
+            when(mockReact.loadCommentReactionSummaries("wiki article thread", List.of(ROOT_1_ID), null, false))
+                    .thenReturn(ReactionEnrichmentResult.EMPTY_SUCCESS);
+
+            CommentThreadResponseDTO response = primary.getCommentThread(ARTICLE_ID, ROOT_1_ID, null);
+
+            assertThat(response.root().id()).isEqualTo(ROOT_1_ID);
+            assertThat(response.root().author().displayName()).isEqualTo("Author One");
+            InOrder order = Mockito.inOrder(mockCore, mockReact);
+            order.verify(mockCore).readSingleThreadCore(eq(target), eq(ROOT_1_ID), any());
+            order.verify(mockReact).loadCommentReactionSummaries("wiki article thread", List.of(ROOT_1_ID), null, false);
+        }
+
+        @Test
+        @DisplayName("Single thread preserves tombstones, author fallbacks, and best-effort Reaction failure fallback")
+        void shouldHandleSingleThreadTombstonesMissingAuthorAndReactionFailure() {
+            when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+            CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+
+            Comment root = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root text", NOW);
+            Comment tombstoneReply = Comment.createReply(REPLY_1_ID, root, TOMBSTONE_AUTHOR_ID, "Hidden", NOW.plusSeconds(1));
+            Comment missingAuthorReply = Comment.createReply(REPLY_2_ID, tombstoneReply, AUTHOR_2_ID, "Leaf reply", NOW.plusSeconds(2));
+            tombstoneReply.delete(NOW.plusSeconds(3));
+
+            CommentThreadView view = new CommentThreadView(
+                    CommentReadItem.fromRoot(root),
+                    List.of(
+                            CommentReadItem.fromTombstoneReply(tombstoneReply, AUTHOR_1_ID),
+                            CommentReadItem.fromActiveReply(missingAuthorReply, null)
+                    )
+            );
+            when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(view);
+            // AUTHOR_2_ID intentionally omitted to exercise fallback author display name
+            when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
+                    .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
+            when(getBatchReactionSummariesUseCase.execute(eq(ReactionTargetType.COMMENT), eq(List.of(ROOT_1_ID, REPLY_2_ID)), eq(AUTHOR_1_ID)))
+                    .thenThrow(new QueryTimeoutException("Reaction DB timeout"));
+
+            CommentThreadResponseDTO response = coordinator.getCommentThread(ARTICLE_ID, ROOT_1_ID, AUTHOR_1_ID);
+
+            assertThat(response.root().author().displayName()).isEqualTo("Author One");
+            assertThat(response.root().canEdit()).isTrue();
+            assertThat(response.root().reactionSummary()).isNull();
+
+            assertThat(response.replies()).hasSize(2);
+            assertThat(response.replies().get(0).tombstone()).isTrue();
+            assertThat(response.replies().get(0).author()).isNull();
+            assertThat(response.replies().get(0).reactionSummary()).isNull();
+
+            assertThat(response.replies().get(1).tombstone()).isFalse();
+            assertThat(response.replies().get(1).author().displayName()).isEqualTo(CommentAuthorDTO.DEFAULT_DISPLAY_NAME);
+            assertThat(response.replies().get(1).canEdit()).isFalse();
+            assertThat(response.replies().get(1).reactionSummary()).isNull();
+        }
+
+        @Test
+        @DisplayName("Deleted root on single thread propagates CommentNotFoundException without loading author or reactions")
+        void shouldPropagateNotFoundWhenSingleThreadRootDeleted() {
+            when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+            CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+            when(getCommentThreadUseCase.execute(ROOT_1_ID))
+                    .thenThrow(new CommentNotFoundException(ROOT_1_ID));
+
+            assertThatThrownBy(() -> coordinator.getCommentThread(ARTICLE_ID, ROOT_1_ID, null))
+                    .isInstanceOf(CommentNotFoundException.class);
+
+            verify(validateCommentTargetScopeUseCase).executeRoot(ROOT_1_ID, target);
+            verify(userIdentityContract, never()).findPublicProfilesByIds(any());
+            verify(getBatchReactionSummariesUseCase, never()).execute(any(), any(), any());
+        }
     }
 }

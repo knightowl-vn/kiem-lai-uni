@@ -470,14 +470,13 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
 
         // Statements executed for Single Thread:
         // 1. SELECT exists on wiki_articles (Wiki publication check)
-        // 2. SELECT findById on interaction_comments (Target scope validation)
-        // 3. SELECT findById on interaction_comments (Root comment lookup in getCommentThreadUseCase)
-        // 4. SELECT findThreadReplies on interaction_comments (Thread replies lookup)
-        // 5. SELECT findPublicProfilesByIds on identity_users (Batch load author public profiles)
-        // 6. SELECT batch reaction counts on interaction_reactions (Batch load reaction summaries)
+        // 2. SELECT findById on interaction_comments (Target scope validation; GetCommentThreadUseCase reuses Hibernate L1 cache within Phase A TX)
+        // 3. SELECT findThreadReplies on interaction_comments (Thread replies lookup)
+        // 4. SELECT findPublicProfilesByIds on identity_users (Batch load author public profiles)
+        // 5. SELECT batch reaction counts on interaction_reactions (Batch load reaction summaries in sequential Phase B TX)
         assertThat(threadQueries)
-                .as("Wiki single thread must execute exactly 6 queries: 1 publication check + 1 target scope validation + 1 root lookup + 1 thread replies load + 1 batch author profile query + 1 batch reaction count query")
-                .isEqualTo(6);
+                .as("Wiki single thread must execute exactly 5 queries within Phase A + Phase B: 1 publication check + 1 L1-cached root lookup/scope check + 1 thread replies load + 1 batch author profile query + 1 batch reaction count query")
+                .isEqualTo(5);
 
         // --- PATH C: REVISION HISTORY READ ---
         StatementCounter.reset();

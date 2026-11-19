@@ -7,10 +7,13 @@ import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
+import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,8 +44,48 @@ public class DiscussionCoreReadService {
     private final GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase;
     private final ListCommentRootsUseCase listCommentRootsUseCase;
     private final GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
+    private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
+    private final GetCommentThreadUseCase getCommentThreadUseCase;
     private final UserIdentityContract userIdentityContract;
 
+    @Autowired
+    public DiscussionCoreReadService(
+            GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
+            ListCommentRootsUseCase listCommentRootsUseCase,
+            GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
+            ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
+            GetCommentThreadUseCase getCommentThreadUseCase,
+            UserIdentityContract userIdentityContract
+    ) {
+        this.getCommentTargetMetricsUseCase = Objects.requireNonNull(
+                getCommentTargetMetricsUseCase,
+                "GetCommentTargetMetricsUseCase cannot be null."
+        );
+        this.listCommentRootsUseCase = Objects.requireNonNull(
+                listCommentRootsUseCase,
+                "ListCommentRootsUseCase cannot be null."
+        );
+        this.getCommentThreadsByRootIdsUseCase = Objects.requireNonNull(
+                getCommentThreadsByRootIdsUseCase,
+                "GetCommentThreadsByRootIdsUseCase cannot be null."
+        );
+        this.validateCommentTargetScopeUseCase = Objects.requireNonNull(
+                validateCommentTargetScopeUseCase,
+                "ValidateCommentTargetScopeUseCase cannot be null."
+        );
+        this.getCommentThreadUseCase = Objects.requireNonNull(
+                getCommentThreadUseCase,
+                "GetCommentThreadUseCase cannot be null."
+        );
+        this.userIdentityContract = Objects.requireNonNull(
+                userIdentityContract,
+                "UserIdentityContract cannot be null."
+        );
+    }
+
+    /**
+     * Compatibility constructor for feed-only unit tests that do not exercise single-thread reads.
+     */
     public DiscussionCoreReadService(
             GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase,
             ListCommentRootsUseCase listCommentRootsUseCase,
@@ -61,6 +104,8 @@ public class DiscussionCoreReadService {
                 getCommentThreadsByRootIdsUseCase,
                 "GetCommentThreadsByRootIdsUseCase cannot be null."
         );
+        this.validateCommentTargetScopeUseCase = null;
+        this.getCommentThreadUseCase = null;
         this.userIdentityContract = Objects.requireNonNull(
                 userIdentityContract,
                 "UserIdentityContract cannot be null."
@@ -269,6 +314,85 @@ public class DiscussionCoreReadService {
                 authorsMap != null ? authorsMap : Map.of(),
                 timings
         );
+    }
+
+    /**
+     * Executes mandatory Phase A single-thread reads (eligibility, target/root scope validation,
+     * thread hydration, participant collection, and batched author lookup) inside one read-only transaction.
+     */
+    public CoreSingleThreadResult<Void> readSingleThreadCore(
+            CommentTarget expectedTarget,
+            UUID rootCommentId,
+            TargetEligibilityGate eligibilityGate
+    ) {
+        return readSingleThreadCore(expectedTarget, rootCommentId, eligibilityGate, null);
+    }
+
+    /**
+     * Executes mandatory Phase A single-thread reads plus an optional compatible local attachment lookup
+     * inside one read-only transaction.
+     */
+    public <T> CoreSingleThreadResult<T> readSingleThreadCore(
+            CommentTarget expectedTarget,
+            UUID rootCommentId,
+            TargetEligibilityGate eligibilityGate,
+            ContextAttachmentLoader<T> attachmentLoader
+    ) {
+        if (expectedTarget == null) {
+            throw new IllegalArgumentException("expectedTarget cannot be null");
+        }
+        if (rootCommentId == null) {
+            throw new IllegalArgumentException("rootCommentId cannot be null");
+        }
+        Objects.requireNonNull(eligibilityGate, "eligibilityGate cannot be null");
+        if (validateCommentTargetScopeUseCase == null || getCommentThreadUseCase == null) {
+            throw new IllegalStateException(
+                    "ValidateCommentTargetScopeUseCase and GetCommentThreadUseCase are required for single-thread reads."
+            );
+        }
+
+        // 1. Fail-closed target eligibility check
+        eligibilityGate.verifyEligible();
+
+        // 2. Cross-target & root comment guard
+        validateCommentTargetScopeUseCase.executeRoot(rootCommentId, expectedTarget);
+
+        // 3. Thread retrieval (active root + visible flat replies)
+        CommentThreadView threadView = getCommentThreadUseCase.execute(rootCommentId);
+
+        // 4. Optional local context attachment
+        T contextAttachment = (attachmentLoader != null) ? attachmentLoader.load() : null;
+
+        // 5. Collect active participants and batch resolve author profiles
+        DiscussionParticipants participants = DiscussionParticipants.collectForSingleThread(threadView);
+        Map<UUID, UserPublicProfileDTO> authorsMap = participants.authorUserIds().isEmpty()
+                ? Map.of()
+                : userIdentityContract.findPublicProfilesByIds(participants.authorUserIds());
+
+        return new CoreSingleThreadResult<>(
+                threadView,
+                participants,
+                authorsMap != null ? authorsMap : Map.of(),
+                contextAttachment
+        );
+    }
+
+    /**
+     * Immutable detached result of a Phase A single-thread read.
+     */
+    public record CoreSingleThreadResult<T>(
+            CommentThreadView threadView,
+            DiscussionParticipants participants,
+            Map<UUID, UserPublicProfileDTO> authorsMap,
+            T contextAttachment
+    ) {
+        public CoreSingleThreadResult {
+            Objects.requireNonNull(threadView, "threadView cannot be null");
+            participants = participants == null ? DiscussionParticipants.EMPTY : participants;
+            authorsMap = (authorsMap == null || authorsMap.isEmpty())
+                    ? Map.of()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(authorsMap));
+        }
     }
 
     /**

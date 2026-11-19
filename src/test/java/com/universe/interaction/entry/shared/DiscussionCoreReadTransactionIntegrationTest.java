@@ -13,14 +13,17 @@ import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadVisibilityResolver;
 import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
+import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.entry.shared.CommentReactionEnrichmentService.ReactionEnrichmentResult;
+import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreSingleThreadResult;
 import com.universe.interaction.entry.shared.DiscussionCoreReadService.CoreThreadedFeedResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -156,13 +159,32 @@ class DiscussionCoreReadTransactionIntegrationTest {
         }
 
         @Bean
+        public ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase(CommentRepositoryPort port) {
+            return new ValidateCommentTargetScopeUseCase(port);
+        }
+
+        @Bean
+        public GetCommentThreadUseCase getCommentThreadUseCase(CommentRepositoryPort port) {
+            return new GetCommentThreadUseCase(port, new CommentThreadVisibilityResolver());
+        }
+
+        @Bean
         public DiscussionCoreReadService discussionCoreReadService(
                 GetCommentTargetMetricsUseCase metricsUseCase,
                 ListCommentRootsUseCase listRootsUseCase,
                 GetCommentThreadsByRootIdsUseCase threadsUseCase,
+                ValidateCommentTargetScopeUseCase scopeUseCase,
+                GetCommentThreadUseCase threadUseCase,
                 UserIdentityContract identityContract
         ) {
-            return new DiscussionCoreReadService(metricsUseCase, listRootsUseCase, threadsUseCase, identityContract);
+            return new DiscussionCoreReadService(
+                    metricsUseCase,
+                    listRootsUseCase,
+                    threadsUseCase,
+                    scopeUseCase,
+                    threadUseCase,
+                    identityContract
+            );
         }
 
         @Bean
@@ -342,6 +364,63 @@ class DiscussionCoreReadTransactionIntegrationTest {
         assertThat(failed.summariesByCommentId()).isEmpty();
         verify(reactionConnection, times(1)).rollback();
         verify(reactionConnection, never()).commit();
+        verify(reactionConnection, times(1)).close();
+    }
+
+    @Test
+    @DisplayName("Shared single-thread core executes all reads in 1 RO TX and commits/closes before Reaction TX")
+    void sharedSingleThreadCommitsAndClosesBeforeReactionStarts() throws SQLException {
+        CommentTarget target = CommentTarget.wikiArticle(TARGET_ID);
+        Comment root = Comment.createRoot(ROOT_ID, target, AUTHOR_ID, "Thread root", NOW);
+        List<String> coreTxNames = new ArrayList<>();
+        List<Boolean> coreReadOnlyFlags = new ArrayList<>();
+
+        when(commentRepositoryPort.findById(ROOT_ID)).thenAnswer(inv -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            coreReadOnlyFlags.add(TransactionSynchronizationManager.isCurrentTransactionReadOnly());
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return java.util.Optional.of(root);
+        });
+        when(commentRepositoryPort.findThreadReplies(ROOT_ID)).thenAnswer(inv -> {
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return List.of();
+        });
+        when(userPublicProfileQueryPort.findPublicProfilesByIds(Set.of(AUTHOR_ID))).thenAnswer(inv -> {
+            coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+            return Map.of(AUTHOR_ID, new UserPublicProfileDTO(AUTHOR_ID, "Author", null, "author"));
+        });
+
+        CoreSingleThreadResult<Void> singleResult = coreReadService.readSingleThreadCore(
+                target,
+                ROOT_ID,
+                () -> {
+                    assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+                    coreTxNames.add(TransactionSynchronizationManager.getCurrentTransactionName());
+                }
+        );
+
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        assertThat(activeConnections.get()).isZero();
+        verify(coreConnection, times(1)).commit();
+        verify(coreConnection, times(1)).close();
+
+        when(reactionRepositoryPort.countReactionsByTargetIdsGroupedByType(ReactionTargetType.COMMENT, Set.of(ROOT_ID)))
+                .thenReturn(Map.of(ROOT_ID, Map.of(ReactionType.LIKE, 1L)));
+
+        ReactionEnrichmentResult reactionResult = reactionEnrichmentService.loadCommentReactionSummaries(
+                "shared thread test",
+                singleResult.participants().activeCommentIds(),
+                null,
+                false
+        );
+
+        assertThat(reactionResult.failed()).isFalse();
+        assertThat(reactionResult.summariesByCommentId().get(ROOT_ID).totalCount()).isEqualTo(1L);
+        assertThat(maxConcurrentConnections.get()).isEqualTo(1);
+        assertThat(coreReadOnlyFlags).containsOnly(true);
+        assertThat(coreTxNames).hasSize(5);
+        assertThat(coreTxNames.stream().distinct().count()).isEqualTo(1);
+        verify(reactionConnection, times(1)).commit();
         verify(reactionConnection, times(1)).close();
     }
 }
