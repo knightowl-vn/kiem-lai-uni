@@ -102,10 +102,15 @@ class MediaPurgePersistenceIntegrationTest {
                 .locations("classpath:db/migration")
                 .load();
 
+        MigrationInfo[] allMigrations = flyway.info().all();
+        assertThat(allMigrations).hasSizeGreaterThanOrEqualTo(37);
+
         MigrationInfo v37Info = null;
-        for (MigrationInfo mi : flyway.info().all()) {
-            assertThat(mi.getState()).isEqualTo(MigrationState.SUCCESS);
-            if ("37".equals(mi.getVersion().getVersion())) {
+        for (MigrationInfo mi : allMigrations) {
+            // Prior isolated tests that re-verify earlier Wiki migrations with out-of-order=true
+            // leave those already-applied migrations in OUT_OF_ORDER state on the shared test schema.
+            assertThat(mi.getState()).isIn(MigrationState.SUCCESS, MigrationState.OUT_OF_ORDER);
+            if (mi.getVersion() != null && "37".equals(mi.getVersion().getVersion())) {
                 v37Info = mi;
             }
         }

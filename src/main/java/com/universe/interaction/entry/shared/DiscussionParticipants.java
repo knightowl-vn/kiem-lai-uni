@@ -4,6 +4,7 @@ import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentThreadView;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -24,7 +25,19 @@ public record DiscussionParticipants(
     public static final DiscussionParticipants EMPTY = new DiscussionParticipants(Set.of(), List.of());
 
     public DiscussionParticipants {
-        authorUserIds = authorUserIds == null ? Set.of() : Set.copyOf(authorUserIds);
+        if (authorUserIds == null || authorUserIds.isEmpty()) {
+            authorUserIds = Set.of();
+        } else {
+            Set<UUID> orderedAuthorIds = new LinkedHashSet<>(authorUserIds.size());
+            for (UUID authorId : authorUserIds) {
+                if (authorId != null) {
+                    orderedAuthorIds.add(authorId);
+                }
+            }
+            authorUserIds = orderedAuthorIds.isEmpty()
+                    ? Set.of()
+                    : Collections.unmodifiableSet(orderedAuthorIds);
+        }
         activeCommentIds = activeCommentIds == null ? List.of() : List.copyOf(activeCommentIds);
     }
 

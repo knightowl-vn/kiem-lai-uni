@@ -8,8 +8,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -141,5 +144,49 @@ class DiscussionParticipantsTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> rootsOnly.activeCommentIds().add(UUID.randomUUID()))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("Canonical constructor preserves insertion order, excludes nulls, and defensively isolates mutable inputs")
+    void shouldPreserveInsertionOrderAndDefensiveImmutabilityInCanonicalConstructor() {
+        Set<UUID> orderedAuthors = new LinkedHashSet<>();
+        orderedAuthors.add(AUTHOR_2_ID);
+        orderedAuthors.add(null);
+        orderedAuthors.add(AUTHOR_1_ID);
+
+        List<UUID> orderedComments = new ArrayList<>();
+        orderedComments.add(ROOT_2_ID);
+        orderedComments.add(ROOT_1_ID);
+
+        DiscussionParticipants snapshot = new DiscussionParticipants(orderedAuthors, orderedComments);
+
+        // Mutating caller collections must not affect the snapshot
+        orderedAuthors.remove(AUTHOR_2_ID);
+        orderedAuthors.add(TOMBSTONE_AUTHOR_ID);
+        orderedComments.add(REPLY_1_ID);
+
+        assertThat(snapshot.authorUserIds())
+                .containsExactly(AUTHOR_2_ID, AUTHOR_1_ID);
+        assertThat(snapshot.activeCommentIds())
+                .containsExactly(ROOT_2_ID, ROOT_1_ID);
+
+        // Reversed order must also be preserved deterministically (not dependent on Set.copyOf hash iteration)
+        Set<UUID> reversedAuthors = new LinkedHashSet<>();
+        reversedAuthors.add(AUTHOR_1_ID);
+        reversedAuthors.add(AUTHOR_2_ID);
+        DiscussionParticipants reversedSnapshot = new DiscussionParticipants(reversedAuthors, List.of());
+        assertThat(reversedSnapshot.authorUserIds())
+                .containsExactly(AUTHOR_1_ID, AUTHOR_2_ID);
+
+        assertThatThrownBy(() -> snapshot.authorUserIds().add(UUID.randomUUID()))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> snapshot.authorUserIds().remove(AUTHOR_2_ID))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> snapshot.authorUserIds().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+
+        DiscussionParticipants onlyNullAuthors = new DiscussionParticipants(new LinkedHashSet<>(java.util.Arrays.asList((UUID) null)), null);
+        assertThat(onlyNullAuthors.authorUserIds()).isEmpty();
+        assertThat(onlyNullAuthors.activeCommentIds()).isEmpty();
     }
 }
