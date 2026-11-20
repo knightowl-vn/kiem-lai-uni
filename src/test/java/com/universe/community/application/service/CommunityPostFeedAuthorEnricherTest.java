@@ -2,6 +2,7 @@ package com.universe.community.application.service;
 
 import com.universe.community.application.port.out.CommunityAuthorProfilePort;
 import com.universe.community.application.port.out.CommunityAuthorProfileSummary;
+import com.universe.community.application.port.out.CommunityPostImageDeliveryPort;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -238,5 +239,84 @@ class CommunityPostFeedAuthorEnricherTest {
         assertThat(enriched).hasSize(1);
         assertThat(enriched.get(0).createdAt()).isEqualTo(createdAt);
         assertThat(enriched.get(0).publishedAt()).isEqualTo(publishedAt);
+    }
+
+    @Test
+    @DisplayName("Batch resolves direct image URLs in 1 call and falls back cleanly for unresolved or blank assets")
+    void shouldBatchResolveDirectImageUrlsAndPreserveFallbacks() {
+        CommunityPostImageDeliveryPort imageDeliveryPort = org.mockito.Mockito.mock(CommunityPostImageDeliveryPort.class);
+        CommunityPostFeedAuthorEnricher imageAwareEnricher =
+                new CommunityPostFeedAuthorEnricher(authorProfilePort, imageDeliveryPort);
+
+        UUID authorId = UUID.randomUUID();
+        UUID post1Id = UUID.randomUUID();
+        UUID post2Id = UUID.randomUUID();
+        UUID post3Id = UUID.randomUUID();
+        UUID imgDirectId = UUID.randomUUID();
+        UUID imgFallbackId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-11-19T10:00:00Z");
+
+        String directUrl = "https://res.cloudinary.com/kiemlai/image/upload/direct.jpg";
+        String fallbackUrl = "/media/assets/" + imgFallbackId + "/content";
+
+        CommunityPostFeedItemDTO itemDirect = new CommunityPostFeedItemDTO(
+                post1Id, authorId, null, null, null, "With Cloudinary image",
+                imgDirectId, "/media/assets/" + imgDirectId + "/content", 0,
+                1L, 0L, 1L, now, now
+        );
+        CommunityPostFeedItemDTO itemFallback = new CommunityPostFeedItemDTO(
+                post2Id, authorId, null, null, null, "With non-resolved image",
+                imgFallbackId, fallbackUrl, 0,
+                0L, 0L, 0L, now, now
+        );
+        CommunityPostFeedItemDTO itemTextOnly = new CommunityPostFeedItemDTO(
+                post3Id, authorId, null, null, null, "Text only",
+                null, null, 0,
+                0L, 0L, 0L, now, now
+        );
+
+        when(authorProfilePort.findAuthorProfilesByIds(Set.of(authorId))).thenReturn(Map.of(
+                authorId, new CommunityAuthorProfileSummary(authorId, "author_img", "Author Img", null)
+        ));
+        when(imageDeliveryPort.resolvePublicImageUrls(Set.of(imgDirectId, imgFallbackId))).thenReturn(Map.of(
+                imgDirectId, directUrl
+        ));
+
+        List<CommunityPostFeedItemDTO> enriched =
+                imageAwareEnricher.enrich(List.of(itemDirect, itemFallback, itemTextOnly));
+
+        assertThat(enriched).hasSize(3);
+        assertThat(enriched.get(0).imageUrl()).isEqualTo(directUrl);
+        assertThat(enriched.get(1).imageUrl()).isEqualTo(fallbackUrl);
+        assertThat(enriched.get(2).imageUrl()).isNull();
+        verify(imageDeliveryPort, times(1)).resolvePublicImageUrls(Set.of(imgDirectId, imgFallbackId));
+    }
+
+    @Test
+    @DisplayName("Text-only feed page makes 0 calls to imageDeliveryPort")
+    void shouldSkipImageDeliveryWhenNoPostHasImageAssetId() {
+        CommunityPostImageDeliveryPort imageDeliveryPort = org.mockito.Mockito.mock(CommunityPostImageDeliveryPort.class);
+        CommunityPostFeedAuthorEnricher imageAwareEnricher =
+                new CommunityPostFeedAuthorEnricher(authorProfilePort, imageDeliveryPort);
+
+        UUID authorId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-11-19T10:00:00Z");
+
+        CommunityPostFeedItemDTO textItem = new CommunityPostFeedItemDTO(
+                postId, authorId, null, null, null, "Text only",
+                null, null, 0,
+                0L, 0L, 0L, now, now
+        );
+
+        when(authorProfilePort.findAuthorProfilesByIds(Set.of(authorId))).thenReturn(Map.of(
+                authorId, new CommunityAuthorProfileSummary(authorId, "author_text", "Author Text", null)
+        ));
+
+        List<CommunityPostFeedItemDTO> enriched = imageAwareEnricher.enrich(List.of(textItem));
+
+        assertThat(enriched).hasSize(1);
+        assertThat(enriched.get(0).imageUrl()).isNull();
+        verify(imageDeliveryPort, never()).resolvePublicImageUrls(any());
     }
 }
