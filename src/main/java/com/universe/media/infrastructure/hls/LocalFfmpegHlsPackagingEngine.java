@@ -4,6 +4,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import com.universe.media.application.ports.storage.HlsArtifactStreamSource;
+
 import java.io.IOException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
@@ -44,7 +46,38 @@ public class LocalFfmpegHlsPackagingEngine {
         private final List<String> ffmpegCommand;
         private final long encodeElapsedMillis;
         private final LocalHlsPackageVerifier.LocalHlsVerificationReport verificationReport;
-        private final AtomicBoolean closed = new AtomicBoolean(false);
+        private final Object lifecycleLock = new Object();
+        private boolean closeRequested = false;
+        private boolean closed = false;
+        private int activeUsagePins = 0;
+
+        /**
+         * Engine-backed active usage pin guaranteeing attempt directory preservation while held.
+         */
+        final class ActiveUsagePin implements HlsArtifactStreamSource.ActiveUploadScope {
+            private final AtomicBoolean released = new AtomicBoolean(false);
+
+            @Override
+            public boolean isCloseRequested() {
+                synchronized (lifecycleLock) {
+                    return closeRequested || closed;
+                }
+            }
+
+            @Override
+            public void close() {
+                if (released.compareAndSet(false, true)) {
+                    synchronized (lifecycleLock) {
+                        if (activeUsagePins > 0) {
+                            activeUsagePins--;
+                        }
+                        if (activeUsagePins == 0) {
+                            lifecycleLock.notifyAll();
+                        }
+                    }
+                }
+            }
+        }
 
         private LocalHlsPackagingResult(
                 Path packageRoot,
@@ -92,9 +125,51 @@ public class LocalFfmpegHlsPackagingEngine {
             return verificationReport;
         }
 
+        public boolean isClosed() {
+            synchronized (lifecycleLock) {
+                return closeRequested || closed;
+            }
+        }
+
+        ActiveUsagePin acquireUsagePin() {
+            synchronized (lifecycleLock) {
+                if (closeRequested || closed) {
+                    throw new IllegalStateException(
+                            "Owning LocalHlsPackagingResult has been closed or is closing; detached access is forbidden: "
+                                    + packageRoot
+                    );
+                }
+                activeUsagePins++;
+                return new ActiveUsagePin();
+            }
+        }
+
         @Override
         public void close() throws IOException {
-            if (closed.compareAndSet(false, true)) {
+            boolean shouldDelete = false;
+            synchronized (lifecycleLock) {
+                if (closed) {
+                    return;
+                }
+                closeRequested = true;
+                while (activeUsagePins > 0) {
+                    try {
+                        lifecycleLock.wait();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException(
+                                "Interrupted while waiting for active HLS package upload/read operations to finish before cleanup: "
+                                        + packageRoot,
+                                e
+                        );
+                    }
+                }
+                if (!closed) {
+                    closed = true;
+                    shouldDelete = true;
+                }
+            }
+            if (shouldDelete) {
                 deleteAttemptDirectorySafely(packageRoot, scratchRoot);
             }
         }
