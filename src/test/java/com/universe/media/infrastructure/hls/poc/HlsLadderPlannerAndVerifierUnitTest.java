@@ -1,5 +1,10 @@
 package com.universe.media.infrastructure.hls.poc;
 
+import com.universe.media.infrastructure.hls.BoundedSubprocessRunner;
+import com.universe.media.infrastructure.hls.FfmpegHlsPackager;
+import com.universe.media.infrastructure.hls.FfprobeMediaSourceProbe;
+import com.universe.media.infrastructure.hls.HlsLadderPlanner;
+import com.universe.media.infrastructure.hls.LocalHlsPackageVerifier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -10,16 +15,17 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class HlsLadderPlannerAndVerifierUnitTest {
+public class HlsLadderPlannerAndVerifierUnitTest {
 
     private final HlsLadderPlanner planner = new HlsLadderPlanner();
 
-    private static MediaSourceProbe.ProbedSource source(
+    private static HlsLadderPlanner.ProbedVideoSource source(
             int width,
             int height,
             int rotation,
@@ -38,7 +44,7 @@ class HlsLadderPlannerAndVerifierUnitTest {
         boolean swap = rot == 90 || rot == 270;
         int dispW = swap ? height : width;
         int dispH = swap ? width : height;
-        return new MediaSourceProbe.ProbedSource(
+        return new HlsLadderPlanner.ProbedVideoSource(
                 rawW,
                 rawH,
                 rot,
@@ -121,7 +127,7 @@ class HlsLadderPlannerAndVerifierUnitTest {
     @Test
     @DisplayName("Below-720p uses safe source fallback without upscaling or rejects explicitly; HDR/10-bit fails explicitly")
     void shouldEnforceBelow720AndHdrPolicies() {
-        MediaSourceProbe.ProbedSource sd = source(854, 480, 0, "1:1", 24.0, "yuv420p", 8, "bt709", "bt709", true, 2);
+        HlsLadderPlanner.ProbedVideoSource sd = source(854, 480, 0, "1:1", 24.0, "yuv420p", 8, "bt709", "bt709", true, 2);
         HlsLadderPlanner.HlsPackagingPlan fallback = planner.plan(
                 sd, 6, HlsLadderPlanner.Below720Policy.SOURCE_FALLBACK_NO_UPSCALE, HlsLadderPlanner.HdrPolicy.REJECT_EXPLICIT
         );
@@ -133,19 +139,25 @@ class HlsLadderPlannerAndVerifierUnitTest {
 
         assertThatThrownBy(() -> planner.plan(
                 sd, 6, HlsLadderPlanner.Below720Policy.REJECT_BELOW_720P, HlsLadderPlanner.HdrPolicy.REJECT_EXPLICIT
-        )).isInstanceOf(HlsLadderPlanner.UnsupportedSourceException.class);
+        )).isInstanceOf(HlsLadderPlanner.UnsupportedHlsSourceException.class);
 
-        MediaSourceProbe.ProbedSource hdr = source(3840, 2160, 0, "1:1", 24.0, "yuv420p10le", 10, "smpte2084", "bt2020", true, 2);
+        HlsLadderPlanner.ProbedVideoSource hdr = source(3840, 2160, 0, "1:1", 24.0, "yuv420p10le", 10, "smpte2084", "bt2020", true, 2);
         assertThatThrownBy(() -> planner.plan(
                 hdr, 6, HlsLadderPlanner.Below720Policy.SOURCE_FALLBACK_NO_UPSCALE, HlsLadderPlanner.HdrPolicy.REJECT_EXPLICIT
-        )).isInstanceOf(HlsLadderPlanner.UnsupportedSourceException.class)
+        )).isInstanceOf(HlsLadderPlanner.UnsupportedHlsSourceException.class)
                 .hasMessageContaining("10-bit/HDR");
     }
 
     @Test
     @DisplayName("FFmpeg command builder maps ONE shared audio group or cleanly omits audio for video-only inputs")
     void shouldBuildDeterministicCommandWithSharedAudioOrVideoOnly() {
-        LocalFfmpegHlsPackager packager = new LocalFfmpegHlsPackager();
+        FfmpegHlsPackager packager = new FfmpegHlsPackager(
+                "ffmpeg",
+                new BoundedSubprocessRunner(),
+                4,
+                Duration.ofMinutes(60),
+                "veryfast"
+        );
 
         HlsLadderPlanner.HlsPackagingPlan withAudio = planner.plan(
                 source(1920, 1080, 0, "1:1", 23.976, "yuv420p", 8, "bt709", "bt709", true, 2),
@@ -176,9 +188,9 @@ class HlsLadderPlannerAndVerifierUnitTest {
                 source(1280, 720, 0, "1:1", 24.0, "yuv420p", 8, "bt709", "bt709", true, 2),
                 6, HlsLadderPlanner.Below720Policy.SOURCE_FALLBACK_NO_UPSCALE, HlsLadderPlanner.HdrPolicy.REJECT_EXPLICIT
         );
-        MediaSourceProbe stubProbe = new MediaSourceProbe() {
+        FfprobeMediaSourceProbe stubProbe = new FfprobeMediaSourceProbe("ffprobe", new BoundedSubprocessRunner(), Duration.ofSeconds(60)) {
             @Override
-            HlsPlaylistProbe probeHlsMediaPlaylist(Path playlistPath) {
+            public HlsPlaylistProbe probeHlsMediaPlaylist(Path playlistPath) {
                 String p = playlistPath.toString().replace('\\', '/');
                 if (p.contains("audio/main")) {
                     return new HlsPlaylistProbe(1, "audio", "aac", 0, 0, 48_000, 2, 6.0, 280);
@@ -186,11 +198,11 @@ class HlsLadderPlannerAndVerifierUnitTest {
                 return new HlsPlaylistProbe(1, "video", "h264", 1280, 720, 0, 0, 6.0, 144);
             }
         };
-        HlsPackageVerifier verifier = new HlsPackageVerifier(stubProbe);
+        LocalHlsPackageVerifier verifier = new LocalHlsPackageVerifier(stubProbe);
 
         Path pkg = tempDir.resolve("pkg");
         writeMinimalValid720pPackage(pkg);
-        HlsPackageVerifier.HlsLocalVerificationReport validReport = verifier.verify(pkg, plan);
+        LocalHlsPackageVerifier.LocalHlsVerificationReport validReport = verifier.verify(pkg, plan);
         assertThat(validReport.objectCount()).isEqualTo(7);
         assertThat(validReport.renditionsSummaryJson().length()).isLessThanOrEqualTo(2000);
 
@@ -199,13 +211,13 @@ class HlsLadderPlannerAndVerifierUnitTest {
         byte[] origSeg = Files.readAllBytes(seg);
         Files.delete(seg);
         assertThatThrownBy(() -> verifier.verify(pkg, plan))
-                .isInstanceOf(HlsPackageVerifier.HlsVerificationException.class)
+                .isInstanceOf(LocalHlsPackageVerifier.HlsPackageVerificationException.class)
                 .hasMessageContaining("Missing or truncated");
 
         // 2. Truncated / corrupt segment fails
         Files.write(seg, new byte[]{0, 0, 0, 8, 'x', 'x', 'x', 'x'});
         assertThatThrownBy(() -> verifier.verify(pkg, plan))
-                .isInstanceOf(HlsPackageVerifier.HlsVerificationException.class);
+                .isInstanceOf(LocalHlsPackageVerifier.HlsPackageVerificationException.class);
         Files.write(seg, origSeg);
 
         // 3. Missing #EXT-X-ENDLIST fails
@@ -213,14 +225,14 @@ class HlsLadderPlannerAndVerifierUnitTest {
         String origVideoPl = Files.readString(videoPl);
         Files.writeString(videoPl, origVideoPl.replace("#EXT-X-ENDLIST", ""));
         assertThatThrownBy(() -> verifier.verify(pkg, plan))
-                .isInstanceOf(HlsPackageVerifier.HlsVerificationException.class)
+                .isInstanceOf(LocalHlsPackageVerifier.HlsPackageVerificationException.class)
                 .hasMessageContaining("#EXT-X-ENDLIST");
         Files.writeString(videoPl, origVideoPl);
 
         // 4. Path traversal outside root fails
         Files.writeString(videoPl, origVideoPl.replace("seg_00000.m4s", "../../../escape.m4s"));
         assertThatThrownBy(() -> verifier.verify(pkg, plan))
-                .isInstanceOf(HlsPackageVerifier.HlsVerificationException.class)
+                .isInstanceOf(LocalHlsPackageVerifier.HlsPackageVerificationException.class)
                 .hasMessageContaining("escaping package root");
         Files.writeString(videoPl, origVideoPl);
 
@@ -232,19 +244,21 @@ class HlsLadderPlannerAndVerifierUnitTest {
                 "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"group_aud\",NAME=\"dup\",URI=\"audio/main/playlist.m3u8\"\n#EXT-X-STREAM-INF"
         ));
         assertThatThrownBy(() -> verifier.verify(pkg, plan))
-                .isInstanceOf(HlsPackageVerifier.HlsVerificationException.class)
+                .isInstanceOf(LocalHlsPackageVerifier.HlsPackageVerificationException.class)
                 .hasMessageContaining("Expected exact 1 shared audio");
         Files.writeString(master, origMaster);
 
         // 6. Audio leaked into video playlist rejected
-        HlsPackageVerifier leakyAudioVerifier = new HlsPackageVerifier(new MediaSourceProbe() {
-            @Override
-            HlsPlaylistProbe probeHlsMediaPlaylist(Path playlistPath) {
-                return new HlsPlaylistProbe(2, "video", "h264", 1280, 720, 0, 0, 6.0, 144);
-            }
-        });
+        LocalHlsPackageVerifier leakyAudioVerifier = new LocalHlsPackageVerifier(
+                new FfprobeMediaSourceProbe("ffprobe", new BoundedSubprocessRunner(), Duration.ofSeconds(60)) {
+                    @Override
+                    public HlsPlaylistProbe probeHlsMediaPlaylist(Path playlistPath) {
+                        return new HlsPlaylistProbe(2, "video", "h264", 1280, 720, 0, 0, 6.0, 144);
+                    }
+                }
+        );
         assertThatThrownBy(() -> leakyAudioVerifier.verify(pkg, plan))
-                .isInstanceOf(HlsPackageVerifier.HlsVerificationException.class)
+                .isInstanceOf(LocalHlsPackageVerifier.HlsPackageVerificationException.class)
                 .hasMessageContaining("exactly 1 stream");
     }
 
@@ -261,7 +275,7 @@ class HlsLadderPlannerAndVerifierUnitTest {
         assertThat(optIn.matches()).isEqualTo("(?i)true");
     }
 
-    private static void writeMinimalValid720pPackage(Path root) throws Exception {
+    public static void writeMinimalValid720pPackage(Path root) throws Exception {
         Files.createDirectories(root.resolve("video/720p"));
         Files.createDirectories(root.resolve("audio/main"));
         Files.writeString(root.resolve("master.m3u8"), """

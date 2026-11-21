@@ -1,69 +1,28 @@
-package com.universe.media.infrastructure.hls.poc;
+package com.universe.media.infrastructure.hls;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Invokes local {@code ffprobe} to extract deterministic media stream/format characteristics
- * from source MP4 files and generated HLS fMP4 playlists.
+ * Infrastructure adapter invoking {@code ffprobe} to inspect source MP4 metadata
+ * and verify generated HLS media playlists.
  */
-class MediaSourceProbe {
+@Component
+@ConditionalOnProperty(prefix = "media.hls.packaging", name = "enabled", havingValue = "true")
+public class FfprobeMediaSourceProbe {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final int MAX_JSON_BYTES = 512 * 1024;
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
-
-    record ProbedSource(
-            int rawWidth,
-            int rawHeight,
-            int displayRotationDegrees,
-            String sampleAspectRatio,
-            String displayAspectRatio,
-            int displayWidth,
-            int displayHeight,
-            String avgFrameRateRaw,
-            String rFrameRateRaw,
-            double effectiveFps,
-            double durationSeconds,
-            String videoCodec,
-            String pixelFormat,
-            int bitsPerRawSample,
-            String colorSpace,
-            String colorTransfer,
-            String colorPrimaries,
-            boolean hasAudio,
-            int audioStreamCount,
-            String audioCodec,
-            int audioChannels,
-            int audioSampleRateHz,
-            String audioLanguage
-    ) {
-        boolean isHdrOr10Bit() {
-            if (bitsPerRawSample >= 10) {
-                return true;
-            }
-            String pix = pixelFormat == null ? "" : pixelFormat.toLowerCase(Locale.ROOT);
-            if (pix.contains("10") || pix.contains("12") || pix.contains("p010") || pix.contains("p016")) {
-                return true;
-            }
-            String transfer = colorTransfer == null ? "" : colorTransfer.toLowerCase(Locale.ROOT);
-            String primaries = colorPrimaries == null ? "" : colorPrimaries.toLowerCase(Locale.ROOT);
-            return transfer.contains("smpte2084")
-                    || transfer.contains("arib-std-b67")
-                    || primaries.contains("bt2020");
-        }
-    }
-
-    record HlsPlaylistProbe(
+    public record HlsPlaylistProbe(
             int streamCount,
             String codecType,
             String codecName,
@@ -76,22 +35,39 @@ class MediaSourceProbe {
     ) {
     }
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final int MAX_JSON_BYTES = 512 * 1024;
+
     private final String ffprobeExecutable;
-    private final BoundedProcessRunner runner;
+    private final BoundedSubprocessRunner runner;
+    private final Duration timeout;
 
-    MediaSourceProbe() {
-        this("ffprobe", new BoundedProcessRunner());
+    @Autowired
+    public FfprobeMediaSourceProbe(HlsPackagingProperties properties, BoundedSubprocessRunner runner) {
+        this(
+                Objects.requireNonNull(properties, "HlsPackagingProperties cannot be null.").ffprobeExecutable(),
+                runner,
+                properties.probeTimeout()
+        );
     }
 
-    MediaSourceProbe(String ffprobeExecutable, BoundedProcessRunner runner) {
-        this.ffprobeExecutable = Objects.requireNonNull(ffprobeExecutable, "ffprobeExecutable cannot be null").trim();
-        this.runner = Objects.requireNonNull(runner, "runner cannot be null");
+    public FfprobeMediaSourceProbe(String ffprobeExecutable, BoundedSubprocessRunner runner, Duration timeout) {
+        if (ffprobeExecutable == null || ffprobeExecutable.isBlank()) {
+            throw new IllegalArgumentException("ffprobeExecutable cannot be blank.");
+        }
+        this.ffprobeExecutable = ffprobeExecutable.trim();
+        this.runner = Objects.requireNonNull(runner, "runner cannot be null.");
+        if (timeout == null || timeout.isNegative() || timeout.isZero()) {
+            throw new IllegalArgumentException("timeout must be strictly positive.");
+        }
+        this.timeout = timeout;
     }
 
-    ProbedSource probeSource(Path sourceFile) throws IOException, InterruptedException, TimeoutException {
-        Objects.requireNonNull(sourceFile, "sourceFile cannot be null");
+    public HlsLadderPlanner.ProbedVideoSource probeSource(Path sourceFile)
+            throws IOException, InterruptedException, TimeoutException {
+        Objects.requireNonNull(sourceFile, "sourceFile cannot be null.");
         if (!Files.isRegularFile(sourceFile)) {
-            throw new IOException("Source file does not exist: " + sourceFile);
+            throw new IOException("Source file does not exist or is not a regular file: " + sourceFile);
         }
 
         List<String> command = List.of(
@@ -104,8 +80,8 @@ class MediaSourceProbe {
                 sourceFile.toAbsolutePath().toString()
         );
 
-        BoundedProcessRunner.ProcessResult result =
-                runner.execute(command, sourceFile.toAbsolutePath().getParent(), DEFAULT_TIMEOUT, MAX_JSON_BYTES);
+        BoundedSubprocessRunner.ProcessResult result =
+                runner.execute(command, sourceFile.toAbsolutePath().getParent(), timeout, MAX_JSON_BYTES);
         if (result.exitCode() != 0) {
             throw new IOException("ffprobe failed (exit=" + result.exitCode() + "): " + result.output());
         }
@@ -113,7 +89,7 @@ class MediaSourceProbe {
         JsonNode root = OBJECT_MAPPER.readTree(result.output());
         JsonNode streams = root.path("streams");
         if (!streams.isArray()) {
-            throw new IOException("ffprobe JSON missing streams array");
+            throw new IOException("ffprobe JSON missing streams array.");
         }
 
         JsonNode videoStream = null;
@@ -148,8 +124,7 @@ class MediaSourceProbe {
         String dar = videoStream.path("display_aspect_ratio").asText("");
 
         int[] sarRatio = parseRatio(sar);
-        double sarScaledWidth = rawWidth * ((double) sarRatio[0] / sarRatio[1]);
-        double unrotatedW = sarScaledWidth;
+        double unrotatedW = rawWidth * ((double) sarRatio[0] / sarRatio[1]);
         double unrotatedH = rawHeight;
 
         int normalizedRot = ((rotation % 360) + 360) % 360;
@@ -180,7 +155,7 @@ class MediaSourceProbe {
         int audioSampleRate = hasAudio ? parseInt(primaryAudioStream.path("sample_rate").asText(""), 0) : 0;
         String audioLanguage = hasAudio ? primaryAudioStream.path("tags").path("language").asText("und") : null;
 
-        return new ProbedSource(
+        return new HlsLadderPlanner.ProbedVideoSource(
                 rawWidth,
                 rawHeight,
                 normalizedRot,
@@ -207,8 +182,9 @@ class MediaSourceProbe {
         );
     }
 
-    HlsPlaylistProbe probeHlsMediaPlaylist(Path playlistPath) throws IOException, InterruptedException, TimeoutException {
-        Objects.requireNonNull(playlistPath, "playlistPath cannot be null");
+    public HlsPlaylistProbe probeHlsMediaPlaylist(Path playlistPath)
+            throws IOException, InterruptedException, TimeoutException {
+        Objects.requireNonNull(playlistPath, "playlistPath cannot be null.");
         if (!Files.isRegularFile(playlistPath)) {
             throw new IOException("Playlist file does not exist: " + playlistPath);
         }
@@ -225,8 +201,8 @@ class MediaSourceProbe {
                 playlistPath.toAbsolutePath().toString()
         );
 
-        BoundedProcessRunner.ProcessResult result =
-                runner.execute(command, playlistPath.toAbsolutePath().getParent(), DEFAULT_TIMEOUT, MAX_JSON_BYTES);
+        BoundedSubprocessRunner.ProcessResult result =
+                runner.execute(command, playlistPath.toAbsolutePath().getParent(), timeout, MAX_JSON_BYTES);
         if (result.exitCode() != 0) {
             throw new IOException("ffprobe playlist verification failed (exit=" + result.exitCode() + "): " + result.output());
         }

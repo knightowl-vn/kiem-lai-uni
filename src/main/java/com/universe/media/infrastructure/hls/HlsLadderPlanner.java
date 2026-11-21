@@ -1,36 +1,79 @@
-package com.universe.media.infrastructure.hls.poc;
+package com.universe.media.infrastructure.hls;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
- * Deterministic HLS packaging ladder planner enforcing:
+ * Pure framework-independent HLS packaging ladder planner.
+ * Enforces:
  * <ul>
  *     <li>Named tiers only: 720p (1280x720), 1080p (1920x1080), 2160p (3840x2160) — no 480p by default.</li>
- *     <li>Source-capped output with zero unintended upscaling and aspect-ratio preservation.</li>
- *     <li>At most ONE shared AAC-LC audio rendition when source audio exists (none for video-only inputs).</li>
- *     <li>Explicit HDR / 10-bit and below-720p source policies.</li>
+ *     <li>Zero upscaling with display aspect ratio and orientation preservation.</li>
+ *     <li>At most ONE shared AAC-LC audio rendition when source audio exists (video-only otherwise).</li>
+ *     <li>Explicit below-720p and HDR/10-bit policies.</li>
  * </ul>
  */
-final class HlsLadderPlanner {
+public final class HlsLadderPlanner {
 
-    enum Below720Policy {
+    public enum Below720Policy {
         SOURCE_FALLBACK_NO_UPSCALE,
         REJECT_BELOW_720P
     }
 
-    enum HdrPolicy {
+    public enum HdrPolicy {
         REJECT_EXPLICIT
     }
 
-    static final class UnsupportedSourceException extends IllegalArgumentException {
-        UnsupportedSourceException(String message) {
+    public static final class UnsupportedHlsSourceException extends IllegalArgumentException {
+        public UnsupportedHlsSourceException(String message) {
             super(message);
         }
     }
 
-    record VideoTierSpec(
+    public record ProbedVideoSource(
+            int rawWidth,
+            int rawHeight,
+            int displayRotationDegrees,
+            String sampleAspectRatio,
+            String displayAspectRatio,
+            int displayWidth,
+            int displayHeight,
+            String avgFrameRateRaw,
+            String rFrameRateRaw,
+            double effectiveFps,
+            double durationSeconds,
+            String videoCodec,
+            String pixelFormat,
+            int bitsPerRawSample,
+            String colorSpace,
+            String colorTransfer,
+            String colorPrimaries,
+            boolean hasAudio,
+            int audioStreamCount,
+            String audioCodec,
+            int audioChannels,
+            int audioSampleRateHz,
+            String audioLanguage
+    ) {
+        public boolean isHdrOr10Bit() {
+            if (bitsPerRawSample >= 10) {
+                return true;
+            }
+            String pix = pixelFormat == null ? "" : pixelFormat.toLowerCase(Locale.ROOT);
+            if (pix.contains("10") || pix.contains("12") || pix.contains("p010") || pix.contains("p016")) {
+                return true;
+            }
+            String transfer = colorTransfer == null ? "" : colorTransfer.toLowerCase(Locale.ROOT);
+            String primaries = colorPrimaries == null ? "" : colorPrimaries.toLowerCase(Locale.ROOT);
+            return transfer.contains("smpte2084")
+                    || transfer.contains("arib-std-b67")
+                    || primaries.contains("bt2020");
+        }
+    }
+
+    public record VideoTierSpec(
             String label,
             String relativeDir,
             int width,
@@ -39,12 +82,12 @@ final class HlsLadderPlanner {
             int maxrateKbps,
             int bufsizeKbps
     ) {
-        String playlistRelativeUri() {
+        public String playlistRelativeUri() {
             return relativeDir + "/playlist.m3u8";
         }
     }
 
-    record HlsPackagingPlan(
+    public record HlsPackagingPlan(
             List<VideoTierSpec> videoTiers,
             boolean includeAudio,
             String audioRelativeDir,
@@ -56,7 +99,7 @@ final class HlsLadderPlanner {
             int gopSizeFrames,
             boolean below720FallbackApplied
     ) {
-        String audioPlaylistRelativeUri() {
+        public String audioPlaylistRelativeUri() {
             return audioRelativeDir + "/playlist.m3u8";
         }
     }
@@ -78,15 +121,15 @@ final class HlsLadderPlanner {
             new NamedTierTemplate("2160p", "video/2160p", 3840, 2160, 22, 14000, 28000)
     );
 
-    HlsPackagingPlan plan(
-            MediaSourceProbe.ProbedSource source,
+    public HlsPackagingPlan plan(
+            ProbedVideoSource source,
             int segmentDurationSeconds,
             Below720Policy below720Policy,
             HdrPolicy hdrPolicy
     ) {
-        Objects.requireNonNull(source, "source cannot be null");
-        Objects.requireNonNull(below720Policy, "below720Policy cannot be null");
-        Objects.requireNonNull(hdrPolicy, "hdrPolicy cannot be null");
+        Objects.requireNonNull(source, "source cannot be null.");
+        Objects.requireNonNull(below720Policy, "below720Policy cannot be null.");
+        Objects.requireNonNull(hdrPolicy, "hdrPolicy cannot be null.");
         if (segmentDurationSeconds < 2 || segmentDurationSeconds > 10) {
             throw new IllegalArgumentException(
                     "segmentDurationSeconds must align with V100 domain bounds (2..10s): " + segmentDurationSeconds
@@ -94,7 +137,7 @@ final class HlsLadderPlanner {
         }
 
         if (source.isHdrOr10Bit()) {
-            throw new UnsupportedSourceException(
+            throw new UnsupportedHlsSourceException(
                     "Source uses 10-bit/HDR signaling (pix_fmt=" + source.pixelFormat()
                             + ", transfer=" + source.colorTransfer()
                             + ", primaries=" + source.colorPrimaries()
@@ -104,6 +147,9 @@ final class HlsLadderPlanner {
 
         int srcW = source.displayWidth();
         int srcH = source.displayHeight();
+        if (srcW < 2 || srcH < 2) {
+            throw new UnsupportedHlsSourceException("Invalid source display dimensions: " + srcW + "x" + srcH);
+        }
         boolean portrait = srcH > srcW;
         int srcLong = Math.max(srcW, srcH);
         int srcShort = Math.min(srcW, srcH);
@@ -131,7 +177,7 @@ final class HlsLadderPlanner {
         boolean below720FallbackApplied = false;
         if (selectedTiers.isEmpty()) {
             if (below720Policy == Below720Policy.REJECT_BELOW_720P) {
-                throw new UnsupportedSourceException(
+                throw new UnsupportedHlsSourceException(
                         "Source resolution " + srcW + "x" + srcH + " is below minimum 720p tier and policy prohibits upscaling."
                 );
             }

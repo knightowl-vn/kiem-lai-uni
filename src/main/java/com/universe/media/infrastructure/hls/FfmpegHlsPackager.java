@@ -1,4 +1,8 @@
-package com.universe.media.infrastructure.hls.poc;
+package com.universe.media.infrastructure.hls;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,12 +14,14 @@ import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Local-only FFmpeg fMP4 HLS packager generating adaptive video-only tiers plus
- * at most ONE shared AAC-LC audio rendition.
+ * Infrastructure adapter invoking local {@code ffmpeg} to package an authorized local source
+ * into adaptive H.264/AAC fMP4 HLS VOD output with at most one shared audio rendition.
  */
-final class LocalFfmpegHlsPackager {
+@Component
+@ConditionalOnProperty(prefix = "media.hls.packaging", name = "enabled", havingValue = "true")
+public class FfmpegHlsPackager {
 
-    record PackagingExecutionResult(
+    public record PackagingExecution(
             Path outputRoot,
             HlsLadderPlanner.HlsPackagingPlan plan,
             List<String> command,
@@ -25,41 +31,56 @@ final class LocalFfmpegHlsPackager {
     }
 
     private final String ffmpegExecutable;
-    private final BoundedProcessRunner runner;
-    private final int maxThreads;
-    private final Duration timeout;
+    private final BoundedSubprocessRunner runner;
+    private final int ffmpegThreads;
+    private final Duration encodeTimeout;
     private final String x264Preset;
 
-    LocalFfmpegHlsPackager() {
-        this("ffmpeg", new BoundedProcessRunner(), Math.min(4, Math.max(1, Runtime.getRuntime().availableProcessors() / 2)),
-                Duration.ofMinutes(3), "veryfast");
+    @Autowired
+    public FfmpegHlsPackager(HlsPackagingProperties properties, BoundedSubprocessRunner runner) {
+        this(
+                Objects.requireNonNull(properties, "HlsPackagingProperties cannot be null.").ffmpegExecutable(),
+                runner,
+                properties.ffmpegThreads(),
+                properties.encodeTimeout(),
+                properties.x264Preset()
+        );
     }
 
-    LocalFfmpegHlsPackager(
+    public FfmpegHlsPackager(
             String ffmpegExecutable,
-            BoundedProcessRunner runner,
-            int maxThreads,
-            Duration timeout,
+            BoundedSubprocessRunner runner,
+            int ffmpegThreads,
+            Duration encodeTimeout,
             String x264Preset
     ) {
-        this.ffmpegExecutable = Objects.requireNonNull(ffmpegExecutable, "ffmpegExecutable cannot be null").trim();
-        this.runner = Objects.requireNonNull(runner, "runner cannot be null");
-        if (maxThreads < 1) {
-            throw new IllegalArgumentException("maxThreads must be >= 1");
+        if (ffmpegExecutable == null || ffmpegExecutable.isBlank()) {
+            throw new IllegalArgumentException("ffmpegExecutable cannot be blank.");
         }
-        this.maxThreads = maxThreads;
-        this.timeout = Objects.requireNonNull(timeout, "timeout cannot be null");
-        this.x264Preset = Objects.requireNonNull(x264Preset, "x264Preset cannot be null").trim();
+        this.ffmpegExecutable = ffmpegExecutable.trim();
+        this.runner = Objects.requireNonNull(runner, "runner cannot be null.");
+        if (ffmpegThreads < 1 || ffmpegThreads > 32) {
+            throw new IllegalArgumentException("ffmpegThreads must be in 1..32, got: " + ffmpegThreads);
+        }
+        this.ffmpegThreads = ffmpegThreads;
+        if (encodeTimeout == null || encodeTimeout.isNegative() || encodeTimeout.isZero()) {
+            throw new IllegalArgumentException("encodeTimeout must be strictly positive.");
+        }
+        this.encodeTimeout = encodeTimeout;
+        if (x264Preset == null || x264Preset.isBlank()) {
+            throw new IllegalArgumentException("x264Preset cannot be blank.");
+        }
+        this.x264Preset = x264Preset.trim();
     }
 
-    PackagingExecutionResult packageToLocalDirectory(
+    public PackagingExecution packageToDirectory(
             Path sourceFile,
             Path outputRoot,
             HlsLadderPlanner.HlsPackagingPlan plan
     ) throws IOException, InterruptedException, TimeoutException {
-        Objects.requireNonNull(sourceFile, "sourceFile cannot be null");
-        Objects.requireNonNull(outputRoot, "outputRoot cannot be null");
-        Objects.requireNonNull(plan, "plan cannot be null");
+        Objects.requireNonNull(sourceFile, "sourceFile cannot be null.");
+        Objects.requireNonNull(outputRoot, "outputRoot cannot be null.");
+        Objects.requireNonNull(plan, "plan cannot be null.");
 
         if (!Files.isRegularFile(sourceFile)) {
             throw new IOException("Source MP4 does not exist: " + sourceFile);
@@ -74,13 +95,13 @@ final class LocalFfmpegHlsPackager {
         }
 
         List<String> command = buildFfmpegCommand(sourceFile.toAbsolutePath(), plan);
-        BoundedProcessRunner.ProcessResult result =
-                runner.execute(command, outputRoot.toAbsolutePath(), timeout, 64 * 1024);
+        BoundedSubprocessRunner.ProcessResult result =
+                runner.execute(command, outputRoot.toAbsolutePath(), encodeTimeout, 64 * 1024);
         if (result.exitCode() != 0) {
             throw new IOException("FFmpeg HLS packaging failed (exit=" + result.exitCode() + "): " + result.output());
         }
 
-        return new PackagingExecutionResult(
+        return new PackagingExecution(
                 outputRoot.toAbsolutePath(),
                 plan,
                 command,
@@ -89,7 +110,7 @@ final class LocalFfmpegHlsPackager {
         );
     }
 
-    List<String> buildFfmpegCommand(Path absoluteSourceFile, HlsLadderPlanner.HlsPackagingPlan plan) {
+    public List<String> buildFfmpegCommand(Path absoluteSourceFile, HlsLadderPlanner.HlsPackagingPlan plan) {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegExecutable);
         cmd.add("-y");
@@ -97,7 +118,7 @@ final class LocalFfmpegHlsPackager {
         cmd.add("-v");
         cmd.add("warning");
         cmd.add("-threads");
-        cmd.add(Integer.toString(maxThreads));
+        cmd.add(Integer.toString(ffmpegThreads));
         cmd.add("-i");
         cmd.add(absoluteSourceFile.toString());
 
