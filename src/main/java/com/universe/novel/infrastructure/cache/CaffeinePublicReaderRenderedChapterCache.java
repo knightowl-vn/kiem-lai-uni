@@ -68,7 +68,24 @@ public class CaffeinePublicReaderRenderedChapterCache implements PublicReaderRen
                 continue;
             }
 
+            boolean completedNewLoad = false;
             try {
+                // Re-check populated cache state after claiming inFlightLoad so a caller that
+                // stalled between reading observedLoad==null and compareAndSet observes the winner's result.
+                synchronized (state.populationLock) {
+                    if (state.generation.get() == requestedGeneration
+                            && stateCache.getIfPresent(normalizedSlug) == state) {
+                        VersionedSnapshot rechecked = dataCache.getIfPresent(normalizedSlug);
+                        if (rechecked != null
+                                && rechecked.state() == state
+                                && rechecked.generation() == requestedGeneration) {
+                            newLoad.result().complete(rechecked.snapshot());
+                            completedNewLoad = true;
+                            return rechecked.snapshot();
+                        }
+                    }
+                }
+
                 PublicReaderRenderedChapterLoadResult rawLoaded = Objects.requireNonNull(
                         loader.get(),
                         "rendered chapter loader result must not be null"
@@ -78,8 +95,6 @@ public class CaffeinePublicReaderRenderedChapterCache implements PublicReaderRen
                         rawLoaded.snapshot(),
                         "snapshot inside load result must not be null"
                 );
-
-                newLoad.result().complete(snapshot);
 
                 if (rawLoaded.cacheable()) {
                     synchronized (state.populationLock) {
@@ -93,9 +108,13 @@ public class CaffeinePublicReaderRenderedChapterCache implements PublicReaderRen
                     }
                 }
 
+                newLoad.result().complete(snapshot);
+                completedNewLoad = true;
                 return snapshot;
             } catch (RuntimeException | Error failure) {
-                newLoad.result().completeExceptionally(failure);
+                if (!completedNewLoad) {
+                    newLoad.result().completeExceptionally(failure);
+                }
                 throw failure;
             } finally {
                 state.inFlightLoad.compareAndSet(newLoad, null);
