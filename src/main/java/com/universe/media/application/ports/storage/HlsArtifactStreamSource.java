@@ -48,6 +48,15 @@ public interface HlsArtifactStreamSource extends AutoCloseable {
     ActiveUploadScope openUploadScope();
 
     /**
+     * Opens a verified artifact's stream under active lifecycle protection.
+     * The returned stream MUST be closed by the caller when finished, releasing its pin.
+     *
+     * @throws IllegalStateException if package closure has been requested or completed,
+     *                               or if the underlying file is missing, symlinked, or modified
+     */
+    InputStream openArtifactStream(StorageKey objectKey) throws IOException;
+
+    /**
      * Reads one verified artifact's stream under active lifecycle protection.
      * Fails closed if package closure has been requested or completed, or if the underlying
      * file is missing, symlinked, or modified.

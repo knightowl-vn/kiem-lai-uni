@@ -11,6 +11,7 @@ import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileVisitOption;
@@ -35,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Bounded, streaming local artifact inventory derived strictly from an active, already locally
@@ -284,16 +286,15 @@ public final class LocalHlsPackageInventory {
         }
 
         @Override
-        public <T> T withArtifactStream(StorageKey objectKey, ArtifactStreamReader<T> reader) throws IOException {
+        public InputStream openArtifactStream(StorageKey objectKey) throws IOException {
             Objects.requireNonNull(objectKey, "objectKey cannot be null.");
-            Objects.requireNonNull(reader, "reader cannot be null.");
-
             LocalArtifactEntry entry = entriesByKey.get(objectKey);
             if (entry == null) {
                 throw new IllegalArgumentException("Object key is not part of this HLS inventory: " + objectKey.value());
             }
 
-            try (LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.ActiveUsagePin pin = owningResult.acquireUsagePin()) {
+            LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.ActiveUsagePin pin = owningResult.acquireUsagePin();
+            try {
                 Path file = entry.realFilePath();
                 if (Files.isSymbolicLink(file) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
                     throw new IllegalStateException("Local HLS artifact file is missing or unsafe: " + file);
@@ -310,9 +311,36 @@ public final class LocalHlsPackageInventory {
                             "Owning LocalHlsPackagingResult closure requested before stream read started."
                     );
                 }
-                try (InputStream in = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-                    return reader.read(in, entry.expectedSizeBytes());
-                }
+                InputStream raw = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS);
+                return new FilterInputStream(raw) {
+                    private final AtomicBoolean closed = new AtomicBoolean();
+
+                    @Override
+                    public void close() throws IOException {
+                        if (closed.compareAndSet(false, true)) {
+                            try {
+                                super.close();
+                            } finally {
+                                pin.close();
+                            }
+                        }
+                    }
+                };
+            } catch (Throwable t) {
+                pin.close();
+                throw t;
+            }
+        }
+
+        @Override
+        public <T> T withArtifactStream(StorageKey objectKey, ArtifactStreamReader<T> reader) throws IOException {
+            Objects.requireNonNull(reader, "reader cannot be null.");
+            LocalArtifactEntry entry = entriesByKey.get(objectKey);
+            if (entry == null) {
+                throw new IllegalArgumentException("Object key is not part of this HLS inventory: " + objectKey.value());
+            }
+            try (InputStream in = openArtifactStream(objectKey)) {
+                return reader.read(in, entry.expectedSizeBytes());
             }
         }
 

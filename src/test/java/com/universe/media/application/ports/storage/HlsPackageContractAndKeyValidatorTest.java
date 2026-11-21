@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Modifier;
 import java.time.Instant;
 import java.util.List;
@@ -40,6 +41,11 @@ class HlsPackageContractAndKeyValidatorTest {
                 public void close() {
                 }
             };
+        }
+
+        @Override
+        public InputStream openArtifactStream(StorageKey objectKey) throws IOException {
+            return new ByteArrayInputStream(new byte[0]);
         }
 
         @Override
