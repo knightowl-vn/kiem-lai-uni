@@ -166,4 +166,76 @@ class MediaVideoHlsFoundationDomainTest {
         assertThat(gen2).isEqualTo(2L);
         assertThat(job.isLeaseActiveAt(expiresAt.plusSeconds(1))).isTrue();
     }
+
+    @Test
+    @DisplayName("MediaVideoPackagingJob enforces fenced permanent failure even when attempts remain, while preserving attemptCount and leaseGeneration")
+    void shouldEnforceFencedPermanentFailureAndTransientRetentionHelpers() {
+        assertThat(MediaVideoHlsPackage.computeFailedPurgeAfter(T0)).isEqualTo(T0.plus(Duration.ofHours(24)));
+        assertThat(MediaVideoHlsPackage.computeAbandonedOnReclaimPurgeAfter(T0)).isEqualTo(T0.plus(Duration.ofHours(24)));
+        assertThat(MediaVideoHlsPackage.computeSupersededPurgeAfter(T0)).isEqualTo(T0.plus(Duration.ofDays(7)));
+
+        MediaVideoPackagingJob job = MediaVideoPackagingJob.createPending(
+                JOB_ID,
+                ASSET_ID,
+                VERSION_ID,
+                1,
+                3,
+                T0
+        );
+        UUID pkg1 = UUID.randomUUID();
+        long gen1 = job.claimOrReclaimLease("worker-a", pkg1, Duration.ofMinutes(5), T0);
+        Instant expiresAt = T0.plus(Duration.ofMinutes(5));
+
+        // 1. Transient failure while attempts remain schedules PENDING retry with backoff
+        Instant t1 = T0.plusSeconds(10);
+        job.recordAttemptFailure("worker-a", gen1, "transient network reset", Duration.ofSeconds(30), t1);
+        assertThat(job.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.PENDING);
+        assertThat(job.getNextAttemptAt()).isEqualTo(t1.plusSeconds(30));
+        assertThat(job.getLeaseOwner()).isNull();
+        assertThat(job.getLeaseExpiresAt()).isNull();
+
+        // Claim attempt 2 (still < maxAttempts=3)
+        Instant t2 = t1.plusSeconds(35);
+        UUID pkg2 = UUID.randomUUID();
+        long gen2 = job.claimOrReclaimLease("worker-b", pkg2, Duration.ofMinutes(5), t2);
+        assertThat(gen2).isEqualTo(2L);
+        assertThat(job.getAttemptCount()).isEqualTo(2);
+
+        // 2. Permanent failure rejected for wrong worker, stale generation, and expired lease
+        Instant tFail = t2.plusSeconds(15);
+        assertThatThrownBy(() -> job.recordPermanentFailure("worker-a", gen2, "unsupported HDR", tFail))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> job.recordPermanentFailure("worker-b", gen1, "unsupported HDR", tFail))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> job.recordPermanentFailure("worker-b", gen2, "unsupported HDR", t2.plus(Duration.ofMinutes(5))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Lease expired");
+
+        // Still active at tFail
+        assertThat(job.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.LEASED);
+
+        // 3. Valid worker & generation marks terminal FAILED immediately even though attemptCount (2) < maxAttempts (3)
+        String longReason = "HDR10+ unsupported: " + "x".repeat(1200);
+        job.recordPermanentFailure("worker-b", gen2, longReason, tFail);
+
+        assertThat(job.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.FAILED);
+        assertThat(job.getAttemptCount()).isEqualTo(2);
+        assertThat(job.getLeaseGeneration()).isEqualTo(2L);
+        assertThat(job.getLeaseOwner()).isNull();
+        assertThat(job.getLeaseExpiresAt()).isNull();
+        assertThat(job.getUpdatedAt()).isEqualTo(tFail);
+        assertThat(job.getLastError()).hasSize(1000);
+        assertThat(job.isClaimableAt(tFail.plus(Duration.ofDays(30)))).isFalse();
+        assertThat(job.isLeaseActiveAt(tFail)).isFalse();
+
+        // 4. Final-attempt transient failure also becomes terminal FAILED
+        MediaVideoPackagingJob singleAttemptJob = MediaVideoPackagingJob.createPending(
+                UUID.randomUUID(), ASSET_ID, VERSION_ID, 1, 1, T0
+        );
+        long sGen = singleAttemptJob.claimOrReclaimLease("worker-c", UUID.randomUUID(), Duration.ofMinutes(5), T0);
+        singleAttemptJob.recordAttemptFailure("worker-c", sGen, "timeout", Duration.ofSeconds(10), T0.plusSeconds(5));
+        assertThat(singleAttemptJob.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.FAILED);
+        assertThat(singleAttemptJob.getLeaseOwner()).isNull();
+        assertThat(singleAttemptJob.getLeaseExpiresAt()).isNull();
+    }
 }

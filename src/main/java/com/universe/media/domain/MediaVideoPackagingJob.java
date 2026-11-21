@@ -242,7 +242,7 @@ public final class MediaVideoPackagingJob {
     }
 
     /**
-     * Records a failure for the active fenced lease, scheduling retry if attempts remain or transitioning to FAILED.
+     * Records a transient failure for the active fenced lease, scheduling retry if attempts remain or transitioning to FAILED.
      */
     public void recordAttemptFailure(
             String workerId,
@@ -253,10 +253,7 @@ public final class MediaVideoPackagingJob {
     ) {
         assertValidActiveLease(workerId, expectedLeaseGeneration, now);
         Objects.requireNonNull(retryBackoff, "retryBackoff cannot be null.");
-
-        this.lastError = truncateError(error != null && !error.isBlank() ? error : "Packaging attempt failed.");
-        this.leaseOwner = null;
-        this.leaseExpiresAt = null;
+        clearActiveLeaseAndSetError(error, "Packaging attempt failed.");
 
         if (this.attemptCount < this.maxAttempts) {
             this.status = MediaVideoPackagingJobStatus.PENDING;
@@ -265,6 +262,28 @@ public final class MediaVideoPackagingJob {
             this.status = MediaVideoPackagingJobStatus.FAILED;
         }
         touch(now);
+    }
+
+    /**
+     * Records a deterministic non-retryable permanent failure for the active fenced lease,
+     * transitioning the job directly to terminal FAILED regardless of remaining attempts.
+     */
+    public void recordPermanentFailure(
+            String workerId,
+            long expectedLeaseGeneration,
+            String error,
+            Instant now
+    ) {
+        assertValidActiveLease(workerId, expectedLeaseGeneration, now);
+        clearActiveLeaseAndSetError(error, "Permanent non-retryable packaging failure.");
+        this.status = MediaVideoPackagingJobStatus.FAILED;
+        touch(now);
+    }
+
+    private void clearActiveLeaseAndSetError(String error, String defaultError) {
+        this.lastError = truncateError(error != null && !error.isBlank() ? error : defaultError);
+        this.leaseOwner = null;
+        this.leaseExpiresAt = null;
     }
 
     /**

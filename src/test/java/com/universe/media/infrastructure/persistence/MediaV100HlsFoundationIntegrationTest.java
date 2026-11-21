@@ -350,14 +350,16 @@ class MediaV100HlsFoundationIntegrationTest {
         assertThat(lease1.leaseGeneration()).isEqualTo(1L);
         assertThat(hlsPackageAdapter.findCurrentReadyByAssetId(assetId)).isEmpty();
 
-        // Fail attempt 1 -> schedules retry, package becomes FAILED
-        clockRef.set(BASE_TIME.plusSeconds(10));
+        // Fail attempt 1 -> schedules retry, package becomes FAILED with 24h retention
+        Instant failTime = BASE_TIME.plusSeconds(10);
+        clockRef.set(failTime);
         MediaVideoPackagingJob failedJob = failJobUseCase.execute(
                 assetId, lease1.jobId(), "worker-1", lease1.leaseGeneration(), "transient", Duration.ofSeconds(30)
         );
         assertThat(failedJob.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.PENDING);
-        assertThat(hlsPackageAdapter.findById(lease1.packageId()).orElseThrow().getStatus())
-                .isEqualTo(MediaVideoHlsPackageStatus.FAILED);
+        MediaVideoHlsPackage failedPkg1 = hlsPackageAdapter.findById(lease1.packageId()).orElseThrow();
+        assertThat(failedPkg1.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.FAILED);
+        assertThat(failedPkg1.getPurgeAfter()).isEqualTo(failTime.plus(Duration.ofHours(24)));
 
         // Advance past backoff, claim attempt 2, complete -> READY
         clockRef.set(BASE_TIME.plusSeconds(60));
@@ -538,5 +540,36 @@ class MediaV100HlsFoundationIntegrationTest {
         assertThat(ready.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.READY);
         assertThat(hlsPackageAdapter.findCurrentReadyByAssetId(assetId))
                 .get().extracting(MediaVideoHlsPackage::getId).isEqualTo(lease2.packageId());
+    }
+
+    @Test
+    @DisplayName("Permanent failure persists terminal FAILED job with attempts remaining, sets 24h package retention, and clears active job slot")
+    void shouldPersistPermanentFailureWith24hPackageRetentionAndClearActiveJobSlot() {
+        UUID assetId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        seedActiveVideoAsset(assetId, versionId);
+        MediaVideoPackagingJob created = createJobUseCase.execute(assetId, 3);
+
+        ClaimedVideoPackagingLease lease = claimJobUseCase.claimNext("worker-perm", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket")
+                .orElseThrow();
+        Instant permFailTime = BASE_TIME.plusSeconds(20);
+        clockRef.set(permFailTime);
+
+        MediaVideoPackagingJob failed = failJobUseCase.executePermanentFailure(
+                assetId, lease.jobId(), "worker-perm", lease.leaseGeneration(), "Unsupported HDR source"
+        );
+        assertThat(failed.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.FAILED);
+        assertThat(failed.getAttemptCount()).isEqualTo(1);
+        assertThat(failed.getMaxAttempts()).isEqualTo(3);
+        assertThat(failed.getLeaseOwner()).isNull();
+        assertThat(failed.getLeaseExpiresAt()).isNull();
+
+        MediaVideoHlsPackage pkg = hlsPackageAdapter.findById(lease.packageId()).orElseThrow();
+        assertThat(pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.FAILED);
+        assertThat(pkg.getPurgeAfter()).isEqualTo(permFailTime.plus(Duration.ofHours(24)));
+
+        // Re-verify DB candidate query skips terminal FAILED job even far in the future
+        assertThat(packagingJobAdapter.findClaimableCandidates(permFailTime.plus(Duration.ofDays(30)), 20))
+                .noneMatch(c -> c.jobId().equals(created.getId()));
     }
 }

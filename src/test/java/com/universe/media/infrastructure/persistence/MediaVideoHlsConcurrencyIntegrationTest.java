@@ -619,4 +619,66 @@ class MediaVideoHlsConcurrencyIntegrationTest {
             pool2.shutdownNow();
         }
     }
+
+    @Test
+    @DisplayName("CX-08: Stale permanent failure fences cleanly against reclaimed completion and preserves 24h ABANDONED retention")
+    void cx08ShouldFenceStalePermanentFailureAgainstReclaimCompletionAndPreserve24hRetention() throws Exception {
+        UUID assetId = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(assetId);
+
+        ClaimedVideoPackagingLease staleLease = claimJobUseCase.claimNext(
+                "worker-stale", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+
+        // Reclaim expired lease -> P1 becomes ABANDONED with purgeAfter = reclaimTime + 24h
+        Instant reclaimTime = BASE_TIME.plus(Duration.ofMinutes(6));
+        clockRef.set(reclaimTime);
+        ClaimedVideoPackagingLease freshLease = claimJobUseCase.claimNext(
+                "worker-fresh", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+
+        MediaVideoHlsPackage abandonedP1 = hlsPackageAdapter.findById(staleLease.packageId()).orElseThrow();
+        assertThat(abandonedP1.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.ABANDONED);
+        assertThat(abandonedP1.getPurgeAfter()).isEqualTo(reclaimTime.plus(Duration.ofHours(24)));
+
+        // Concurrent stale permanent failure (gen=1) vs fresh READY completion (gen=2)
+        VerifiedHlsPackageReceipt receipt = new VerifiedHlsPackageReceipt(
+                MANIFEST_SHA256, 48_000L, 6, "[{\"height\":720}]", reclaimTime.plusSeconds(5)
+        );
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<Throwable> staleFailFuture = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                try {
+                    failJobUseCase.executePermanentFailure(
+                            assetId, staleLease.jobId(), "worker-stale", staleLease.leaseGeneration(),
+                            "Delayed HDR defect from stale gen=1"
+                    );
+                    return null;
+                } catch (Throwable t) {
+                    return t;
+                }
+            });
+            Future<MediaVideoHlsPackage> freshCompleteFuture = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return completeJobUseCase.completeWithVerifiedReceipt(
+                        assetId, freshLease.jobId(), freshLease.packageId(),
+                        "worker-fresh", freshLease.leaseGeneration(), receipt
+                );
+            });
+
+            Throwable staleErr = staleFailFuture.get(15, TimeUnit.SECONDS);
+            MediaVideoHlsPackage readyPkg = freshCompleteFuture.get(15, TimeUnit.SECONDS);
+
+            assertThat(staleErr).isInstanceOf(StalePackagingLeaseException.class);
+            assertThat(readyPkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.READY);
+            assertThat(packagingJobAdapter.findById(freshLease.jobId()).orElseThrow().getStatus())
+                    .isEqualTo(MediaVideoPackagingJobStatus.SUCCEEDED);
+            assertThat(hlsPackageAdapter.findById(staleLease.packageId()).orElseThrow().getPurgeAfter())
+                    .isEqualTo(reclaimTime.plus(Duration.ofHours(24)));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 }

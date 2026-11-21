@@ -190,7 +190,8 @@ public class ClaimMediaVideoPackagingJobUseCase {
         }
         hlsPackageRepositoryPort.findByIdForUpdate(previousPkgId).ifPresent(prevPkg -> {
             if (prevPkg.getStatus() == MediaVideoHlsPackageStatus.PROCESSING) {
-                prevPkg.markAbandoned(reason, now, now);
+                Instant purgeAfter = MediaVideoHlsPackage.computeAbandonedOnReclaimPurgeAfter(now);
+                prevPkg.markAbandoned(reason, purgeAfter, now);
                 hlsPackageRepositoryPort.save(prevPkg);
             }
         });

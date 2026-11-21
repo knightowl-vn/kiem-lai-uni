@@ -6,9 +6,12 @@ import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaVideoHlsPackageRepositoryPort;
 import com.universe.media.application.ports.MediaVideoPackagingJobRepositoryPort;
 import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.MediaAssetStatus;
+import com.universe.media.domain.MediaVideoHlsPackage;
 import com.universe.media.domain.MediaVideoHlsPackageStatus;
 import com.universe.media.domain.MediaVideoPackagingJob;
 import com.universe.media.domain.MediaVideoPackagingJobStatus;
+import com.universe.media.domain.PackagingFailureDisposition;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -58,10 +61,74 @@ public class FailMediaVideoPackagingJobUseCase {
             String errorReason,
             Duration retryBackoff
     ) {
+        Objects.requireNonNull(retryBackoff, "retryBackoff cannot be null.");
+        return executeInTransaction(
+                assetId,
+                jobId,
+                workerId,
+                expectedLeaseGeneration,
+                PackagingFailureDisposition.TRANSIENT_RETRYABLE,
+                errorReason,
+                retryBackoff
+        );
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public MediaVideoPackagingJob execute(
+            UUID assetId,
+            UUID jobId,
+            String workerId,
+            long expectedLeaseGeneration,
+            PackagingFailureDisposition disposition,
+            String errorReason,
+            Duration retryBackoff
+    ) {
+        Objects.requireNonNull(disposition, "PackagingFailureDisposition cannot be null.");
+        if (disposition == PackagingFailureDisposition.TRANSIENT_RETRYABLE) {
+            Objects.requireNonNull(retryBackoff, "retryBackoff cannot be null for transient failures.");
+        }
+        return executeInTransaction(
+                assetId,
+                jobId,
+                workerId,
+                expectedLeaseGeneration,
+                disposition,
+                errorReason,
+                retryBackoff
+        );
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public MediaVideoPackagingJob executePermanentFailure(
+            UUID assetId,
+            UUID jobId,
+            String workerId,
+            long expectedLeaseGeneration,
+            String errorReason
+    ) {
+        return executeInTransaction(
+                assetId,
+                jobId,
+                workerId,
+                expectedLeaseGeneration,
+                PackagingFailureDisposition.PERMANENT_NON_RETRYABLE,
+                errorReason,
+                null
+        );
+    }
+
+    private MediaVideoPackagingJob executeInTransaction(
+            UUID assetId,
+            UUID jobId,
+            String workerId,
+            long expectedLeaseGeneration,
+            PackagingFailureDisposition disposition,
+            String errorReason,
+            Duration retryBackoff
+    ) {
         Objects.requireNonNull(assetId, "Asset ID cannot be null.");
         Objects.requireNonNull(jobId, "Job ID cannot be null.");
         Objects.requireNonNull(workerId, "workerId cannot be null.");
-        Objects.requireNonNull(retryBackoff, "retryBackoff cannot be null.");
 
         // STEP 1: MediaAsset lock FIRST
         MediaAsset asset = mediaAssetRepositoryPort.findByIdForUpdate(assetId)
@@ -75,9 +142,10 @@ public class FailMediaVideoPackagingJobUseCase {
             throw new IllegalArgumentException("Job [" + jobId + "] does not belong to asset [" + assetId + "].");
         }
         Instant now = clockPort.now();
+        String trimmedWorker = workerId.trim();
         if (job.getStatus() != MediaVideoPackagingJobStatus.LEASED
                 || job.getLeaseGeneration() != expectedLeaseGeneration
-                || !workerId.trim().equals(job.getLeaseOwner())
+                || !trimmedWorker.equals(job.getLeaseOwner())
                 || !job.isLeaseActiveAt(now)) {
             throw new StalePackagingLeaseException(
                     "Cannot fail job [" + jobId + "] with stale or expired lease (worker=" + workerId
@@ -86,17 +154,33 @@ public class FailMediaVideoPackagingJobUseCase {
             );
         }
 
+        // Prevent outdated/deleted asset state from being misclassified as a permanent media defect
+        if (asset.getStatus() != MediaAssetStatus.ACTIVE
+                || asset.getCurrentVersionNumber() != job.getSourceVersionNumber()) {
+            throw new StalePackagingLeaseException(
+                    "Cannot record packaging failure against non-ACTIVE or superseded source version for asset ["
+                            + assetId + "] (status=" + asset.getStatus()
+                            + ", currentVersion=" + asset.getCurrentVersionNumber()
+                            + ", jobVersion=" + job.getSourceVersionNumber() + ")."
+            );
+        }
+
         // STEP 3: Package lock THIRD
+        Instant packagePurgeAfter = MediaVideoHlsPackage.computeFailedPurgeAfter(now);
         if (job.getCurrentPackageId() != null) {
             hlsPackageRepositoryPort.findByIdForUpdate(job.getCurrentPackageId()).ifPresent(pkg -> {
                 if (pkg.getStatus() == MediaVideoHlsPackageStatus.PROCESSING) {
-                    pkg.markFailed(errorReason, now, now);
+                    pkg.markFailed(errorReason, packagePurgeAfter, now);
                     hlsPackageRepositoryPort.save(pkg);
                 }
             });
         }
 
-        job.recordAttemptFailure(workerId.trim(), expectedLeaseGeneration, errorReason, retryBackoff, now);
+        if (disposition == PackagingFailureDisposition.PERMANENT_NON_RETRYABLE) {
+            job.recordPermanentFailure(trimmedWorker, expectedLeaseGeneration, errorReason, now);
+        } else {
+            job.recordAttemptFailure(trimmedWorker, expectedLeaseGeneration, errorReason, retryBackoff, now);
+        }
         return packagingJobRepositoryPort.save(job);
     }
 }

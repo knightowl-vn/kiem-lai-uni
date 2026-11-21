@@ -1,5 +1,6 @@
 package com.universe.media.domain;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -15,6 +16,14 @@ public final class MediaVideoHlsPackage {
     public static final int MIN_SEGMENT_DURATION_SECONDS = 2;
     public static final int MAX_SEGMENT_DURATION_SECONDS = 10;
     public static final int MIN_READY_OBJECT_COUNT = 4;
+
+    /**
+     * Conservative minimum operational retention floor before FAILED or reclaim-ABANDONED
+     * package attempts may become eligible for future cleanup (MS-08 HLS-2B3A2A).
+     */
+    public static final Duration FAILED_RETENTION_GRACE = Duration.ofHours(24);
+    public static final Duration ABANDONED_ON_RECLAIM_RETENTION_GRACE = Duration.ofHours(24);
+    public static final Duration SUPERSEDED_RETENTION_GRACE = Duration.ofDays(7);
 
     private final UUID id;
     private final UUID assetId;
@@ -228,6 +237,21 @@ public final class MediaVideoHlsPackage {
                 updatedAt,
                 persistenceVersion
         );
+    }
+
+    public static Instant computeFailedPurgeAfter(Instant failedAt) {
+        Objects.requireNonNull(failedAt, "Timestamp cannot be null.");
+        return failedAt.plus(FAILED_RETENTION_GRACE);
+    }
+
+    public static Instant computeAbandonedOnReclaimPurgeAfter(Instant abandonedAt) {
+        Objects.requireNonNull(abandonedAt, "Timestamp cannot be null.");
+        return abandonedAt.plus(ABANDONED_ON_RECLAIM_RETENTION_GRACE);
+    }
+
+    public static Instant computeSupersededPurgeAfter(Instant supersededAt) {
+        Objects.requireNonNull(supersededAt, "Timestamp cannot be null.");
+        return supersededAt.plus(SUPERSEDED_RETENTION_GRACE);
     }
 
     /**
