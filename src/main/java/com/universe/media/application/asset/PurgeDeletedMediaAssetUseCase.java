@@ -3,6 +3,8 @@ package com.universe.media.application.asset;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
+import com.universe.media.application.ports.MediaVideoHlsPackageRepositoryPort;
+import com.universe.media.application.ports.MediaVideoPackagingJobRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -13,6 +15,7 @@ import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaImageVariant;
 import com.universe.media.domain.MediaType;
 import com.universe.shared.time.ClockPort;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -58,8 +61,10 @@ public class PurgeDeletedMediaAssetUseCase {
     private final com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService;
     private final com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier;
     private final List<MediaAssetReferenceCheckPort> referenceCheckPorts;
+    private final MediaVideoHlsPackageRepositoryPort hlsPackageRepositoryPort;
+    private final MediaVideoPackagingJobRepositoryPort packagingJobRepositoryPort;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public PurgeDeletedMediaAssetUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
@@ -69,7 +74,9 @@ public class PurgeDeletedMediaAssetUseCase {
             ClockPort clockPort,
             com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService,
             com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier,
-            List<MediaAssetReferenceCheckPort> referenceCheckPorts
+            List<MediaAssetReferenceCheckPort> referenceCheckPorts,
+            MediaVideoHlsPackageRepositoryPort hlsPackageRepositoryPort,
+            MediaVideoPackagingJobRepositoryPort packagingJobRepositoryPort
     ) {
         this.mediaAssetRepositoryPort = Objects.requireNonNull(
                 mediaAssetRepositoryPort,
@@ -98,72 +105,9 @@ public class PurgeDeletedMediaAssetUseCase {
         this.storageKeyAllocationService = storageKeyAllocationService;
         this.cutoverBarrier = cutoverBarrier;
         this.referenceCheckPorts = referenceCheckPorts != null ? referenceCheckPorts : List.of();
-    }
-
-    public PurgeDeletedMediaAssetUseCase(
-            MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
-            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
-            StorageProviderResolverPort storageProviderResolverPort,
-            PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
-            ClockPort clockPort,
-            com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService,
-            com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier
-    ) {
-        this(
-                mediaAssetRepositoryPort,
-                mediaAssetVersionRepositoryPort,
-                mediaImageVariantRepositoryPort,
-                storageProviderResolverPort,
-                purgeMediaAssetMetadataService,
-                clockPort,
-                storageKeyAllocationService,
-                cutoverBarrier,
-                List.of()
-        );
-    }
-
-    public PurgeDeletedMediaAssetUseCase(
-            MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
-            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
-            StorageProviderResolverPort storageProviderResolverPort,
-            PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
-            ClockPort clockPort,
-            com.universe.media.application.storage.StorageKeyAllocationService storageKeyAllocationService
-    ) {
-        this(
-                mediaAssetRepositoryPort,
-                mediaAssetVersionRepositoryPort,
-                mediaImageVariantRepositoryPort,
-                storageProviderResolverPort,
-                purgeMediaAssetMetadataService,
-                clockPort,
-                storageKeyAllocationService,
-                null,
-                List.of()
-        );
-    }
-
-    public PurgeDeletedMediaAssetUseCase(
-            MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
-            MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
-            StorageProviderResolverPort storageProviderResolverPort,
-            PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
-            ClockPort clockPort
-    ) {
-        this(
-                mediaAssetRepositoryPort,
-                mediaAssetVersionRepositoryPort,
-                mediaImageVariantRepositoryPort,
-                storageProviderResolverPort,
-                purgeMediaAssetMetadataService,
-                clockPort,
-                null,
-                null,
-                List.of()
-        );
+        // Retained directly so runtime execute(...) also fails closed explicitly if constructed programmatically with null.
+        this.hlsPackageRepositoryPort = hlsPackageRepositoryPort;
+        this.packagingJobRepositoryPort = packagingJobRepositoryPort;
     }
 
     public PurgeDeletedMediaAssetResult execute(
@@ -172,6 +116,18 @@ public class PurgeDeletedMediaAssetUseCase {
         Objects.requireNonNull(command, "PurgeDeletedMediaAssetCommand cannot be null.");
 
         UUID assetId = Objects.requireNonNull(command.assetId(), "Asset ID cannot be null.");
+        if (hlsPackageRepositoryPort == null) {
+            throw new IllegalStateException(
+                    "Cannot purge media asset [ID: " + assetId
+                            + "]: required MediaVideoHlsPackageRepositoryPort is unavailable (fail-closed)."
+            );
+        }
+        if (packagingJobRepositoryPort == null) {
+            throw new IllegalStateException(
+                    "Cannot purge media asset [ID: " + assetId
+                            + "]: required MediaVideoPackagingJobRepositoryPort is unavailable (fail-closed)."
+            );
+        }
         Instant now = clockPort.now();
 
         // 1. Load asset; if missing, treat as already-purged idempotent success
@@ -215,6 +171,15 @@ public class PurgeDeletedMediaAssetUseCase {
 
         for (MediaAssetReferenceCheckPort port : applicablePorts) {
             port.ensureNotReferenced(assetId);
+        }
+
+        // 2c. Fail-closed protection if any HLS package or packaging job metadata exists for this asset
+        if (hlsPackageRepositoryPort.existsByAssetId(assetId)
+                || packagingJobRepositoryPort.existsByAssetId(assetId)) {
+            throw new IllegalStateException(
+                    "Cannot purge media asset [ID: " + assetId
+                            + "]: HLS packaging jobs or packages exist and must be purged via HLS-aware cleanup first."
+            );
         }
 
         // 3. Collect versions and variants using persisted StorageLocation values only

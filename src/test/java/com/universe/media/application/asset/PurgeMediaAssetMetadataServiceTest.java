@@ -3,6 +3,8 @@ package com.universe.media.application.asset;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
+import com.universe.media.application.ports.MediaVideoHlsPackageRepositoryPort;
+import com.universe.media.application.ports.MediaVideoPackagingJobRepositoryPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
@@ -56,6 +58,12 @@ class PurgeMediaAssetMetadataServiceTest {
     @Mock
     private MediaAssetRepositoryPort mediaAssetRepositoryPort;
 
+    @Mock
+    private MediaVideoHlsPackageRepositoryPort hlsPackageRepositoryPort;
+
+    @Mock
+    private MediaVideoPackagingJobRepositoryPort packagingJobRepositoryPort;
+
     private PurgeMediaAssetMetadataService service;
 
     @BeforeEach
@@ -63,7 +71,9 @@ class PurgeMediaAssetMetadataServiceTest {
         service = new PurgeMediaAssetMetadataService(
                 mediaImageVariantRepositoryPort,
                 mediaAssetVersionRepositoryPort,
-                mediaAssetRepositoryPort
+                mediaAssetRepositoryPort,
+                hlsPackageRepositoryPort,
+                packagingJobRepositoryPort
         );
     }
 
@@ -102,18 +112,24 @@ class PurgeMediaAssetMetadataServiceTest {
         MediaAssetVersion v2 = createVersion(VERSION_2_ID, 2);
         List<UUID> versionIds = List.of(VERSION_1_ID, VERSION_2_ID);
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+        when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(false);
+        when(packagingJobRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(false);
         when(mediaAssetVersionRepositoryPort.findAllByAssetId(ASSET_ID)).thenReturn(List.of(v1, v2));
 
         service.execute(ASSET_ID);
 
         InOrder inOrder = inOrder(
                 mediaAssetRepositoryPort,
+                hlsPackageRepositoryPort,
+                packagingJobRepositoryPort,
                 mediaAssetVersionRepositoryPort,
                 mediaImageVariantRepositoryPort
         );
 
-        inOrder.verify(mediaAssetRepositoryPort).findById(ASSET_ID);
+        inOrder.verify(mediaAssetRepositoryPort).findByIdForUpdate(ASSET_ID);
+        inOrder.verify(hlsPackageRepositoryPort).existsByAssetId(ASSET_ID);
+        inOrder.verify(packagingJobRepositoryPort).existsByAssetId(ASSET_ID);
         inOrder.verify(mediaAssetVersionRepositoryPort).findAllByAssetId(ASSET_ID);
         inOrder.verify(mediaImageVariantRepositoryPort).deleteByVersionIds(versionIds);
         inOrder.verify(mediaAssetVersionRepositoryPort).deleteByAssetId(ASSET_ID);
@@ -123,10 +139,12 @@ class PurgeMediaAssetMetadataServiceTest {
     @Test
     @DisplayName("execute returns idempotently without error or delete calls when asset is already missing")
     void shouldReturnIdempotentlyWhenAssetAlreadyMissing() {
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.empty());
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.empty());
 
         service.execute(ASSET_ID);
 
+        verify(hlsPackageRepositoryPort, never()).existsByAssetId(any());
+        verify(packagingJobRepositoryPort, never()).existsByAssetId(any());
         verify(mediaAssetVersionRepositoryPort, never()).findAllByAssetId(any());
         verify(mediaImageVariantRepositoryPort, never()).deleteByVersionIds(any());
         verify(mediaAssetVersionRepositoryPort, never()).deleteByAssetId(any());
@@ -137,7 +155,7 @@ class PurgeMediaAssetMetadataServiceTest {
     @DisplayName("execute throws IllegalStateException and refuses deletion when asset status is ACTIVE")
     void shouldRefuseDeletionWhenAssetIsActive() {
         MediaAsset activeAsset = createAsset(MediaAssetStatus.ACTIVE);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(activeAsset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(activeAsset));
 
         assertThatThrownBy(() -> service.execute(ASSET_ID))
                 .isInstanceOf(IllegalStateException.class)
@@ -154,7 +172,7 @@ class PurgeMediaAssetMetadataServiceTest {
     @DisplayName("execute throws IllegalStateException and refuses deletion when asset status is ARCHIVED")
     void shouldRefuseDeletionWhenAssetIsArchived() {
         MediaAsset archivedAsset = createAsset(MediaAssetStatus.ARCHIVED);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(archivedAsset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(archivedAsset));
 
         assertThatThrownBy(() -> service.execute(ASSET_ID))
                 .isInstanceOf(IllegalStateException.class)
@@ -171,7 +189,9 @@ class PurgeMediaAssetMetadataServiceTest {
     @DisplayName("execute skips variant deletion when asset has zero versions")
     void shouldSkipVariantDeletionWhenNoVersions() {
         MediaAsset deletedAsset = createAsset(MediaAssetStatus.DELETED);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+        when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(false);
+        when(packagingJobRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(false);
         when(mediaAssetVersionRepositoryPort.findAllByAssetId(ASSET_ID)).thenReturn(List.of());
 
         service.execute(ASSET_ID);
@@ -179,5 +199,87 @@ class PurgeMediaAssetMetadataServiceTest {
         verify(mediaImageVariantRepositoryPort, never()).deleteByVersionIds(any());
         verify(mediaAssetVersionRepositoryPort).deleteByAssetId(ASSET_ID);
         verify(mediaAssetRepositoryPort).deleteById(ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("execute fails closed when an HLS package exists for the DELETED asset")
+    void shouldFailClosedWhenHlsPackageExists() {
+        MediaAsset deletedAsset = createAsset(MediaAssetStatus.DELETED);
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+        when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.execute(ASSET_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HLS packaging jobs or packages still exist");
+
+        verify(mediaAssetVersionRepositoryPort, never()).findAllByAssetId(any());
+        verify(mediaImageVariantRepositoryPort, never()).deleteByVersionIds(any());
+        verify(mediaAssetVersionRepositoryPort, never()).deleteByAssetId(any());
+        verify(mediaAssetRepositoryPort, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("execute fails closed when an HLS packaging job exists for the DELETED asset")
+    void shouldFailClosedWhenHlsPackagingJobExists() {
+        MediaAsset deletedAsset = createAsset(MediaAssetStatus.DELETED);
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+        when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(false);
+        when(packagingJobRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.execute(ASSET_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HLS packaging jobs or packages still exist");
+
+        verify(mediaAssetVersionRepositoryPort, never()).findAllByAssetId(any());
+        verify(mediaImageVariantRepositoryPort, never()).deleteByVersionIds(any());
+        verify(mediaAssetVersionRepositoryPort, never()).deleteByAssetId(any());
+        verify(mediaAssetRepositoryPort, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("PG-03/04: execute fails closed when HLS package or job repository is unavailable")
+    void shouldFailClosedWhenHlsRepositoryUnavailable() {
+        PurgeMediaAssetMetadataService missingPkgRepo = new PurgeMediaAssetMetadataService(
+                mediaImageVariantRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                mediaAssetRepositoryPort,
+                null,
+                packagingJobRepositoryPort
+        );
+        assertThatThrownBy(() -> missingPkgRepo.execute(ASSET_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("MediaVideoHlsPackageRepositoryPort is unavailable");
+
+        PurgeMediaAssetMetadataService missingJobRepo = new PurgeMediaAssetMetadataService(
+                mediaImageVariantRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                mediaAssetRepositoryPort,
+                hlsPackageRepositoryPort,
+                null
+        );
+        assertThatThrownBy(() -> missingJobRepo.execute(ASSET_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("MediaVideoPackagingJobRepositoryPort is unavailable");
+
+        verify(mediaAssetRepositoryPort, never()).findByIdForUpdate(any());
+        verify(mediaAssetRepositoryPort, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("PG-05: execute fails closed without deleting metadata when HLS lookup throws")
+    void shouldFailClosedWhenHlsLookupThrows() {
+        MediaAsset deletedAsset = createAsset(MediaAssetStatus.DELETED);
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+        when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID))
+                .thenThrow(new IllegalStateException("Transient DB failure"));
+
+        assertThatThrownBy(() -> service.execute(ASSET_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Transient DB failure");
+
+        verify(mediaAssetVersionRepositoryPort, never()).findAllByAssetId(any());
+        verify(mediaImageVariantRepositoryPort, never()).deleteByVersionIds(any());
+        verify(mediaAssetVersionRepositoryPort, never()).deleteByAssetId(any());
+        verify(mediaAssetRepositoryPort, never()).deleteById(any());
     }
 }

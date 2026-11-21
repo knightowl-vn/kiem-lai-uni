@@ -52,6 +52,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         MediaAssetPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
         MediaImageVariantPersistenceAdapter.class,
+        MediaVideoHlsPackagePersistenceAdapter.class,
+        MediaVideoPackagingJobPersistenceAdapter.class,
         PurgeMediaAssetMetadataService.class
 })
 class MediaPurgePersistenceIntegrationTest {

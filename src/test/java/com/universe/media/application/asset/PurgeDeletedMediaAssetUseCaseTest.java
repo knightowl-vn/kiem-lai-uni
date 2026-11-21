@@ -4,6 +4,8 @@ import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
+import com.universe.media.application.ports.MediaVideoHlsPackageRepositoryPort;
+import com.universe.media.application.ports.MediaVideoPackagingJobRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -30,6 +32,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.beans.factory.UnsatisfiedDependencyException;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -98,6 +103,12 @@ class PurgeDeletedMediaAssetUseCaseTest {
     @Mock
     private MediaAssetReferenceCheckPort referenceCheckPort;
 
+    @Mock
+    private MediaVideoHlsPackageRepositoryPort hlsPackageRepositoryPort;
+
+    @Mock
+    private MediaVideoPackagingJobRepositoryPort packagingJobRepositoryPort;
+
     private PurgeDeletedMediaAssetUseCase useCase;
 
     @BeforeEach
@@ -109,7 +120,12 @@ class PurgeDeletedMediaAssetUseCaseTest {
                 mediaImageVariantRepositoryPort,
                 storageProviderResolverPort,
                 purgeMediaAssetMetadataService,
-                FIXED_CLOCK
+                FIXED_CLOCK,
+                null,
+                null,
+                List.of(),
+                hlsPackageRepositoryPort,
+                packagingJobRepositoryPort
         );
     }
 
@@ -259,7 +275,9 @@ class PurgeDeletedMediaAssetUseCaseTest {
                     FIXED_CLOCK,
                     null,
                     null,
-                    List.of(referenceCheckPort)
+                    List.of(referenceCheckPort),
+                    hlsPackageRepositoryPort,
+                    packagingJobRepositoryPort
             );
 
             MediaAsset asset = createDeletedVideoAsset(DELETED_AT);
@@ -289,7 +307,9 @@ class PurgeDeletedMediaAssetUseCaseTest {
                     FIXED_CLOCK,
                     null,
                     null,
-                    List.of()
+                    List.of(),
+                    hlsPackageRepositoryPort,
+                    packagingJobRepositoryPort
             );
 
             MediaAsset asset = createDeletedVideoAsset(DELETED_AT);
@@ -320,7 +340,9 @@ class PurgeDeletedMediaAssetUseCaseTest {
                     FIXED_CLOCK,
                     null,
                     null,
-                    List.of()
+                    List.of(),
+                    hlsPackageRepositoryPort,
+                    packagingJobRepositoryPort
             );
 
             MediaAsset asset = createDeletedAsset(DELETED_AT);
@@ -490,6 +512,219 @@ class PurgeDeletedMediaAssetUseCaseTest {
 
             // Metadata purge must NEVER be called
             verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("HLS Fail-Closed Purge Protection")
+    class HlsFailClosedProtectionTests {
+
+        @Mock
+        private MediaVideoHlsPackageRepositoryPort hlsPackageRepositoryPort;
+
+        @Mock
+        private MediaVideoPackagingJobRepositoryPort packagingJobRepositoryPort;
+
+        @Test
+        @DisplayName("fails closed before physical storage deletion when HLS package metadata exists")
+        void shouldFailClosedBeforePhysicalStorageDeleteWhenHlsPackageExists() {
+            PurgeDeletedMediaAssetUseCase hlsProtectedUseCase = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of(referenceCheckPort),
+                    hlsPackageRepositoryPort,
+                    packagingJobRepositoryPort
+            );
+            MediaAsset videoAsset = createDeletedVideoAsset(DELETED_AT);
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+            when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+            when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(true);
+
+            assertThatThrownBy(() -> hlsProtectedUseCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("HLS packaging jobs or packages exist");
+
+            verify(binaryStoragePort, never()).purgeExactKey(any());
+            verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("fails closed before physical storage deletion when HLS packaging job exists")
+        void shouldFailClosedBeforePhysicalStorageDeleteWhenPackagingJobExists() {
+            PurgeDeletedMediaAssetUseCase hlsProtectedUseCase = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of(referenceCheckPort),
+                    hlsPackageRepositoryPort,
+                    packagingJobRepositoryPort
+            );
+            MediaAsset videoAsset = createDeletedVideoAsset(DELETED_AT);
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+            when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+            when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(false);
+            when(packagingJobRepositoryPort.existsByAssetId(ASSET_ID)).thenReturn(true);
+
+            assertThatThrownBy(() -> hlsProtectedUseCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("HLS packaging jobs or packages exist");
+
+            verify(binaryStoragePort, never()).purgeExactKey(any());
+            verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("PG-03: fails closed before any storage or metadata action when HLS package repository is unavailable")
+        void shouldFailClosedWhenHlsPackageRepositoryUnavailable() {
+            PurgeDeletedMediaAssetUseCase misconfigured = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of(referenceCheckPort),
+                    null,
+                    packagingJobRepositoryPort
+            );
+
+            assertThatThrownBy(() -> misconfigured.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("MediaVideoHlsPackageRepositoryPort is unavailable");
+
+            verify(binaryStoragePort, never()).purgeExactKey(any());
+            verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("PG-04: fails closed before any storage or metadata action when HLS packaging job repository is unavailable")
+        void shouldFailClosedWhenPackagingJobRepositoryUnavailable() {
+            PurgeDeletedMediaAssetUseCase misconfigured = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of(referenceCheckPort),
+                    hlsPackageRepositoryPort,
+                    null
+            );
+
+            assertThatThrownBy(() -> misconfigured.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("MediaVideoPackagingJobRepositoryPort is unavailable");
+
+            verify(binaryStoragePort, never()).purgeExactKey(any());
+            verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("PG-05: fails closed before physical storage delete when HLS repository query throws")
+        void shouldFailClosedWhenHlsLookupThrows() {
+            MediaAsset videoAsset = createDeletedVideoAsset(DELETED_AT);
+            PurgeDeletedMediaAssetUseCase guarded = new PurgeDeletedMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaAssetVersionRepositoryPort,
+                    mediaImageVariantRepositoryPort,
+                    storageProviderResolverPort,
+                    purgeMediaAssetMetadataService,
+                    FIXED_CLOCK,
+                    null,
+                    null,
+                    List.of(referenceCheckPort),
+                    hlsPackageRepositoryPort,
+                    packagingJobRepositoryPort
+            );
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+            when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+            when(hlsPackageRepositoryPort.existsByAssetId(ASSET_ID))
+                    .thenThrow(new IllegalStateException("HLS metadata query timeout"));
+
+            assertThatThrownBy(() -> guarded.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("HLS metadata query timeout");
+
+            verify(binaryStoragePort, never()).purgeExactKey(any());
+            verify(purgeMediaAssetMetadataService, never()).execute(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("PG-09 / PG-10: Strict Spring Mandatory Dependency Wiring")
+    class SpringDependencyWiringTests {
+
+        private ApplicationContextRunner baseRunner() {
+            return new ApplicationContextRunner()
+                    .withUserConfiguration(
+                            PurgeMediaAssetMetadataService.class,
+                            PurgeDeletedMediaAssetUseCase.class
+                    )
+                    .withBean(MediaAssetRepositoryPort.class, () -> org.mockito.Mockito.mock(MediaAssetRepositoryPort.class))
+                    .withBean(MediaAssetVersionRepositoryPort.class, () -> org.mockito.Mockito.mock(MediaAssetVersionRepositoryPort.class))
+                    .withBean(MediaImageVariantRepositoryPort.class, () -> org.mockito.Mockito.mock(MediaImageVariantRepositoryPort.class))
+                    .withBean(StorageProviderResolverPort.class, () -> org.mockito.Mockito.mock(StorageProviderResolverPort.class))
+                    .withBean(com.universe.media.application.storage.StorageKeyAllocationService.class,
+                            () -> org.mockito.Mockito.mock(com.universe.media.application.storage.StorageKeyAllocationService.class))
+                    .withBean(com.universe.media.application.storage.MediaStorageCutoverBarrier.class,
+                            () -> org.mockito.Mockito.mock(com.universe.media.application.storage.MediaStorageCutoverBarrier.class))
+                    .withBean(ClockPort.class, () -> FIXED_CLOCK);
+        }
+
+        @Test
+        @DisplayName("PG-09: Spring context wires both purge services when required HLS repositories are present")
+        void shouldWirePurgeServicesWhenRequiredHlsRepositoriesPresent() {
+            baseRunner()
+                    .withBean(MediaVideoHlsPackageRepositoryPort.class, () -> org.mockito.Mockito.mock(MediaVideoHlsPackageRepositoryPort.class))
+                    .withBean(MediaVideoPackagingJobRepositoryPort.class, () -> org.mockito.Mockito.mock(MediaVideoPackagingJobRepositoryPort.class))
+                    .run(context -> {
+                        assertThat(context).hasNotFailed();
+                        assertThat(context).hasSingleBean(PurgeMediaAssetMetadataService.class);
+                        assertThat(context).hasSingleBean(PurgeDeletedMediaAssetUseCase.class);
+                    });
+        }
+
+        @Test
+        @DisplayName("PG-10a: Spring context fails fast when MediaVideoHlsPackageRepositoryPort bean is missing")
+        void shouldFailContextStartupWhenHlsPackageRepositoryBeanMissing() {
+            baseRunner()
+                    .withBean(MediaVideoPackagingJobRepositoryPort.class, () -> org.mockito.Mockito.mock(MediaVideoPackagingJobRepositoryPort.class))
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure())
+                                .isInstanceOf(UnsatisfiedDependencyException.class)
+                                .hasRootCauseInstanceOf(NoSuchBeanDefinitionException.class)
+                                .hasStackTraceContaining("MediaVideoHlsPackageRepositoryPort");
+                    });
+        }
+
+        @Test
+        @DisplayName("PG-10b: Spring context fails fast when MediaVideoPackagingJobRepositoryPort bean is missing")
+        void shouldFailContextStartupWhenPackagingJobRepositoryBeanMissing() {
+            baseRunner()
+                    .withBean(MediaVideoHlsPackageRepositoryPort.class, () -> org.mockito.Mockito.mock(MediaVideoHlsPackageRepositoryPort.class))
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure())
+                                .isInstanceOf(UnsatisfiedDependencyException.class)
+                                .hasRootCauseInstanceOf(NoSuchBeanDefinitionException.class)
+                                .hasStackTraceContaining("MediaVideoPackagingJobRepositoryPort");
+                    });
         }
     }
 }

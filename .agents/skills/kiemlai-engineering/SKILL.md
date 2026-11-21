@@ -537,3 +537,19 @@ Applicable reasons include:
 - task completion.
 
 If no blocker exists, continue the requested scope.
+
+## Source Review Artifact Handoff
+
+For KiemLai implementation checkpoints requiring source review:
+
+- Always export review artifacts into `D:\KiemLai-review` (create this directory if it does not exist), directly inside that flat directory. Never default to `D:\KiemLai-reviews`, `D:\KiemLai-ms08`, or `D:\`.
+- Use short, stable checkpoint-specific lowercase filenames:
+  - `<checkpoint>.patch`
+  - `<checkpoint>-source-review.zip`
+  - `<checkpoint>-report.md` (optional, when a separate report is requested)
+- Keep all review artifacts outside the Git worktree; never stage or commit generated review ZIP/patch/report artifacts.
+- Package only the source files actually changed by the checkpoint, including both modified tracked files and newly created untracked source files, preserving repository-relative paths within the ZIP.
+- Exclude secrets, environment files, test databases, compiled targets, caches, `.git`, private agent data, and unrelated files.
+- Generate a valid, UTF-8 unified patch covering both tracked modifications and newly created untracked files without invoking `git add` or destructive Git commands.
+- Verify that patch and ZIP file inventories match and that packaged file contents match the current worktree; report exact absolute output paths, file counts, and byte sizes.
+- Do not delete or overwrite unrelated historical review files; if checkpoint-specific filenames already exist, avoid destructive replacement without checking ownership and informing the owner.

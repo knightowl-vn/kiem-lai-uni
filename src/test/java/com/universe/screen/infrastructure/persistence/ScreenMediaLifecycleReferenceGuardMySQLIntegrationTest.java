@@ -40,6 +40,8 @@ import com.universe.media.domain.StorageKey;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter;
+import com.universe.media.infrastructure.persistence.MediaVideoHlsPackagePersistenceAdapter;
+import com.universe.media.infrastructure.persistence.MediaVideoPackagingJobPersistenceAdapter;
 import com.universe.screen.application.exceptions.ScreenMediaAssetNotFoundException;
 import com.universe.screen.application.ports.ScreenEntryRepositoryPort;
 import com.universe.screen.application.ports.ScreenMediaValidationPort;
@@ -145,6 +147,8 @@ import static org.mockito.Mockito.verify;
         MediaAssetPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
         MediaImageVariantPersistenceAdapter.class,
+        MediaVideoHlsPackagePersistenceAdapter.class,
+        MediaVideoPackagingJobPersistenceAdapter.class,
         ScreenTitlePersistenceAdapter.class,
         ScreenEntryPersistenceAdapter.class,
         ScreenMediaAssetReferenceCheckAdapter.class,

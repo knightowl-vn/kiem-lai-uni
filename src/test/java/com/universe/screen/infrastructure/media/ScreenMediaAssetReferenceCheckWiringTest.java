@@ -7,6 +7,8 @@ import com.universe.media.application.asset.PurgeMediaAssetMetadataService;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
+import com.universe.media.application.ports.MediaVideoHlsPackageRepositoryPort;
+import com.universe.media.application.ports.MediaVideoPackagingJobRepositoryPort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.interfaces.MediaAssetReferenceCheckPort;
@@ -35,6 +37,8 @@ class ScreenMediaAssetReferenceCheckWiringTest {
             .withBean(MediaAssetRepositoryPort.class, () -> mock(MediaAssetRepositoryPort.class))
             .withBean(MediaAssetVersionRepositoryPort.class, () -> mock(MediaAssetVersionRepositoryPort.class))
             .withBean(MediaImageVariantRepositoryPort.class, () -> mock(MediaImageVariantRepositoryPort.class))
+            .withBean(MediaVideoHlsPackageRepositoryPort.class, () -> mock(MediaVideoHlsPackageRepositoryPort.class))
+            .withBean(MediaVideoPackagingJobRepositoryPort.class, () -> mock(MediaVideoPackagingJobRepositoryPort.class))
             .withBean(StorageProviderResolverPort.class, () -> mock(StorageProviderResolverPort.class))
             .withBean(PurgeMediaAssetMetadataService.class, () -> mock(PurgeMediaAssetMetadataService.class))
             .withBean(com.universe.media.application.storage.StorageKeyAllocationService.class, () -> mock(com.universe.media.application.storage.StorageKeyAllocationService.class))
