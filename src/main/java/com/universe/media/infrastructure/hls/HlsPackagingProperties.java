@@ -167,10 +167,14 @@ public class HlsPackagingProperties {
     }
 
     static void validateScratchRootOutsideWorktree(Path scratchRootDir) {
-        Objects.requireNonNull(scratchRootDir, "scratchRootDir cannot be null.");
+        validateDirectoryOutsideWorktree(scratchRootDir, "HLS packaging scratchRootDir");
+    }
+
+    static void validateDirectoryOutsideWorktree(Path targetDir, String directoryLabel) {
+        Objects.requireNonNull(targetDir, directoryLabel + " cannot be null.");
         List<Path> worktreeRoots = detectWorktreeRoots();
-        Path normalized = scratchRootDir.toAbsolutePath().normalize();
-        rejectIfInsideAnyWorktree(normalized, normalized, worktreeRoots);
+        Path normalized = targetDir.toAbsolutePath().normalize();
+        rejectIfInsideAnyWorktree(normalized, normalized, worktreeRoots, directoryLabel);
 
         Path existingAncestor = findNearestExistingPath(normalized);
         if (existingAncestor != null) {
@@ -179,14 +183,14 @@ public class HlsPackagingProperties {
                 realAncestor = existingAncestor.toRealPath();
             } catch (IOException e) {
                 throw new IllegalArgumentException(
-                        "Unable to verify real path of HLS packaging scratchRootDir [" + normalized + "]: " + e.getMessage(),
+                        "Unable to verify real path of " + directoryLabel + " [" + normalized + "]: " + e.getMessage(),
                         e
                 );
             }
             Path effectiveReal = existingAncestor.equals(normalized)
                     ? realAncestor
                     : realAncestor.resolve(existingAncestor.relativize(normalized)).normalize();
-            rejectIfInsideAnyWorktree(normalized, effectiveReal, worktreeRoots);
+            rejectIfInsideAnyWorktree(normalized, effectiveReal, worktreeRoots, directoryLabel);
         }
     }
 
@@ -240,10 +244,15 @@ public class HlsPackagingProperties {
         return null;
     }
 
-    private static void rejectIfInsideAnyWorktree(Path configured, Path candidate, List<Path> worktreeRoots) {
+    private static void rejectIfInsideAnyWorktree(
+            Path configured,
+            Path candidate,
+            List<Path> worktreeRoots,
+            String directoryLabel
+    ) {
         if (isInsideAnyWorktree(candidate, worktreeRoots)) {
             throw new IllegalArgumentException(
-                    "HLS packaging scratchRootDir must reside outside repository worktree "
+                    directoryLabel + " must reside outside repository worktree "
                             + worktreeRoots + ": configured=" + configured + ", resolved=" + candidate
             );
         }
