@@ -2,6 +2,7 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.DuplicateStorageLocationException;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.domain.MediaAsset;
@@ -63,6 +64,9 @@ class RegisterMediaAssetVersionUseCaseTest {
     @Mock
     private com.universe.media.application.storage.MediaStorageCutoverBarrier cutoverBarrier;
 
+    @Mock
+    private CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase;
+
     private RegisterMediaAssetVersionUseCase useCase;
 
     @BeforeEach
@@ -72,7 +76,8 @@ class RegisterMediaAssetVersionUseCaseTest {
                 mediaAssetVersionRepositoryPort,
                 FIXED_CLOCK,
                 storageKeyAllocationService,
-                cutoverBarrier
+                cutoverBarrier,
+                cancelOrSupersedeUseCase
         );
     }
 
@@ -99,13 +104,15 @@ class RegisterMediaAssetVersionUseCaseTest {
                 T0
         );
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID))
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                 .thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class)))
                 .thenReturn(false);
 
         RegisterMediaAssetVersionCommand command = createValidCommand(ASSET_ID);
         RegisterMediaAssetVersionResult result = useCase.execute(command);
+
+        verifyNoInteractions(cancelOrSupersedeUseCase);
 
         assertThat(result).isNotNull();
         assertThat(result.assetId()).isEqualTo(ASSET_ID);
@@ -142,7 +149,7 @@ class RegisterMediaAssetVersionUseCaseTest {
     @Test
     @DisplayName("asset not found throws MediaAssetNotFoundException")
     void shouldThrowWhenAssetNotFound() {
-        when(mediaAssetRepositoryPort.findById(ASSET_ID))
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                 .thenReturn(Optional.empty());
 
         RegisterMediaAssetVersionCommand command = createValidCommand(ASSET_ID);
@@ -165,7 +172,7 @@ class RegisterMediaAssetVersionUseCaseTest {
                 T0
         );
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID))
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                 .thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class)))
                 .thenReturn(true);
@@ -193,7 +200,7 @@ class RegisterMediaAssetVersionUseCaseTest {
         );
         asset.archive(T0);
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID))
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                 .thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class)))
                 .thenReturn(false);
@@ -206,6 +213,7 @@ class RegisterMediaAssetVersionUseCaseTest {
 
         verify(mediaAssetRepositoryPort, never()).save(any(MediaAsset.class));
         verify(mediaAssetVersionRepositoryPort, never()).save(any(MediaAssetVersion.class));
+        verifyNoInteractions(cancelOrSupersedeUseCase);
     }
 
     @Test
@@ -330,6 +338,7 @@ class RegisterMediaAssetVersionUseCaseTest {
         assertThat(result.versionNumber()).isEqualTo(1);
         verify(mediaAssetRepositoryPort, never()).save(any(MediaAsset.class));
         verify(mediaAssetVersionRepositoryPort, never()).save(any(MediaAssetVersion.class));
+        verifyNoInteractions(cancelOrSupersedeUseCase);
     }
 
     @Test
@@ -337,7 +346,7 @@ class RegisterMediaAssetVersionUseCaseTest {
     void shouldRejectVersionRegistrationWhenAllocationMissingUnderCutover() {
         when(cutoverBarrier.isCutoverActive()).thenReturn(true);
         MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, T0);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
         when(storageKeyAllocationService.findByStorageLocation(any(), any())).thenReturn(Optional.empty());
 
@@ -353,7 +362,7 @@ class RegisterMediaAssetVersionUseCaseTest {
     void shouldRejectVersionRegistrationWhenAllocationIsTombstonedUnderCutover() {
         when(cutoverBarrier.isCutoverActive()).thenReturn(true);
         MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, T0);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
 
         UUID allocationId = UUID.randomUUID();
@@ -381,7 +390,7 @@ class RegisterMediaAssetVersionUseCaseTest {
     void shouldRejectVersionRegistrationWhenAllocationAlreadyCommittedUnderCutover() {
         when(cutoverBarrier.isCutoverActive()).thenReturn(true);
         MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, T0);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
 
         UUID allocationId = UUID.randomUUID();
@@ -409,7 +418,7 @@ class RegisterMediaAssetVersionUseCaseTest {
     void shouldRejectVersionRegistrationWhenExpectedAllocationIdMismatchesUnderCutover() {
         when(cutoverBarrier.isCutoverActive()).thenReturn(true);
         MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, T0);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
 
         UUID actualAllocationId = UUID.randomUUID();
@@ -448,7 +457,7 @@ class RegisterMediaAssetVersionUseCaseTest {
     void shouldRejectVersionRegistrationWhenReservationCorrelationIdMismatchesUnderCutover() {
         when(cutoverBarrier.isCutoverActive()).thenReturn(true);
         MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, T0);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
 
         UUID allocationId = UUID.randomUUID();
@@ -489,7 +498,7 @@ class RegisterMediaAssetVersionUseCaseTest {
     void shouldCommitAllocationUnderCutover() {
         when(cutoverBarrier.isCutoverActive()).thenReturn(true);
         MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, T0);
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
         when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
 
         UUID allocationId = UUID.randomUUID();
@@ -526,5 +535,50 @@ class RegisterMediaAssetVersionUseCaseTest {
                 org.mockito.ArgumentMatchers.eq(com.universe.media.domain.StorageKeyAllocationType.ASSET_VERSION),
                 org.mockito.ArgumentMatchers.eq(result.versionId())
         );
+    }
+
+    @Test
+    @DisplayName("VIDEO execute and conditional VERSION_CREATED cancel/supersede older HLS in current tx, and fail closed without coordinator")
+    void videoVersionRegistrationSupersedesOlderHlsAndFailsClosedWithoutCoordinator() {
+        MediaAsset video1 = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PRIVATE, T0);
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(video1));
+        when(mediaAssetVersionRepositoryPort.existsByStorageLocation(any(StorageLocation.class))).thenReturn(false);
+
+        RegisterMediaAssetVersionCommand videoCmd = new RegisterMediaAssetVersionCommand(
+                ASSET_ID, "r2-movie", "video/sources/v2.mp4", null,
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "video/mp4", 102400L, "v2.mp4"
+        );
+
+        RegisterMediaAssetVersionResult r2 = useCase.execute(videoCmd);
+        assertThat(r2.newVersionNumber()).isEqualTo(2);
+        verify(cancelOrSupersedeUseCase).cancelAndSupersedeOlderVersionsInCurrentTransaction(
+                ASSET_ID, 2, "Superseded by asset version 2"
+        );
+
+        MediaAssetVersion v2Existing = MediaAssetVersion.create(
+                UUID.randomUUID(), ASSET_ID, 2,
+                StorageLocation.of(StorageProviderId.of("r2-movie"), StorageKey.of("video/sources/v2.mp4")),
+                null, com.universe.media.domain.ContentHash.of("1111111111111111111111111111111111111111111111111111111111111111"),
+                com.universe.media.domain.MimeType.of("video/mp4"), 102400L, "v2.mp4", T0
+        );
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 2)).thenReturn(Optional.of(v2Existing));
+
+        RegisterMediaAssetVersionCommand videoCmd3 = new RegisterMediaAssetVersionCommand(
+                ASSET_ID, "r2-movie", "video/sources/v3.mp4", null,
+                VALID_HASH, "video/mp4", 204800L, "v3.mp4"
+        );
+        RegisterMediaAssetVersionConditionalResult r3 = useCase.registerConditionalVersion(videoCmd3);
+        assertThat(r3.versionNumber()).isEqualTo(3);
+        verify(cancelOrSupersedeUseCase).cancelAndSupersedeOlderVersionsInCurrentTransaction(
+                ASSET_ID, 3, "Superseded by asset version 3"
+        );
+
+        RegisterMediaAssetVersionUseCase legacyWithoutHls = new RegisterMediaAssetVersionUseCase(
+                mediaAssetRepositoryPort, mediaAssetVersionRepositoryPort, FIXED_CLOCK
+        );
+        assertThatThrownBy(() -> legacyWithoutHls.execute(videoCmd))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("CancelOrSupersedeMediaVideoPackagingUseCase");
     }
 }

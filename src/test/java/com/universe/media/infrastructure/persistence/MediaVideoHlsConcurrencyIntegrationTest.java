@@ -1,7 +1,20 @@
 package com.universe.media.infrastructure.persistence;
 
+import com.universe.media.application.asset.ArchiveMediaAssetCommand;
+import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.DeleteMediaAssetCommand;
+import com.universe.media.application.asset.DeleteMediaAssetUseCase;
 import com.universe.media.application.asset.PurgeMediaAssetMetadataService;
+import com.universe.media.application.asset.RegisterMediaAssetVersionCommand;
+import com.universe.media.application.asset.RegisterMediaAssetVersionResult;
+import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
+import com.universe.media.application.asset.RestoreMediaAssetCommand;
+import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.exceptions.StalePackagingLeaseException;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
+import com.universe.media.application.storage.StorageKeyAllocationService;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.interfaces.MediaAssetReferenceCheckPort;
 import com.universe.media.application.exceptions.StalePurgeClaimException;
 import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.hls.ClaimHlsPackagePurgeUseCase;
@@ -87,6 +100,10 @@ import static org.assertj.core.api.Assertions.assertThat;
         CancelOrSupersedeMediaVideoPackagingUseCase.class,
         ClaimHlsPackagePurgeUseCase.class,
         CompleteHlsPackagePurgeUseCase.class,
+        RegisterMediaAssetVersionUseCase.class,
+        DeleteMediaAssetUseCase.class,
+        ArchiveMediaAssetUseCase.class,
+        RestoreMediaAssetUseCase.class,
         MediaVideoHlsConcurrencyIntegrationTest.TestConfig.class
 })
 class MediaVideoHlsConcurrencyIntegrationTest {
@@ -108,6 +125,26 @@ class MediaVideoHlsConcurrencyIntegrationTest {
         @Bean
         public ClockPort clockPort(AtomicReference<Instant> clockRef) {
             return clockRef::get;
+        }
+
+        @Bean
+        public MediaAssetReferenceCheckPort mediaAssetReferenceCheckPort() {
+            return new MediaAssetReferenceCheckPort() {
+                @Override public boolean supports(MediaTypeDTO mediaType) { return true; }
+                @Override public void ensureNotReferenced(UUID mediaAssetId) {}
+            };
+        }
+
+        @Bean
+        public StorageKeyAllocationService storageKeyAllocationService() {
+            return org.mockito.Mockito.mock(StorageKeyAllocationService.class);
+        }
+
+        @Bean
+        public MediaStorageCutoverBarrier mediaStorageCutoverBarrier() {
+            MediaStorageCutoverBarrier barrier = org.mockito.Mockito.mock(MediaStorageCutoverBarrier.class);
+            org.mockito.Mockito.when(barrier.isCutoverActive()).thenReturn(false);
+            return barrier;
         }
     }
 
@@ -163,6 +200,18 @@ class MediaVideoHlsConcurrencyIntegrationTest {
 
     @Autowired
     private CompleteHlsPackagePurgeUseCase completePurgeUseCase;
+
+    @Autowired
+    private RegisterMediaAssetVersionUseCase registerVersionUseCase;
+
+    @Autowired
+    private DeleteMediaAssetUseCase deleteAssetUseCase;
+
+    @Autowired
+    private ArchiveMediaAssetUseCase archiveAssetUseCase;
+
+    @Autowired
+    private RestoreMediaAssetUseCase restoreAssetUseCase;
 
     private final List<UUID> createdAssetIds = new ArrayList<>();
 
@@ -1047,6 +1096,265 @@ class MediaVideoHlsConcurrencyIntegrationTest {
             if (waiterFuture != null) {
                 try { waiterFuture.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
             }
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-15: Concurrent V1 packaging completion vs V2 replacement and concurrent V2/V3 updates serialize with monotonic versions and stale V1 rejection")
+    void cx15ShouldSerializeV1CompletionAgainstV2ReplacementAndKeepVersionsMonotonic() throws Exception {
+        for (int round = 0; round < 3; round++) {
+            UUID assetId = seedVideoAssetWithPendingJob();
+            MediaVideoPackagingJob job1 = createJobUseCase.execute(assetId);
+            ClaimedVideoPackagingLease v1Lease = claimJobUseCase.claimNext(
+                    "w-cx15", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+            ).orElseThrow();
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                CyclicBarrier barrier = new CyclicBarrier(2);
+                Future<Throwable> completeFuture = pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    try {
+                        completeJobUseCase.completeWithVerifiedReceipt(
+                                assetId, job1.getId(), v1Lease.packageId(), "w-cx15", v1Lease.leaseGeneration(),
+                                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", BASE_TIME)
+                        );
+                        return null;
+                    } catch (Throwable t) {
+                        return t;
+                    }
+                });
+                Future<RegisterMediaAssetVersionResult> v2Future = pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    return registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                            assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v2/source.mp4", null,
+                            "1111111111111111111111111111111111111111111111111111111111111111", "video/mp4", 20_000_000L, "v2.mp4"
+                    ));
+                });
+
+                Throwable completeErr = completeFuture.get(15, TimeUnit.SECONDS);
+                RegisterMediaAssetVersionResult v2 = v2Future.get(15, TimeUnit.SECONDS);
+                assertThat(v2.newVersionNumber()).isEqualTo(2);
+
+                MediaVideoHlsPackage pkg1 = hlsPackageAdapter.findById(v1Lease.packageId()).orElseThrow();
+                MediaVideoPackagingJob job1Final = packagingJobAdapter.findById(job1.getId()).orElseThrow();
+                if (completeErr == null) {
+                    // Completion won first, then V2 replacement superseded READY -> SUPERSEDED cleanly
+                    assertThat(pkg1.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
+                    assertThat(job1Final.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.SUCCEEDED);
+                } else {
+                    // V2 won first -> V1 completion rejected as StalePackagingLeaseException, V1 job CANCELLED & PROCESSING->ABANDONED
+                    assertThat(completeErr).isInstanceOf(StalePackagingLeaseException.class);
+                    assertThat(pkg1.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.ABANDONED);
+                    assertThat(job1Final.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.CANCELLED);
+                }
+                assertThat(hlsPackageAdapter.findCurrentReadyByAssetId(assetId)).isEmpty();
+            } finally {
+                pool.shutdownNow();
+            }
+
+            // Two concurrent writers racing on RegisterMediaAssetVersionUseCase.execute() serialize via FOR UPDATE cleanly -> versions 3 & 4
+            ExecutorService vPool = Executors.newFixedThreadPool(2);
+            try {
+                CyclicBarrier vBarrier = new CyclicBarrier(2);
+                Future<RegisterMediaAssetVersionResult> fA = vPool.submit(() -> {
+                    vBarrier.await(10, TimeUnit.SECONDS);
+                    return registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                            assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v-race-a-" + UUID.randomUUID() + ".mp4", null,
+                            "2222222222222222222222222222222222222222222222222222222222222222", "video/mp4", 21_000_000L, "va.mp4"
+                    ));
+                });
+                Future<RegisterMediaAssetVersionResult> fB = vPool.submit(() -> {
+                    vBarrier.await(10, TimeUnit.SECONDS);
+                    return registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                            assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v-race-b-" + UUID.randomUUID() + ".mp4", null,
+                            "3333333333333333333333333333333333333333333333333333333333333333", "video/mp4", 22_000_000L, "vb.mp4"
+                    ));
+                });
+
+                List<Integer> nums = java.util.List.of(fA.get(15, TimeUnit.SECONDS).newVersionNumber(),
+                        fB.get(15, TimeUnit.SECONDS).newVersionNumber());
+                assertThat(nums).containsExactlyInAnyOrder(3, 4);
+                assertThat(assetAdapter.findById(assetId).orElseThrow().getCurrentVersionNumber()).isEqualTo(4);
+            } finally {
+                vPool.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("CX-16: Concurrent Delete vs packaging completion serializes without deadlock and never leaves active READY/PENDING state")
+    void cx16ShouldSerializeDeleteAgainstPackagingCompletionWithoutDeadlock() throws Exception {
+        for (int round = 0; round < 3; round++) {
+            UUID assetId = seedVideoAssetWithPendingJob();
+            MediaVideoPackagingJob job = createJobUseCase.execute(assetId);
+            ClaimedVideoPackagingLease lease = claimJobUseCase.claimNext(
+                    "w-cx16", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+            ).orElseThrow();
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                CyclicBarrier barrier = new CyclicBarrier(2);
+                Future<Throwable> completeFuture = pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    try {
+                        completeJobUseCase.completeWithVerifiedReceipt(
+                                assetId, job.getId(), lease.packageId(), "w-cx16", lease.leaseGeneration(),
+                                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", BASE_TIME)
+                        );
+                        return null;
+                    } catch (Throwable t) {
+                        return t;
+                    }
+                });
+                Future<Void> deleteFuture = pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    deleteAssetUseCase.execute(new DeleteMediaAssetCommand(assetId));
+                    return null;
+                });
+
+                Throwable completeErr = completeFuture.get(15, TimeUnit.SECONDS);
+                deleteFuture.get(15, TimeUnit.SECONDS);
+
+                assertThat(assetAdapter.findById(assetId).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+                MediaVideoHlsPackage pkg = hlsPackageAdapter.findById(lease.packageId()).orElseThrow();
+                if (completeErr == null) {
+                    assertThat(pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
+                } else {
+                    assertThat(completeErr).isInstanceOf(StalePackagingLeaseException.class);
+                    assertThat(pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.ABANDONED);
+                }
+                assertThat(hlsPackageAdapter.findCurrentReadyByAssetId(assetId)).isEmpty();
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("CX-17: Concurrent Archive vs completion and Restore vs Delete serialize cleanly via parent MediaAsset locks")
+    void cx17ShouldSerializeArchiveVsCompletionAndRestoreVsDeleteViaParentLocks() throws Exception {
+        // Part A: Archive vs completion
+        UUID assetA = seedVideoAssetWithPendingJob();
+        MediaVideoPackagingJob jobA = createJobUseCase.execute(assetA);
+        ClaimedVideoPackagingLease leaseA = claimJobUseCase.claimNext(
+                "w-cx17", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+
+        ExecutorService poolA = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<Throwable> compF = poolA.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                try {
+                    completeJobUseCase.completeWithVerifiedReceipt(
+                            assetA, jobA.getId(), leaseA.packageId(), "w-cx17", leaseA.leaseGeneration(),
+                            new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", BASE_TIME)
+                    );
+                    return null;
+                } catch (Throwable t) {
+                    return t;
+                }
+            });
+            Future<Void> archF = poolA.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(assetA));
+                return null;
+            });
+
+            Throwable compErr = compF.get(15, TimeUnit.SECONDS);
+            archF.get(15, TimeUnit.SECONDS);
+
+            assertThat(assetAdapter.findById(assetA).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.ARCHIVED);
+            MediaVideoHlsPackage pkgA = hlsPackageAdapter.findById(leaseA.packageId()).orElseThrow();
+            if (compErr == null) {
+                assertThat(pkgA.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.READY);
+            } else {
+                assertThat(compErr).isInstanceOf(StalePackagingLeaseException.class);
+                assertThat(pkgA.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.ABANDONED);
+            }
+        } finally {
+            poolA.shutdownNow();
+        }
+
+        // Part B: Concurrent Restore vs Delete on ARCHIVED asset with parent-row locking (single winner for Restore, Delete terminal wins)
+        UUID assetB = seedVideoAssetWithPendingJob();
+        archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(assetB));
+        ExecutorService poolB = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<Throwable> restoreF = poolB.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                try {
+                    restoreAssetUseCase.execute(new RestoreMediaAssetCommand(assetB));
+                    return null;
+                } catch (Throwable t) {
+                    return t;
+                }
+            });
+            Future<Void> deleteF = poolB.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                deleteAssetUseCase.execute(new DeleteMediaAssetCommand(assetB));
+                return null;
+            });
+
+            Throwable restoreErr = restoreF.get(15, TimeUnit.SECONDS);
+            deleteF.get(15, TimeUnit.SECONDS);
+            // Delete transitions ARCHIVED->DELETED or ACTIVE->DELETED; if Delete ran first, Restore throws IllegalStateException ("Cannot restore a DELETED media asset")
+            assertThat(assetAdapter.findById(assetB).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+            if (restoreErr != null) {
+                assertThat(restoreErr).isInstanceOf(IllegalStateException.class);
+            }
+        } finally {
+            poolB.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-18: Lifecycle Delete/V2 replacement vs PurgeClaim serialize deadlock-free and preserve PURGED tombstones")
+    void cx18ShouldSerializeLifecycleCancelAgainstPurgeClaimAndPreserveTombstones() throws Exception {
+        UUID assetId = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease l1 = claimJobUseCase.claimNext("w1-cx18", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket").orElseThrow();
+        failJobUseCase.executePermanentFailure(assetId, l1.jobId(), "w1-cx18", l1.leaseGeneration(), "fail-cx18");
+
+        // Advance past 24h so l1.packageId is purge-eligible; create READY attempt on v2
+        registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v2/source.mp4", null,
+                "4444444444444444444444444444444444444444444444444444444444444444", "video/mp4", 30_000_000L, "v2.mp4"
+        ));
+        MediaVideoPackagingJob job2 = createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease l2 = claimJobUseCase.claimNext("w2-cx18", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket").orElseThrow();
+        completeJobUseCase.completeWithVerifiedReceipt(
+                assetId, job2.getId(), l2.packageId(), "w2-cx18", l2.leaseGeneration(),
+                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", BASE_TIME.plusSeconds(10))
+        );
+
+        clockRef.set(BASE_TIME.plus(Duration.ofHours(25)));
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<Optional<ClaimedHlsPackagePurgeLease>> purgeFuture = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return claimPurgeUseCase.claimNext(Duration.ofMinutes(5));
+            });
+            Future<Void> deleteFuture = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                deleteAssetUseCase.execute(new DeleteMediaAssetCommand(assetId));
+                return null;
+            });
+
+            Optional<ClaimedHlsPackagePurgeLease> claimed = purgeFuture.get(15, TimeUnit.SECONDS);
+            deleteFuture.get(15, TimeUnit.SECONDS);
+
+            assertThat(claimed).isPresent();
+            assertThat(claimed.get().packageId()).isEqualTo(l1.packageId());
+            MediaVideoHlsPackage finished = completePurgeUseCase.markPurged(claimed.get());
+            assertThat(finished.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGED);
+            assertThat(hlsPackageAdapter.findById(l2.packageId()).orElseThrow().getStatus())
+                    .isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
+        } finally {
             pool.shutdownNow();
         }
     }

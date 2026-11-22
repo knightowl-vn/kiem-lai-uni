@@ -1,9 +1,22 @@
 package com.universe.media.infrastructure.persistence;
 
+import com.universe.media.application.asset.ArchiveMediaAssetCommand;
+import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.DeleteMediaAssetCommand;
+import com.universe.media.application.asset.DeleteMediaAssetUseCase;
 import com.universe.media.application.asset.PurgeDeletedMediaAssetCommand;
 import com.universe.media.application.asset.PurgeDeletedMediaAssetUseCase;
 import com.universe.media.application.asset.PurgeMediaAssetMetadataService;
+import com.universe.media.application.asset.RegisterMediaAssetVersionCommand;
+import com.universe.media.application.asset.RegisterMediaAssetVersionConditionalResult;
+import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
+import com.universe.media.application.asset.RestoreMediaAssetCommand;
+import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.exceptions.StalePackagingLeaseException;
+import com.universe.media.application.storage.MediaStorageCutoverBarrier;
+import com.universe.media.application.storage.StorageKeyAllocationService;
+import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
+import com.universe.media.contracts.exceptions.MediaAssetReferencedException;
 import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.hls.ClaimHlsPackagePurgeUseCase;
 import com.universe.media.application.hls.ClaimMediaVideoPackagingJobUseCase;
@@ -92,6 +105,10 @@ import static org.mockito.Mockito.verify;
         CancelOrSupersedeMediaVideoPackagingUseCase.class,
         ClaimHlsPackagePurgeUseCase.class,
         CompleteHlsPackagePurgeUseCase.class,
+        RegisterMediaAssetVersionUseCase.class,
+        DeleteMediaAssetUseCase.class,
+        ArchiveMediaAssetUseCase.class,
+        RestoreMediaAssetUseCase.class,
         MediaV100HlsFoundationIntegrationTest.TestConfig.class
 })
 class MediaV100HlsFoundationIntegrationTest {
@@ -113,6 +130,35 @@ class MediaV100HlsFoundationIntegrationTest {
         @Bean
         public ClockPort clockPort(AtomicReference<Instant> clockRef) {
             return clockRef::get;
+        }
+
+        @Bean
+        public AtomicReference<UUID> referencedAssetGuard() {
+            return new AtomicReference<>();
+        }
+
+        @Bean
+        public MediaAssetReferenceCheckPort mediaAssetReferenceCheckPort(AtomicReference<UUID> referencedAssetGuard) {
+            return new MediaAssetReferenceCheckPort() {
+                @Override public boolean supports(MediaTypeDTO mediaType) { return true; }
+                @Override public void ensureNotReferenced(UUID mediaAssetId) {
+                    if (mediaAssetId.equals(referencedAssetGuard.get())) {
+                        throw new MediaAssetReferencedException(mediaAssetId);
+                    }
+                }
+            };
+        }
+
+        @Bean
+        public StorageKeyAllocationService storageKeyAllocationService() {
+            return Mockito.mock(StorageKeyAllocationService.class);
+        }
+
+        @Bean
+        public MediaStorageCutoverBarrier mediaStorageCutoverBarrier() {
+            MediaStorageCutoverBarrier barrier = Mockito.mock(MediaStorageCutoverBarrier.class);
+            Mockito.when(barrier.isCutoverActive()).thenReturn(false);
+            return barrier;
         }
     }
 
@@ -166,11 +212,33 @@ class MediaV100HlsFoundationIntegrationTest {
     @Autowired
     private CompleteHlsPackagePurgeUseCase completePurgeUseCase;
 
+    @Autowired
+    private RegisterMediaAssetVersionUseCase registerVersionUseCase;
+
+    @Autowired
+    private DeleteMediaAssetUseCase deleteAssetUseCase;
+
+    @Autowired
+    private ArchiveMediaAssetUseCase archiveAssetUseCase;
+
+    @Autowired
+    private RestoreMediaAssetUseCase restoreAssetUseCase;
+
+    @Autowired
+    private CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase;
+
+    @Autowired
+    private AtomicReference<UUID> referencedAssetGuard;
+
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     private final List<UUID> createdAssetIds = new ArrayList<>();
 
     @BeforeEach
     void resetClock() {
         clockRef.set(BASE_TIME);
+        referencedAssetGuard.set(null);
     }
 
     @AfterEach
@@ -694,5 +762,140 @@ class MediaV100HlsFoundationIntegrationTest {
         assertThat(tombstone.getBasePrefix()).isEqualTo(initial.getBasePrefix());
         assertThat(hlsPackageAdapter.findPurgeEligibleCandidates(scanTime.plus(Duration.ofDays(30)), 20))
                 .noneMatch(c -> c.packageId().equals(eligibleId));
+    }
+
+    @Test
+    @DisplayName("A3a same-transaction hooks handle V2 supersession, UNCHANGED no-op, archive READY preservation, restore, delete cleanup & atomicity")
+    void shouldCoordinateSameTransactionHlsLifecycleAcrossVersionReplaceArchiveRestoreDeleteAndRollback() {
+        // 1. Seed VIDEO asset with v1 READY + v2 PENDING? First: v1 READY + duplicate v1 hash UNCHANGED leaves READY & PENDING untouched
+        UUID assetId = UUID.randomUUID();
+        UUID v1Id = UUID.randomUUID();
+        seedActiveVideoAsset(assetId, v1Id);
+
+        MediaVideoPackagingJob v1Job = createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease v1Lease = claimJobUseCase.claimNext("w1", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket").orElseThrow();
+        completeJobUseCase.completeWithVerifiedReceipt(
+                assetId, v1Job.getId(), v1Lease.packageId(), "w1", v1Lease.leaseGeneration(),
+                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", BASE_TIME.plusSeconds(2))
+        );
+
+        RegisterMediaAssetVersionConditionalResult unchanged = registerVersionUseCase.registerConditionalVersion(
+                new RegisterMediaAssetVersionCommand(
+                        assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v-dup/source.mp4", null,
+                        SOURCE_SHA256.value(), "video/mp4", 10_000_000L, "dup.mp4"
+                )
+        );
+        assertThat(unchanged.outcome()).isEqualTo(MediaVersionUploadOutcome.UNCHANGED);
+        assertThat(hlsPackageAdapter.findById(v1Lease.packageId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoHlsPackageStatus.READY);
+
+        // 2. Forced rollback inside outer tx holding V2 version replacement rolls back BOTH v2 row AND v1 supersession
+        org.springframework.transaction.support.TransactionTemplate txTpl =
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        txTpl.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        assertThatThrownBy(() -> txTpl.execute(status -> {
+            registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                    assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v2-rollback/source.mp4", null,
+                    "2222222222222222222222222222222222222222222222222222222222222222", "video/mp4", 12_000_000L, "v2.mp4"
+            ));
+            throw new IllegalStateException("Simulated rollback after V2 + HLS supersede");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(assetAdapter.findById(assetId).orElseThrow().getCurrentVersionNumber()).isEqualTo(1);
+        assertThat(hlsPackageAdapter.findById(v1Lease.packageId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoHlsPackageStatus.READY);
+
+        // 3. Committed V2 registration atomically supersedes V1 READY package (7d) & creates zero V2 auto-enqueue jobs (A3b deferred)
+        clockRef.set(BASE_TIME.plus(Duration.ofMinutes(5)));
+        var v2Result = registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v2/source.mp4", null,
+                "2222222222222222222222222222222222222222222222222222222222222222", "video/mp4", 12_000_000L, "v2.mp4"
+        ));
+        assertThat(v2Result.newVersionNumber()).isEqualTo(2);
+        MediaVideoHlsPackage v1Superseded = hlsPackageAdapter.findById(v1Lease.packageId()).orElseThrow();
+        assertThat(v1Superseded.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
+        assertThat(v1Superseded.getPurgeAfter()).isEqualTo(clockRef.get().plus(Duration.ofDays(7)));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_video_packaging_jobs WHERE asset_id = ?",
+                Integer.class,
+                assetId.toString()
+        )).isEqualTo(1); // Only V1 job; zero V2 auto-enqueue
+
+        // 4. Seed V2 READY + an active V2 processing attempt on a second asset -> Archive preserves READY and abandons PROCESSING (24h)
+        UUID asset2Id = UUID.randomUUID();
+        UUID a2v1Id = UUID.randomUUID();
+        seedActiveVideoAsset(asset2Id, a2v1Id);
+        MediaVideoPackagingJob a2ReadyJob = createJobUseCase.execute(asset2Id);
+        ClaimedVideoPackagingLease a2ReadyLease = claimJobUseCase.claimNext("w2", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket").orElseThrow();
+        completeJobUseCase.completeWithVerifiedReceipt(
+                asset2Id, a2ReadyJob.getId(), a2ReadyLease.packageId(), "w2", a2ReadyLease.leaseGeneration(),
+                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", clockRef.get().plusSeconds(1))
+        );
+        // Simulate v2 on asset2 with PENDING job, then blocked Archive due to consumer reference must leave job untouched
+        registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                asset2Id, R2_PROVIDER.value(), "video/sources/" + asset2Id + "/v2/source.mp4", null,
+                "3333333333333333333333333333333333333333333333333333333333333333", "video/mp4", 14_000_000L, "v2.mp4"
+        ));
+        MediaVideoPackagingJob a2v2Job = createJobUseCase.execute(asset2Id);
+        ClaimedVideoPackagingLease a2v2Lease = claimJobUseCase.claimNext("w3", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket").orElseThrow();
+
+        referencedAssetGuard.set(asset2Id);
+        assertThatThrownBy(() -> archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(asset2Id)))
+                .isInstanceOf(MediaAssetReferencedException.class);
+        assertThat(packagingJobAdapter.findById(a2v2Job.getId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoPackagingJobStatus.LEASED);
+
+        // Allowed Archive cancels LEASED v2 job + abandons PROCESSING v2 package (24h), while v1 remains SUPERSEDED (never resurrected)
+        referencedAssetGuard.set(null);
+        Instant archiveAt = clockRef.get().plus(Duration.ofMinutes(2));
+        clockRef.set(archiveAt);
+        archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(asset2Id));
+        assertThat(packagingJobAdapter.findById(a2v2Job.getId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoPackagingJobStatus.CANCELLED);
+        MediaVideoHlsPackage abandonedV2Pkg = hlsPackageAdapter.findById(a2v2Lease.packageId()).orElseThrow();
+        assertThat(abandonedV2Pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.ABANDONED);
+        assertThat(abandonedV2Pkg.getPurgeAfter()).isEqualTo(archiveAt.plus(Duration.ofHours(24)));
+
+        // Restore locks & moves back to ACTIVE with zero re-enqueue and zero SUPERSEDED resurrection
+        clockRef.set(archiveAt.plusSeconds(10));
+        restoreAssetUseCase.execute(new RestoreMediaAssetCommand(asset2Id));
+        assertThat(assetAdapter.findById(asset2Id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        assertThat(hlsPackageAdapter.findById(a2ReadyLease.packageId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
+        assertThat(packagingJobAdapter.findById(a2v2Job.getId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoPackagingJobStatus.CANCELLED);
+
+        // 5. Preserve READY across Archive -> Restore for asset with READY on current version, then Delete supersedes READY atomically (and rollback preserves READY!)
+        UUID asset3Id = UUID.randomUUID();
+        UUID a3v1Id = UUID.randomUUID();
+        seedActiveVideoAsset(asset3Id, a3v1Id);
+        MediaVideoPackagingJob a3Job = createJobUseCase.execute(asset3Id);
+        ClaimedVideoPackagingLease a3Lease = claimJobUseCase.claimNext("w4", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket").orElseThrow();
+        completeJobUseCase.completeWithVerifiedReceipt(
+                asset3Id, a3Job.getId(), a3Lease.packageId(), "w4", a3Lease.leaseGeneration(),
+                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", clockRef.get().plusSeconds(1))
+        );
+
+        archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(asset3Id));
+        assertThat(hlsPackageAdapter.findById(a3Lease.packageId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoHlsPackageStatus.READY);
+        restoreAssetUseCase.execute(new RestoreMediaAssetCommand(asset3Id));
+        assertThat(hlsPackageAdapter.findCurrentReadyByAssetId(asset3Id))
+                .get().extracting(MediaVideoHlsPackage::getId).isEqualTo(a3Lease.packageId());
+
+        // Forced rollback on Delete leaves asset ACTIVE & package READY
+        assertThatThrownBy(() -> txTpl.execute(status -> {
+            deleteAssetUseCase.execute(new DeleteMediaAssetCommand(asset3Id));
+            throw new IllegalStateException("Simulated rollback after Delete");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(assetAdapter.findById(asset3Id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        assertThat(hlsPackageAdapter.findById(a3Lease.packageId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoHlsPackageStatus.READY);
+
+        // Actual Delete atomically marks DELETED + SUPERSEDED (7d)
+        deleteAssetUseCase.execute(new DeleteMediaAssetCommand(asset3Id));
+        assertThat(assetAdapter.findById(asset3Id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+        assertThat(hlsPackageAdapter.findById(a3Lease.packageId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
     }
 }

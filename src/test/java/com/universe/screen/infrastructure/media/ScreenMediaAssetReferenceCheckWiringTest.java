@@ -4,6 +4,7 @@ import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
 import com.universe.media.application.asset.PurgeDeletedMediaAssetUseCase;
 import com.universe.media.application.asset.PurgeMediaAssetMetadataService;
+import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
@@ -31,7 +32,8 @@ class ScreenMediaAssetReferenceCheckWiringTest {
                     ScreenMediaAssetReferenceCheckAdapter.class,
                     ArchiveMediaAssetUseCase.class,
                     DeleteMediaAssetUseCase.class,
-                    PurgeDeletedMediaAssetUseCase.class
+                    PurgeDeletedMediaAssetUseCase.class,
+                    CancelOrSupersedeMediaVideoPackagingUseCase.class
             )
             .withBean(ScreenEntryRepositoryPort.class, () -> mock(ScreenEntryRepositoryPort.class))
             .withBean(MediaAssetRepositoryPort.class, () -> mock(MediaAssetRepositoryPort.class))

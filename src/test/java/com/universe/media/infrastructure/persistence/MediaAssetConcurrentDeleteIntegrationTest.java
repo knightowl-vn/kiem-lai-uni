@@ -44,6 +44,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 @Import({
         MediaAssetPersistenceAdapter.class,
+        MediaVideoPackagingJobPersistenceAdapter.class,
+        MediaVideoHlsPackagePersistenceAdapter.class,
+        com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase.class,
         DeleteMediaAssetUseCase.class,
         MediaAssetConcurrentDeleteIntegrationTest.TestConfig.class
 })

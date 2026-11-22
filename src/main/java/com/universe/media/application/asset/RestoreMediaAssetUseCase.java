@@ -50,7 +50,7 @@ public class RestoreMediaAssetUseCase {
 
         MediaAsset asset =
                 mediaAssetRepositoryPort
-                        .findById(assetId)
+                        .findByIdForUpdate(assetId)
                         .orElseThrow(() ->
                                 new MediaAssetNotFoundException(assetId)
                         );

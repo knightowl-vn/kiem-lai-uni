@@ -1,6 +1,7 @@
 package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.exceptions.MediaAssetReferencedException;
@@ -54,6 +55,9 @@ class MediaAssetLifecycleUseCasesTest {
     @Mock
     private MediaAssetReferenceCheckPort referenceCheckPort;
 
+    @Mock
+    private CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase;
+
     private ChangeMediaVisibilityUseCase changeVisibilityUseCase;
     private ArchiveMediaAssetUseCase archiveUseCase;
     private RestoreMediaAssetUseCase restoreUseCase;
@@ -67,7 +71,9 @@ class MediaAssetLifecycleUseCasesTest {
         );
         archiveUseCase = new ArchiveMediaAssetUseCase(
                 mediaAssetRepositoryPort,
-                FIXED_CLOCK
+                FIXED_CLOCK,
+                List.of(),
+                cancelOrSupersedeUseCase
         );
         restoreUseCase = new RestoreMediaAssetUseCase(
                 mediaAssetRepositoryPort,
@@ -75,7 +81,9 @@ class MediaAssetLifecycleUseCasesTest {
         );
         deleteUseCase = new DeleteMediaAssetUseCase(
                 mediaAssetRepositoryPort,
-                FIXED_CLOCK
+                FIXED_CLOCK,
+                List.of(),
+                cancelOrSupersedeUseCase
         );
     }
 
@@ -206,7 +214,8 @@ class MediaAssetLifecycleUseCasesTest {
             ArchiveMediaAssetUseCase guardedArchiveUseCase = new ArchiveMediaAssetUseCase(
                     mediaAssetRepositoryPort,
                     FIXED_CLOCK,
-                    List.of(referenceCheckPort)
+                    List.of(referenceCheckPort),
+                    cancelOrSupersedeUseCase
             );
 
             MediaAsset asset = createActiveVideoAsset();
@@ -222,6 +231,7 @@ class MediaAssetLifecycleUseCasesTest {
 
             verify(referenceCheckPort).ensureNotReferenced(ASSET_ID);
             verify(mediaAssetRepositoryPort, never()).save(any());
+            verify(cancelOrSupersedeUseCase, never()).cancelActivePackagingForArchiveInCurrentTransaction(any(), any());
             assertThat(asset.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
         }
 
@@ -231,7 +241,8 @@ class MediaAssetLifecycleUseCasesTest {
             ArchiveMediaAssetUseCase unguardedArchiveUseCase = new ArchiveMediaAssetUseCase(
                     mediaAssetRepositoryPort,
                     FIXED_CLOCK,
-                    List.of()
+                    List.of(),
+                    cancelOrSupersedeUseCase
             );
 
             MediaAsset asset = createActiveVideoAsset();
@@ -269,6 +280,40 @@ class MediaAssetLifecycleUseCasesTest {
             ArgumentCaptor<MediaAsset> captor = ArgumentCaptor.forClass(MediaAsset.class);
             verify(mediaAssetRepositoryPort).save(captor.capture());
             assertThat(captor.getValue().getStatus()).isEqualTo(MediaAssetStatus.ARCHIVED);
+            verify(cancelOrSupersedeUseCase, never()).cancelActivePackagingForArchiveInCurrentTransaction(any(), any());
+        }
+
+        @Test
+        @DisplayName("archive cancels active VIDEO packaging in current tx and fails closed if lifecycle coordinator is absent")
+        void shouldCancelActivePackagingOnVideoArchiveAndFailClosedIfMissing() {
+            ArchiveMediaAssetUseCase guardedArchiveUseCase = new ArchiveMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of(referenceCheckPort),
+                    cancelOrSupersedeUseCase
+            );
+            MediaAsset asset = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+
+            guardedArchiveUseCase.execute(new ArchiveMediaAssetCommand(ASSET_ID));
+
+            verify(cancelOrSupersedeUseCase).cancelActivePackagingForArchiveInCurrentTransaction(
+                    org.mockito.ArgumentMatchers.eq(ASSET_ID),
+                    org.mockito.ArgumentMatchers.contains("archived")
+            );
+
+            ArchiveMediaAssetUseCase legacyArchiveWithoutCancel = new ArchiveMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of(referenceCheckPort)
+            );
+            MediaAsset asset2 = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset2));
+            assertThatThrownBy(() -> legacyArchiveWithoutCancel.execute(new ArchiveMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("CancelOrSupersedeMediaVideoPackagingUseCase");
+            verify(mediaAssetRepositoryPort, org.mockito.Mockito.times(1)).save(any());
         }
     }
 
@@ -277,16 +322,17 @@ class MediaAssetLifecycleUseCasesTest {
     class RestoreTests {
 
         @Test
-        @DisplayName("successful restore mutates asset status from ARCHIVED to ACTIVE and saves")
+        @DisplayName("successful restore acquires FOR UPDATE lock, mutates ARCHIVED to ACTIVE, and saves")
         void shouldRestoreSuccessfully() {
             MediaAsset asset = createActiveAsset();
             asset.archive(T0);
 
-            when(mediaAssetRepositoryPort.findById(ASSET_ID))
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                     .thenReturn(Optional.of(asset));
 
             restoreUseCase.execute(new RestoreMediaAssetCommand(ASSET_ID));
 
+            verify(mediaAssetRepositoryPort).findByIdForUpdate(ASSET_ID);
             ArgumentCaptor<MediaAsset> captor = ArgumentCaptor.forClass(MediaAsset.class);
             verify(mediaAssetRepositoryPort).save(captor.capture());
 
@@ -298,7 +344,7 @@ class MediaAssetLifecycleUseCasesTest {
         @Test
         @DisplayName("asset not found throws MediaAssetNotFoundException")
         void shouldThrowWhenAssetNotFound() {
-            when(mediaAssetRepositoryPort.findById(ASSET_ID))
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> restoreUseCase.execute(new RestoreMediaAssetCommand(ASSET_ID)))
@@ -362,7 +408,8 @@ class MediaAssetLifecycleUseCasesTest {
             DeleteMediaAssetUseCase guardedDeleteUseCase = new DeleteMediaAssetUseCase(
                     mediaAssetRepositoryPort,
                     FIXED_CLOCK,
-                    List.of(referenceCheckPort)
+                    List.of(referenceCheckPort),
+                    cancelOrSupersedeUseCase
             );
 
             MediaAsset asset = createActiveVideoAsset();
@@ -378,16 +425,18 @@ class MediaAssetLifecycleUseCasesTest {
 
             verify(referenceCheckPort).ensureNotReferenced(ASSET_ID);
             verify(mediaAssetRepositoryPort, never()).save(any());
+            verify(cancelOrSupersedeUseCase, never()).cancelAllForAssetDeletionInCurrentTransaction(any(), any());
             assertThat(asset.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
         }
 
         @Test
-        @DisplayName("delete succeeds when consumer guard finds no references")
+        @DisplayName("delete succeeds when consumer guard finds no references and cancels VIDEO HLS in current tx")
         void shouldAllowDeleteWhenConsumerGuardPasses() {
             DeleteMediaAssetUseCase guardedDeleteUseCase = new DeleteMediaAssetUseCase(
                     mediaAssetRepositoryPort,
                     FIXED_CLOCK,
-                    List.of(referenceCheckPort)
+                    List.of(referenceCheckPort),
+                    cancelOrSupersedeUseCase
             );
 
             MediaAsset asset = createActiveVideoAsset();
@@ -401,6 +450,45 @@ class MediaAssetLifecycleUseCasesTest {
             ArgumentCaptor<MediaAsset> captor = ArgumentCaptor.forClass(MediaAsset.class);
             verify(mediaAssetRepositoryPort).save(captor.capture());
             assertThat(captor.getValue().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+            verify(cancelOrSupersedeUseCase).cancelAllForAssetDeletionInCurrentTransaction(
+                    org.mockito.ArgumentMatchers.eq(ASSET_ID),
+                    org.mockito.ArgumentMatchers.contains("deleted")
+            );
+        }
+
+        @Test
+        @DisplayName("delete fails closed on VIDEO when lifecycle coordinator is absent and cleans pre-A3a DELETED retry safely")
+        void shouldFailClosedWithoutLifecycleCoordinatorAndCleanAlreadyDeletedVideoRetry() {
+            DeleteMediaAssetUseCase legacyDeleteWithoutCancel = new DeleteMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of(referenceCheckPort)
+            );
+            MediaAsset activeVideo = createActiveVideoAsset();
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(activeVideo));
+            when(referenceCheckPort.supports(MediaTypeDTO.VIDEO)).thenReturn(true);
+
+            assertThatThrownBy(() -> legacyDeleteWithoutCancel.execute(new DeleteMediaAssetCommand(ASSET_ID)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("CancelOrSupersedeMediaVideoPackagingUseCase");
+            verify(mediaAssetRepositoryPort, never()).save(any());
+
+            MediaAsset alreadyDeletedVideo = createActiveVideoAsset();
+            alreadyDeletedVideo.markDeleted(T0);
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(alreadyDeletedVideo));
+            DeleteMediaAssetUseCase guardedDeleteUseCase = new DeleteMediaAssetUseCase(
+                    mediaAssetRepositoryPort,
+                    FIXED_CLOCK,
+                    List.of(referenceCheckPort),
+                    cancelOrSupersedeUseCase
+            );
+
+            guardedDeleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID));
+            verify(mediaAssetRepositoryPort, never()).save(any());
+            verify(cancelOrSupersedeUseCase).cancelAllForAssetDeletionInCurrentTransaction(
+                    org.mockito.ArgumentMatchers.eq(ASSET_ID),
+                    org.mockito.ArgumentMatchers.contains("already DELETED")
+            );
         }
 
         @Test
@@ -409,7 +497,8 @@ class MediaAssetLifecycleUseCasesTest {
             DeleteMediaAssetUseCase unguardedDeleteUseCase = new DeleteMediaAssetUseCase(
                     mediaAssetRepositoryPort,
                     FIXED_CLOCK,
-                    List.of()
+                    List.of(),
+                    cancelOrSupersedeUseCase
             );
 
             MediaAsset asset = createActiveVideoAsset();

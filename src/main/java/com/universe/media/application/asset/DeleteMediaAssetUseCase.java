@@ -1,6 +1,7 @@
 package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.exceptions.MediaReferenceCheckUnavailableException;
@@ -24,12 +25,48 @@ public class DeleteMediaAssetUseCase {
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final ClockPort clockPort;
     private final List<MediaAssetReferenceCheckPort> referenceCheckPorts;
+    private final CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase;
 
     @Autowired
     public DeleteMediaAssetUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             ClockPort clockPort,
+            List<MediaAssetReferenceCheckPort> referenceCheckPorts,
+            CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                clockPort,
+                referenceCheckPorts,
+                Objects.requireNonNull(
+                        cancelOrSupersedeUseCase,
+                        "CancelOrSupersedeMediaVideoPackagingUseCase cannot be null."
+                ),
+                true
+        );
+    }
+
+    public DeleteMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            ClockPort clockPort
+    ) {
+        this(mediaAssetRepositoryPort, clockPort, List.of(), null, false);
+    }
+
+    public DeleteMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            ClockPort clockPort,
             List<MediaAssetReferenceCheckPort> referenceCheckPorts
+    ) {
+        this(mediaAssetRepositoryPort, clockPort, referenceCheckPorts, null, false);
+    }
+
+    private DeleteMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            ClockPort clockPort,
+            List<MediaAssetReferenceCheckPort> referenceCheckPorts,
+            CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase,
+            boolean strictVideoWiring
     ) {
         this.mediaAssetRepositoryPort =
                 Objects.requireNonNull(
@@ -42,13 +79,12 @@ public class DeleteMediaAssetUseCase {
                         "ClockPort cannot be null."
                 );
         this.referenceCheckPorts = referenceCheckPorts != null ? referenceCheckPorts : List.of();
-    }
-
-    public DeleteMediaAssetUseCase(
-            MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            ClockPort clockPort
-    ) {
-        this(mediaAssetRepositoryPort, clockPort, List.of());
+        this.cancelOrSupersedeUseCase = strictVideoWiring
+                ? Objects.requireNonNull(
+                        cancelOrSupersedeUseCase,
+                        "CancelOrSupersedeMediaVideoPackagingUseCase cannot be null."
+                )
+                : cancelOrSupersedeUseCase;
     }
 
     @Transactional
@@ -73,11 +109,17 @@ public class DeleteMediaAssetUseCase {
                                 new MediaAssetNotFoundException(assetId)
                         );
 
+        MediaType domainType = asset.getMediaType();
         if (asset.getStatus() == MediaAssetStatus.DELETED) {
+            if (domainType == MediaType.VIDEO) {
+                requireVideoCancelUseCase(assetId).cancelAllForAssetDeletionInCurrentTransaction(
+                        assetId,
+                        "Asset [" + assetId + "] already DELETED HLS cleanup."
+                );
+            }
             return;
         }
 
-        MediaType domainType = asset.getMediaType();
         MediaTypeDTO typeDto = MediaTypeDTO.valueOf(domainType.name());
 
         List<MediaAssetReferenceCheckPort> applicablePorts = referenceCheckPorts.stream()
@@ -97,10 +139,31 @@ public class DeleteMediaAssetUseCase {
             port.ensureNotReferenced(assetId);
         }
 
+        if (domainType == MediaType.VIDEO) {
+            requireVideoCancelUseCase(assetId);
+        }
+
         Instant now = clockPort.now();
 
         asset.markDeleted(now);
 
         mediaAssetRepositoryPort.save(asset);
+
+        if (domainType == MediaType.VIDEO) {
+            cancelOrSupersedeUseCase.cancelAllForAssetDeletionInCurrentTransaction(
+                    assetId,
+                    "Asset [" + assetId + "] deleted."
+            );
+        }
+    }
+
+    private CancelOrSupersedeMediaVideoPackagingUseCase requireVideoCancelUseCase(UUID assetId) {
+        if (cancelOrSupersedeUseCase == null) {
+            throw new IllegalStateException(
+                    "Cannot delete VIDEO asset [" + assetId
+                            + "]: required CancelOrSupersedeMediaVideoPackagingUseCase is unavailable (fail-closed)."
+            );
+        }
+        return cancelOrSupersedeUseCase;
     }
 }

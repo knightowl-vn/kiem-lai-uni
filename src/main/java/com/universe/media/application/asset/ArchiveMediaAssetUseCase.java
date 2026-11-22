@@ -1,6 +1,7 @@
 package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.exceptions.MediaReferenceCheckUnavailableException;
@@ -23,12 +24,48 @@ public class ArchiveMediaAssetUseCase {
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final ClockPort clockPort;
     private final List<MediaAssetReferenceCheckPort> referenceCheckPorts;
+    private final CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase;
 
     @Autowired
     public ArchiveMediaAssetUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             ClockPort clockPort,
+            List<MediaAssetReferenceCheckPort> referenceCheckPorts,
+            CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                clockPort,
+                referenceCheckPorts,
+                Objects.requireNonNull(
+                        cancelOrSupersedeUseCase,
+                        "CancelOrSupersedeMediaVideoPackagingUseCase cannot be null."
+                ),
+                true
+        );
+    }
+
+    public ArchiveMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            ClockPort clockPort
+    ) {
+        this(mediaAssetRepositoryPort, clockPort, List.of(), null, false);
+    }
+
+    public ArchiveMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            ClockPort clockPort,
             List<MediaAssetReferenceCheckPort> referenceCheckPorts
+    ) {
+        this(mediaAssetRepositoryPort, clockPort, referenceCheckPorts, null, false);
+    }
+
+    private ArchiveMediaAssetUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            ClockPort clockPort,
+            List<MediaAssetReferenceCheckPort> referenceCheckPorts,
+            CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase,
+            boolean strictVideoWiring
     ) {
         this.mediaAssetRepositoryPort =
                 Objects.requireNonNull(
@@ -41,13 +78,12 @@ public class ArchiveMediaAssetUseCase {
                         "ClockPort cannot be null."
                 );
         this.referenceCheckPorts = referenceCheckPorts != null ? referenceCheckPorts : List.of();
-    }
-
-    public ArchiveMediaAssetUseCase(
-            MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            ClockPort clockPort
-    ) {
-        this(mediaAssetRepositoryPort, clockPort, List.of());
+        this.cancelOrSupersedeUseCase = strictVideoWiring
+                ? Objects.requireNonNull(
+                        cancelOrSupersedeUseCase,
+                        "CancelOrSupersedeMediaVideoPackagingUseCase cannot be null."
+                )
+                : cancelOrSupersedeUseCase;
     }
 
     @Transactional
@@ -92,10 +128,24 @@ public class ArchiveMediaAssetUseCase {
             port.ensureNotReferenced(assetId);
         }
 
+        if (domainType == MediaType.VIDEO && cancelOrSupersedeUseCase == null) {
+            throw new IllegalStateException(
+                    "Cannot archive VIDEO asset [" + assetId
+                            + "]: required CancelOrSupersedeMediaVideoPackagingUseCase is unavailable (fail-closed)."
+            );
+        }
+
         Instant now = clockPort.now();
 
         asset.archive(now);
 
         mediaAssetRepositoryPort.save(asset);
+
+        if (domainType == MediaType.VIDEO) {
+            cancelOrSupersedeUseCase.cancelActivePackagingForArchiveInCurrentTransaction(
+                    assetId,
+                    "Asset [" + assetId + "] archived."
+            );
+        }
     }
 }

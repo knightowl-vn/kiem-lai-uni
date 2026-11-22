@@ -67,6 +67,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import({
         MediaAssetPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
+        MediaVideoPackagingJobPersistenceAdapter.class,
+        MediaVideoHlsPackagePersistenceAdapter.class,
+        com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase.class,
         RegisterMediaAssetVersionUseCase.class,
         RasterContentSignatureValidator.class,
         VideoUploadValidator.class,

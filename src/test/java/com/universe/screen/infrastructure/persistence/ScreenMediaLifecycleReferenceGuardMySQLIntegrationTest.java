@@ -157,6 +157,7 @@ import static org.mockito.Mockito.verify;
         DeleteMediaAssetUseCase.class,
         PurgeDeletedMediaAssetUseCase.class,
         PurgeMediaAssetMetadataService.class,
+        com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase.class,
         AttachScreenEntryVideoUseCase.class,
         LockAndValidateActiveMediaAssetUseCase.class,
         ScreenMediaLifecycleReferenceGuardMySQLIntegrationTest.GuardTestWiringConfig.class
