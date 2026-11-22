@@ -35,6 +35,9 @@ import com.universe.media.application.asset.UploadMediaAssetVersionResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
+import com.universe.media.application.hls.AutoPackagingEnqueueResult;
+import com.universe.media.application.hls.AutoPackagingEnqueueStatus;
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
@@ -992,5 +995,75 @@ class MediaFacadeTest {
                 .isEqualTo(expectedMap);
         assertThat(facadeWithResolve.resolvePublicImageDeliveryUrls(List.of(ASSET_ID), "w300", true))
                 .isEqualTo(expectedMap);
+    }
+
+    @Test
+    @DisplayName("restore invokes post-commit opt-in HLS enqueue coordinator after RestoreMediaAssetUseCase commits and isolates enqueue exceptions")
+    void shouldInvokeCoordinatorAfterRestoreAndIsolateEnqueueExceptions() {
+        OptInHlsPackagingEnqueueCoordinator coordinator = mock(OptInHlsPackagingEnqueueCoordinator.class);
+        when(coordinator.enqueueRestoredCurrentVersionIfEnabledSafely(ASSET_ID))
+                .thenReturn(AutoPackagingEnqueueResult.skipped(AutoPackagingEnqueueStatus.SKIPPED_DISABLED));
+
+        MediaFacade facadeWithCoordinator = new MediaFacade(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                lockAndValidateActiveMediaAssetUseCase,
+                lockAndInspectMediaAssetUseCase,
+                coordinator,
+                null,
+                null,
+                null
+        );
+
+        facadeWithCoordinator.restore(ASSET_ID);
+        verify(restoreMediaAssetUseCase).execute(new RestoreMediaAssetCommand(ASSET_ID));
+        verify(coordinator).enqueueRestoredCurrentVersionIfEnabledSafely(ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("restore does not invoke opt-in HLS enqueue coordinator when RestoreMediaAssetUseCase throws")
+    void shouldNotInvokeCoordinatorWhenRestoreThrows() {
+        OptInHlsPackagingEnqueueCoordinator coordinator = mock(OptInHlsPackagingEnqueueCoordinator.class);
+        org.mockito.Mockito.doThrow(new MediaAssetNotFoundException(ASSET_ID))
+                .when(restoreMediaAssetUseCase).execute(new RestoreMediaAssetCommand(ASSET_ID));
+
+        MediaFacade facadeWithCoordinator = new MediaFacade(
+                getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
+                changeMediaVisibilityUseCase,
+                archiveMediaAssetUseCase,
+                restoreMediaAssetUseCase,
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase,
+                lockAndValidateActiveMediaAssetUseCase,
+                lockAndInspectMediaAssetUseCase,
+                coordinator,
+                null,
+                null,
+                null
+        );
+
+        assertThatThrownBy(() -> facadeWithCoordinator.restore(ASSET_ID))
+                .isInstanceOf(MediaAssetNotFoundException.class);
+        verifyNoInteractions(coordinator);
     }
 }

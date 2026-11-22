@@ -89,6 +89,13 @@ import static org.mockito.Mockito.when;
 @Import({
         MediaUploadSessionPersistenceAdapter.class,
         StorageKeyAllocationPersistenceAdapter.class,
+        MediaAssetPersistenceAdapter.class,
+        MediaAssetVersionPersistenceAdapter.class,
+        MediaVideoPackagingJobPersistenceAdapter.class,
+        MediaVideoHlsPackagePersistenceAdapter.class,
+        com.universe.media.application.hls.HlsAutoEnqueueProperties.class,
+        com.universe.media.application.hls.CreateMediaVideoPackagingJobUseCase.class,
+        com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator.class,
         StorageKeyAllocationService.class,
         MediaStorageRoutingService.class,
         MediaUploadSessionService.class,

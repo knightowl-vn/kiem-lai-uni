@@ -16,6 +16,8 @@ import com.universe.media.application.storage.StorageKeyAllocationService;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.interfaces.MediaAssetReferenceCheckPort;
 import com.universe.media.application.exceptions.StalePurgeClaimException;
+import com.universe.media.application.hls.AutoPackagingEnqueueResult;
+import com.universe.media.application.hls.AutoPackagingEnqueueStatus;
 import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
 import com.universe.media.application.hls.ClaimHlsPackagePurgeUseCase;
 import com.universe.media.application.hls.ClaimMediaVideoPackagingJobUseCase;
@@ -26,6 +28,8 @@ import com.universe.media.application.hls.CompleteVerifiedHlsPackagingUseCase;
 import com.universe.media.application.hls.CreateMediaVideoPackagingJobUseCase;
 import com.universe.media.application.hls.FailMediaVideoPackagingJobUseCase;
 import com.universe.media.application.hls.HeartbeatMediaVideoPackagingJobUseCase;
+import com.universe.media.application.hls.HlsAutoEnqueueProperties;
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.hls.VerifiedHlsPackageReceipt;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
@@ -38,6 +42,7 @@ import com.universe.media.domain.MediaVideoPackagingJob;
 import com.universe.media.domain.MediaVideoPackagingJobStatus;
 import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.MimeType;
+import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import com.universe.shared.time.ClockPort;
@@ -74,6 +79,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,6 +99,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         MediaVideoPackagingJobPersistenceAdapter.class,
         PurgeMediaAssetMetadataService.class,
         CreateMediaVideoPackagingJobUseCase.class,
+        OptInHlsPackagingEnqueueCoordinator.class,
         ClaimMediaVideoPackagingJobUseCase.class,
         HeartbeatMediaVideoPackagingJobUseCase.class,
         FailMediaVideoPackagingJobUseCase.class,
@@ -146,6 +153,20 @@ class MediaVideoHlsConcurrencyIntegrationTest {
             org.mockito.Mockito.when(barrier.isCutoverActive()).thenReturn(false);
             return barrier;
         }
+
+        @Bean
+        public AtomicBoolean autoEnqueueEnabledFlag() {
+            return new AtomicBoolean(false);
+        }
+
+        @Bean
+        public HlsAutoEnqueueProperties hlsAutoEnqueueProperties(AtomicBoolean autoEnqueueEnabledFlag) {
+            return new HlsAutoEnqueueProperties(false, false) {
+                @Override public boolean isEnabled() { return autoEnqueueEnabledFlag.get(); }
+                @Override public boolean isOnRestore() { return false; }
+                @Override public boolean isRestoreAutoEnqueueActive() { return false; }
+            };
+        }
     }
 
     @DynamicPropertySource
@@ -179,6 +200,12 @@ class MediaVideoHlsConcurrencyIntegrationTest {
 
     @Autowired
     private CreateMediaVideoPackagingJobUseCase createJobUseCase;
+
+    @Autowired
+    private OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator;
+
+    @Autowired
+    private AtomicBoolean autoEnqueueEnabledFlag;
 
     @Autowired
     private ClaimMediaVideoPackagingJobUseCase claimJobUseCase;
@@ -224,6 +251,7 @@ class MediaVideoHlsConcurrencyIntegrationTest {
 
     @AfterEach
     void cleanUp() {
+        autoEnqueueEnabledFlag.set(false);
         for (UUID assetId : createdAssetIds) {
             String id = assetId.toString();
             jdbcTemplate.update("DELETE FROM media_video_packaging_jobs WHERE asset_id = ?", id);
@@ -1357,5 +1385,249 @@ class MediaVideoHlsConcurrencyIntegrationTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    @DisplayName("CX-19: Concurrent duplicate auto-enqueues for same authoritative version produce one PENDING job winner")
+    void cx19ConcurrentAutoEnqueuesCreateSingleActiveJob() throws Exception {
+        autoEnqueueEnabledFlag.set(true);
+        UUID assetId = seedVideoAssetWithPendingJob();
+        MediaAssetVersion v1 = versionAdapter.findByAssetIdAndVersionNumber(assetId, 1).orElseThrow();
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<AutoPackagingEnqueueResult> f1 = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(assetId, 1, v1.getId());
+            });
+            Future<AutoPackagingEnqueueResult> f2 = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(assetId, 1, v1.getId());
+            });
+
+            AutoPackagingEnqueueResult r1 = f1.get(15, TimeUnit.SECONDS);
+            AutoPackagingEnqueueResult r2 = f2.get(15, TimeUnit.SECONDS);
+
+            assertThat(List.of(r1.status(), r2.status()))
+                    .containsExactlyInAnyOrder(AutoPackagingEnqueueStatus.CREATED, AutoPackagingEnqueueStatus.REUSED_ACTIVE);
+            assertThat(r1.job().getId()).isEqualTo(r2.job().getId());
+
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM media_video_packaging_jobs WHERE asset_id = ?",
+                    Integer.class, assetId.toString()
+            );
+            assertThat(count).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-20: Delayed v2 auto-enqueue skips after concurrent v3 commit while v3 creates at most one job")
+    void cx20VersionReplacementBeatsDelayedOldVersionEnqueue() throws Exception {
+        autoEnqueueEnabledFlag.set(true);
+        UUID assetId = seedVideoAssetWithPendingJob();
+        RegisterMediaAssetVersionResult v2 = registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v2/source.mp4", null,
+                "1212121212121212121212121212121212121212121212121212121212121212", "video/mp4", 10_000_000L, "v2.mp4"
+        ));
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<AutoPackagingEnqueueResult> delayedV2 = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(assetId, 2, v2.versionId());
+            });
+            Future<RegisterMediaAssetVersionResult> commitV3AndEnqueue = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                RegisterMediaAssetVersionResult v3 = registerVersionUseCase.execute(new RegisterMediaAssetVersionCommand(
+                        assetId, R2_PROVIDER.value(), "video/sources/" + assetId + "/v3/source.mp4", null,
+                        "3434343434343434343434343434343434343434343434343434343434343434", "video/mp4", 11_000_000L, "v3.mp4"
+                ));
+                optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(assetId, 3, v3.versionId());
+                return v3;
+            });
+
+            AutoPackagingEnqueueResult v2Res = delayedV2.get(15, TimeUnit.SECONDS);
+            RegisterMediaAssetVersionResult v3 = commitV3AndEnqueue.get(15, TimeUnit.SECONDS);
+
+            assertThat(v2Res.status()).isIn(AutoPackagingEnqueueStatus.CREATED, AutoPackagingEnqueueStatus.SKIPPED_STALE_VERSION);
+            assertThat(assetAdapter.findById(assetId).orElseThrow().getCurrentVersionNumber()).isEqualTo(3);
+            assertThat(findActiveJobInTx(v2.versionId())).isEmpty();
+            assertThat(findActiveJobInTx(v3.versionId())).isPresent();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-21: Auto-enqueue racing against Delete or Archive never leaves active packaging jobs surviving")
+    void cx21AutoEnqueueRacesAgainstDeleteAndArchiveSafely() throws Exception {
+        autoEnqueueEnabledFlag.set(true);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // Part A: Delete race
+            UUID deleteAssetId = seedVideoAssetWithPendingJob();
+            MediaAssetVersion dv1 = versionAdapter.findByAssetIdAndVersionNumber(deleteAssetId, 1).orElseThrow();
+            CyclicBarrier b1 = new CyclicBarrier(2);
+            Future<AutoPackagingEnqueueResult> enqA = pool.submit(() -> {
+                b1.await(10, TimeUnit.SECONDS);
+                return optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(deleteAssetId, 1, dv1.getId());
+            });
+            Future<Void> delA = pool.submit(() -> {
+                b1.await(10, TimeUnit.SECONDS);
+                deleteAssetUseCase.execute(new DeleteMediaAssetCommand(deleteAssetId));
+                return null;
+            });
+            enqA.get(15, TimeUnit.SECONDS);
+            delA.get(15, TimeUnit.SECONDS);
+
+            assertThat(assetAdapter.findById(deleteAssetId).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+            assertThat(findActiveJobInTx(dv1.getId())).isEmpty();
+
+            // Part B: Archive race
+            UUID archiveAssetId = seedVideoAssetWithPendingJob();
+            MediaAssetVersion av1 = versionAdapter.findByAssetIdAndVersionNumber(archiveAssetId, 1).orElseThrow();
+            CyclicBarrier b2 = new CyclicBarrier(2);
+            Future<AutoPackagingEnqueueResult> enqB = pool.submit(() -> {
+                b2.await(10, TimeUnit.SECONDS);
+                return optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(archiveAssetId, 1, av1.getId());
+            });
+            Future<Void> archB = pool.submit(() -> {
+                b2.await(10, TimeUnit.SECONDS);
+                archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(archiveAssetId));
+                return null;
+            });
+            enqB.get(15, TimeUnit.SECONDS);
+            archB.get(15, TimeUnit.SECONDS);
+
+            assertThat(assetAdapter.findById(archiveAssetId).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.ARCHIVED);
+            assertThat(findActiveJobInTx(av1.getId())).isEmpty();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-22: READY completion racing against duplicate auto-enqueue creates zero redundant active jobs")
+    void cx22ReadyCompletionVsDuplicateAutoEnqueue() throws Exception {
+        autoEnqueueEnabledFlag.set(true);
+        UUID assetId = seedVideoAssetWithPendingJob();
+        MediaAssetVersion v1 = versionAdapter.findByAssetIdAndVersionNumber(assetId, 1).orElseThrow();
+        MediaVideoPackagingJob job = createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease lease = claimJobUseCase.claimNext(
+                "w-cx22", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<Void> completeF = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                completeJobUseCase.completeWithVerifiedReceipt(
+                        assetId, job.getId(), lease.packageId(), "w-cx22", lease.leaseGeneration(),
+                        new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", BASE_TIME)
+                );
+                return null;
+            });
+            Future<AutoPackagingEnqueueResult> enqF = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(assetId, 1, v1.getId());
+            });
+
+            completeF.get(15, TimeUnit.SECONDS);
+            AutoPackagingEnqueueResult res = enqF.get(15, TimeUnit.SECONDS);
+
+            assertThat(res.status()).isIn(AutoPackagingEnqueueStatus.REUSED_ACTIVE, AutoPackagingEnqueueStatus.SKIPPED_READY);
+            assertThat(findActiveJobInTx(v1.getId())).isEmpty();
+            assertThat(readJobsInTx(assetId)).hasSize(1);
+            assertThat(hlsPackageAdapter.findCurrentReadyByAssetId(assetId)).isPresent();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-23: Uncommitted transaction visibility, rollback isolation, and terminal FAILED deduplication in MySQL")
+    void cx23TransactionVisibilityAndTerminalFailureDeduplication() throws Exception {
+        autoEnqueueEnabledFlag.set(true);
+        UUID assetId = UUID.randomUUID();
+        UUID v1Id = UUID.randomUUID();
+
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        CountDownLatch insertedUncommitted = new CountDownLatch(1);
+        CountDownLatch checkedUncommitted = new CountDownLatch(1);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Void> txWriter = pool.submit(() -> {
+                try {
+                    txTemplate.executeWithoutResult(status -> {
+                        MediaAsset a = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, BASE_TIME);
+                        MediaAssetVersion v = MediaAssetVersion.create(
+                                v1Id, assetId, 1,
+                                StorageLocation.of(R2_PROVIDER, StorageKey.of("video/cx23/" + assetId + ".mp4")),
+                                null, SOURCE_SHA256, MimeType.of("video/mp4"), 1024L, "cx23.mp4", BASE_TIME
+                        );
+                        assetAdapter.save(a);
+                        versionAdapter.save(v);
+                        insertedUncommitted.countDown();
+                        try {
+                            checkedUncommitted.await(10, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        status.setRollbackOnly();
+                    });
+                } finally {
+                    insertedUncommitted.countDown();
+                }
+                return null;
+            });
+
+            assertThat(insertedUncommitted.await(10, TimeUnit.SECONDS)).isTrue();
+            // Concurrent coordinator cannot observe uncommitted registration
+            assertThat(optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(assetId, 1, v1Id).status())
+                    .isEqualTo(AutoPackagingEnqueueStatus.SKIPPED_INELIGIBLE_ASSET);
+            checkedUncommitted.countDown();
+            txWriter.get(15, TimeUnit.SECONDS);
+            assertThat(packagingJobAdapter.existsByAssetId(assetId)).isFalse();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // Now commit asset, create & permanently fail job, verify auto-enqueue skips retry cleanly
+        UUID committedAsset = seedVideoAssetWithPendingJob();
+        MediaAssetVersion committedV1 = versionAdapter.findByAssetIdAndVersionNumber(committedAsset, 1).orElseThrow();
+        AutoPackagingEnqueueResult created = optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(
+                committedAsset, 1, committedV1.getId()
+        );
+        assertThat(created.status()).isEqualTo(AutoPackagingEnqueueStatus.CREATED);
+
+        ClaimedVideoPackagingLease lease = claimJobUseCase.claimNext(
+                "w-cx23", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+        failJobUseCase.executePermanentFailure(
+                committedAsset, lease.jobId(), "w-cx23", lease.leaseGeneration(), "Invalid codec"
+        );
+
+        AutoPackagingEnqueueResult retryAfterFailed = optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(
+                committedAsset, 1, committedV1.getId()
+        );
+        assertThat(retryAfterFailed.status()).isEqualTo(AutoPackagingEnqueueStatus.SKIPPED_TERMINAL_JOB);
+        assertThat(readJobsInTx(committedAsset)).hasSize(1);
+    }
+
+    private Optional<MediaVideoPackagingJob> findActiveJobInTx(UUID sourceVersionId) {
+        return new TransactionTemplate(transactionManager)
+                .execute(s -> packagingJobAdapter.findActiveBySourceVersionIdForUpdate(sourceVersionId));
+    }
+
+    private List<MediaVideoPackagingJob> readJobsInTx(UUID assetId) {
+        return new TransactionTemplate(transactionManager)
+                .execute(s -> packagingJobAdapter.findByAssetIdForUpdateOrderByIdAsc(assetId));
     }
 }

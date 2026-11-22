@@ -1,6 +1,7 @@
 package com.universe.media.application.ports;
 
 import com.universe.media.domain.MediaVideoPackagingJob;
+import com.universe.media.domain.MediaVideoPackagingJobStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,13 @@ public interface MediaVideoPackagingJobRepositoryPort {
     Optional<MediaVideoPackagingJob> findByIdForUpdate(UUID id);
 
     Optional<MediaVideoPackagingJob> findActiveBySourceVersionIdForUpdate(UUID sourceVersionId);
+
+    /**
+     * Checks whether any terminal packaging job (SUCCEEDED, FAILED, CANCELLED) exists for
+     * {@code sourceVersionId} without hydrating full job rows, returning the highest-priority
+     * status present (SUCCEEDED > FAILED > CANCELLED).
+     */
+    Optional<MediaVideoPackagingJobStatus> findHighestPriorityTerminalStatusBySourceVersionId(UUID sourceVersionId);
 
     List<MediaVideoPackagingJob> findByAssetIdForUpdateOrderByIdAsc(UUID assetId);
 

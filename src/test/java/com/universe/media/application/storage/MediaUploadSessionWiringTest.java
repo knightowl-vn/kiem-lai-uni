@@ -1,5 +1,6 @@
 package com.universe.media.application.storage;
 
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
 import com.universe.media.infrastructure.persistence.MediaUploadSessionPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.SpringDataMediaUploadSessionJpaRepository;
@@ -25,7 +26,8 @@ class MediaUploadSessionWiringTest {
             .withBean(StorageKeyAllocationService.class, () -> mock(StorageKeyAllocationService.class))
             .withBean(MediaStorageRoutingService.class, () -> mock(MediaStorageRoutingService.class))
             .withBean(ClockPort.class, () -> Instant::now)
-            .withBean(org.springframework.transaction.PlatformTransactionManager.class, () -> mock(org.springframework.transaction.PlatformTransactionManager.class));
+            .withBean(org.springframework.transaction.PlatformTransactionManager.class, () -> mock(org.springframework.transaction.PlatformTransactionManager.class))
+            .withBean(OptInHlsPackagingEnqueueCoordinator.class, () -> mock(OptInHlsPackagingEnqueueCoordinator.class));
 
     @Test
     @DisplayName("Successfully registers and wires MediaUploadSessionService, Adapter, and Repository port")

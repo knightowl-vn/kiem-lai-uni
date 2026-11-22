@@ -127,6 +127,15 @@ class HlsLifecycleCancellationUseCaseTest {
             @Override public Optional<MediaVideoPackagingJob> findById(UUID id) { return Optional.ofNullable(jobs.get(id)); }
             @Override public Optional<MediaVideoPackagingJob> findByIdForUpdate(UUID id) { return findById(id); }
             @Override public Optional<MediaVideoPackagingJob> findActiveBySourceVersionIdForUpdate(UUID svId) { return Optional.empty(); }
+            @Override public Optional<MediaVideoPackagingJobStatus> findHighestPriorityTerminalStatusBySourceVersionId(UUID svId) {
+                return jobs.values().stream()
+                        .filter(j -> j.getSourceVersionId().equals(svId))
+                        .map(MediaVideoPackagingJob::getStatus)
+                        .filter(s -> s == MediaVideoPackagingJobStatus.SUCCEEDED
+                                || s == MediaVideoPackagingJobStatus.FAILED
+                                || s == MediaVideoPackagingJobStatus.CANCELLED)
+                        .findFirst();
+            }
             @Override public List<MediaVideoPackagingJob> findByAssetIdForUpdateOrderByIdAsc(UUID assetId) {
                 lockTrace.add("JOBS:" + assetId);
                 return jobs.values().stream()

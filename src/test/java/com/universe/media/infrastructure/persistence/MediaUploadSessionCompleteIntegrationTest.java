@@ -110,6 +110,11 @@ import static org.mockito.Mockito.when;
         StorageKeyAllocationPersistenceAdapter.class,
         MediaAssetPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
+        MediaVideoPackagingJobPersistenceAdapter.class,
+        MediaVideoHlsPackagePersistenceAdapter.class,
+        com.universe.media.application.hls.HlsAutoEnqueueProperties.class,
+        com.universe.media.application.hls.CreateMediaVideoPackagingJobUseCase.class,
+        com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator.class,
         StorageKeyAllocationService.class,
         MediaStorageRoutingService.class,
         MediaUploadSessionService.class,
@@ -152,6 +157,23 @@ class MediaUploadSessionCompleteIntegrationTest {
                 return Mockito.RETURNS_DEFAULTS.answer(invocation);
             });
         }
+
+        @Bean
+        public AtomicBoolean autoEnqueueEnabledFlag() {
+            return new AtomicBoolean(false);
+        }
+
+        @Bean
+        @org.springframework.context.annotation.Primary
+        public com.universe.media.application.hls.HlsAutoEnqueueProperties testHlsAutoEnqueueProperties(
+                AtomicBoolean autoEnqueueEnabledFlag
+        ) {
+            return new com.universe.media.application.hls.HlsAutoEnqueueProperties(false, false) {
+                @Override public boolean isEnabled() { return autoEnqueueEnabledFlag.get(); }
+                @Override public boolean isOnRestore() { return false; }
+                @Override public boolean isRestoreAutoEnqueueActive() { return false; }
+            };
+        }
     }
 
     @Autowired
@@ -174,6 +196,15 @@ class MediaUploadSessionCompleteIntegrationTest {
 
     @Autowired
     private StorageKeyAllocationPersistenceAdapter storageKeyAllocationPersistenceAdapter;
+
+    @Autowired
+    private MediaVideoPackagingJobPersistenceAdapter packagingJobPersistenceAdapter;
+
+    @Autowired
+    private MediaVideoHlsPackagePersistenceAdapter hlsPackagePersistenceAdapter;
+
+    @Autowired
+    private AtomicBoolean autoEnqueueEnabledFlag;
 
     @SpyBean
     private MediaAssetPersistenceAdapter mediaAssetPersistenceAdapter;
@@ -226,6 +257,7 @@ class MediaUploadSessionCompleteIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        autoEnqueueEnabledFlag.set(false);
         TestConfig.resetClock();
         Mockito.reset(
                 multipartStoragePort,
@@ -283,6 +315,16 @@ class MediaUploadSessionCompleteIntegrationTest {
                 jdbcTemplate.update("DELETE FROM media_upload_sessions WHERE id = ?", sessionId.toString());
             } catch (Exception e) {
                 cleanupErrors.add("Failed to delete media_upload_sessions [id=" + sessionId + "]: " + e.getMessage());
+            }
+        }
+
+        // Step A2: HLS jobs & packages (reference media_assets and media_asset_versions ON DELETE RESTRICT)
+        for (UUID assetId : createdAssetIds) {
+            try {
+                jdbcTemplate.update("DELETE FROM media_video_packaging_jobs WHERE asset_id = ?", assetId.toString());
+                jdbcTemplate.update("DELETE FROM media_video_hls_packages WHERE asset_id = ?", assetId.toString());
+            } catch (Exception e) {
+                cleanupErrors.add("Failed to delete HLS rows [asset_id=" + assetId + "]: " + e.getMessage());
             }
         }
 
@@ -1647,5 +1689,115 @@ class MediaUploadSessionCompleteIntegrationTest {
                 fixture.storageKey().value()
         );
         assertThat(versionCount).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("HLS-2B3A3b: Multipart completion covers disabled OFF, Path A fresh enqueue, Path B replay reuse, self-healing & failure isolation")
+    void shouldHandleOptInHlsAutoEnqueueAcrossMultipartFreshCompletionAndReplay() {
+        // 1. Default OFF: fresh completion creates ZERO HLS jobs
+        autoEnqueueEnabledFlag.set(false);
+        TestFixture offFixture = createAndPersistCompletingFixture("hls-off");
+        stubSuccessfulCompletionProvider(offFixture);
+        MediaUploadSession offCompleted = sessionService.completeMultipartUpload(
+                offFixture.sessionId(), PRINCIPAL, offFixture.manifest()
+        );
+        assertThat(offCompleted.getStatus()).isEqualTo(MediaUploadSessionStatus.COMPLETED);
+        assertThat(packagingJobPersistenceAdapter.existsByAssetId(offCompleted.getRegisteredAssetId())).isFalse();
+
+        // 2. Self-healing replay when flag was enabled later (or prior post-commit enqueue missed)
+        autoEnqueueEnabledFlag.set(true);
+        MediaUploadSession healedReplay = sessionService.completeMultipartUpload(
+                offFixture.sessionId(), PRINCIPAL, offFixture.manifest()
+        );
+        assertThat(healedReplay.getRegisteredAssetId()).isEqualTo(offCompleted.getRegisteredAssetId());
+        var healedJobs = readJobsInTx(healedReplay.getRegisteredAssetId());
+        assertThat(healedJobs).hasSize(1);
+        assertThat(healedJobs.get(0).getStatus()).isEqualTo(com.universe.media.domain.MediaVideoPackagingJobStatus.PENDING);
+        assertThat(healedJobs.get(0).getSourceVersionNumber()).isEqualTo(1);
+
+        // 3. Repeated replay reuses active PENDING job without duplicating or re-invoking provider completion
+        MediaUploadSession thirdReplay = sessionService.completeMultipartUpload(
+                offFixture.sessionId(), PRINCIPAL, offFixture.manifest()
+        );
+        assertThat(thirdReplay.getRegisteredAssetId()).isEqualTo(offCompleted.getRegisteredAssetId());
+        assertThat(readJobsInTx(healedReplay.getRegisteredAssetId()))
+                .hasSize(1);
+
+        // 4. Path A fresh completion with flag ON creates 1 PENDING job outside TX-B
+        TestFixture onFixture = createAndPersistCompletingFixture("hls-on");
+        stubSuccessfulCompletionProvider(onFixture);
+        MediaUploadSession onCompleted = sessionService.completeMultipartUpload(
+                onFixture.sessionId(), PRINCIPAL, onFixture.manifest()
+        );
+        assertThat(onCompleted.getStatus()).isEqualTo(MediaUploadSessionStatus.COMPLETED);
+        var onJobs = readJobsInTx(onCompleted.getRegisteredAssetId());
+        assertThat(onJobs).hasSize(1);
+        assertThat(onJobs.get(0).getStatus()).isEqualTo(com.universe.media.domain.MediaVideoPackagingJobStatus.PENDING);
+
+        // 5. Mark READY + SUCCEEDED on asset -> replay skips without creating any second job
+        var v1 = mediaAssetVersionPersistenceAdapter.findByAssetIdAndVersionNumber(onCompleted.getRegisteredAssetId(), 1).orElseThrow();
+        var job = onJobs.get(0);
+        Instant now = clockPort.now();
+        UUID pkgId = UUID.randomUUID();
+        var pkg = com.universe.media.domain.MediaVideoHlsPackage.startProcessing(
+                pkgId, onCompleted.getRegisteredAssetId(), v1.getId(), 1, UUID.randomUUID(), 1,
+                StorageProviderId.of("r2-hls"), "hls-bkt",
+                StorageKey.of("objects/hls/" + onCompleted.getRegisteredAssetId() + "/v1/" + pkgId + "/"),
+                6, now
+        );
+        pkg.markReady(com.universe.media.domain.ContentHash.of(VALID_CONTENT_HASH), 2048L, 4, "[]", now, now);
+        hlsPackagePersistenceAdapter.save(pkg);
+        job.claimOrReclaimLease("worker-mp", pkgId, Duration.ofMinutes(5), now);
+        job.markSucceeded("worker-mp", 1L, pkgId, now);
+        packagingJobPersistenceAdapter.save(job);
+
+        sessionService.completeMultipartUpload(onFixture.sessionId(), PRINCIPAL, onFixture.manifest());
+        assertThat(readJobsInTx(onCompleted.getRegisteredAssetId()))
+                .hasSize(1);
+
+        // 6. Failure before TX-B commit creates ZERO HLS jobs
+        TestFixture failTxBFixture = createAndPersistCompletingFixture("hls-txb-fail");
+        stubSuccessfulCompletionProvider(failTxBFixture);
+        Mockito.doThrow(new RuntimeException("Simulated TX-B DB error"))
+                .when(mediaAssetPersistenceAdapter).save(any(MediaAsset.class));
+        assertThatThrownBy(() -> sessionService.completeMultipartUpload(
+                failTxBFixture.sessionId(), PRINCIPAL, failTxBFixture.manifest()
+        )).isInstanceOf(RuntimeException.class);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_video_packaging_jobs WHERE asset_id NOT IN (?, ?)",
+                Integer.class,
+                offCompleted.getRegisteredAssetId().toString(),
+                onCompleted.getRegisteredAssetId().toString()
+        )).isEqualTo(0);
+    }
+
+    private List<com.universe.media.domain.MediaVideoPackagingJob> readJobsInTx(UUID assetId) {
+        return new TransactionTemplate(transactionManager)
+                .execute(s -> packagingJobPersistenceAdapter.findByAssetIdForUpdateOrderByIdAsc(assetId));
+    }
+
+    private void stubSuccessfulCompletionProvider(TestFixture fixture) {
+        when(multipartStoragePort.listUploadedParts(fixture.storageKey(), PROVIDER_UPLOAD_ID))
+                .thenReturn(createStandard2UploadedParts());
+        when(multipartStoragePort.completeMultipartUpload(eq(fixture.storageKey()), eq(PROVIDER_UPLOAD_ID), any()))
+                .thenReturn(new MultipartCompletedObject(
+                        StorageLocation.of(B2_PROVIDER, fixture.storageKey()),
+                        "\"complete-etag-50mib\"",
+                        "ver-b2-" + fixture.sessionId()
+                ));
+        when(multipartStoragePort.inspectObjectMetadata(fixture.storageKey()))
+                .thenReturn(new MultipartObjectMetadata(
+                        fixture.storageKey(),
+                        DECLARED_SIZE,
+                        "video/mp4",
+                        "\"complete-etag-50mib\"",
+                        Map.of(
+                                MediaUploadSessionService.METADATA_SESSION_ID, fixture.sessionId().toString(),
+                                MediaUploadSessionService.METADATA_ALLOCATION_ID, fixture.allocationId().toString()
+                        ),
+                        "ver-b2-" + fixture.sessionId(),
+                        B2_PROVIDER,
+                        B2_BUCKET
+                ));
     }
 }

@@ -3,6 +3,7 @@ package com.universe.media.infrastructure.persistence;
 import com.universe.media.application.ports.MediaVideoPackagingJobCandidate;
 import com.universe.media.application.ports.MediaVideoPackagingJobRepositoryPort;
 import com.universe.media.domain.MediaVideoPackagingJob;
+import com.universe.media.domain.MediaVideoPackagingJobStatus;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -79,6 +80,24 @@ public class MediaVideoPackagingJobPersistenceAdapter implements MediaVideoPacka
     public Optional<MediaVideoPackagingJob> findActiveBySourceVersionIdForUpdate(UUID sourceVersionId) {
         Objects.requireNonNull(sourceVersionId, "Source version ID cannot be null.");
         return repository.findActiveBySourceVersionIdForUpdate(sourceVersionId.toString()).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<MediaVideoPackagingJobStatus> findHighestPriorityTerminalStatusBySourceVersionId(UUID sourceVersionId) {
+        Objects.requireNonNull(sourceVersionId, "Source version ID cannot be null.");
+        List<MediaVideoPackagingJobStatus> statuses = repository.findDistinctTerminalStatusesBySourceVersionId(
+                sourceVersionId.toString()
+        );
+        if (statuses.contains(MediaVideoPackagingJobStatus.SUCCEEDED)) {
+            return Optional.of(MediaVideoPackagingJobStatus.SUCCEEDED);
+        }
+        if (statuses.contains(MediaVideoPackagingJobStatus.FAILED)) {
+            return Optional.of(MediaVideoPackagingJobStatus.FAILED);
+        }
+        if (statuses.contains(MediaVideoPackagingJobStatus.CANCELLED)) {
+            return Optional.of(MediaVideoPackagingJobStatus.CANCELLED);
+        }
+        return Optional.empty();
     }
 
     @Override

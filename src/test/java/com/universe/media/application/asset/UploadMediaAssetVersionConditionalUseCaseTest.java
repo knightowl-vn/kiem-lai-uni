@@ -2,6 +2,7 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
@@ -661,5 +662,65 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
         verify(registerMediaAssetVersionUseCase, never()).probeAuthoritativeDuplicate(any(), any());
         verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
         verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("VIDEO conditional VERSION_CREATED triggers post-commit opt-in enqueue while UNCHANGED does not")
+    void shouldEnqueueOnlyOnVideoVersionCreatedAndNotUnchanged() {
+        OptInHlsPackagingEnqueueCoordinator coordinator = org.mockito.Mockito.mock(OptInHlsPackagingEnqueueCoordinator.class);
+        UploadMediaAssetVersionConditionalUseCase wiredConditional = new UploadMediaAssetVersionConditionalUseCase(
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                rasterValidator,
+                registerMediaAssetVersionUseCase,
+                new VideoUploadValidator(),
+                null,
+                null,
+                coordinator
+        );
+
+        MediaAsset videoAsset = MediaAsset.registerInitial(ASSET_ID, MediaType.VIDEO, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(videoAsset));
+
+        // 1. UNCHANGED on probe -> zero enqueue
+        byte[] dupBytes = "dup-mp4-video".getBytes(StandardCharsets.UTF_8);
+        String dupHash = sha256Hex(dupBytes);
+        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, dupHash))
+                .thenReturn(AuthoritativeDuplicateProbeResult.duplicate(1));
+
+        UploadMediaAssetVersionConditionalResult unchanged = wiredConditional.execute(new UploadMediaAssetVersionCommand(
+                ASSET_ID, new ByteArrayInputStream(dupBytes), dupBytes.length, "video/mp4", "dup.mp4"
+        ));
+        assertThat(unchanged.outcome()).isEqualTo(MediaVersionUploadOutcome.UNCHANGED);
+        org.mockito.Mockito.verifyNoInteractions(coordinator);
+
+        // 2. Concurrent race resolves to UNCHANGED in registration tx -> deletes candidate & zero enqueue
+        byte[] raceBytes = "race-mp4-video".getBytes(StandardCharsets.UTF_8);
+        String raceHash = sha256Hex(raceBytes);
+        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, raceHash))
+                .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
+        when(registerMediaAssetVersionUseCase.registerConditionalVersion(any()))
+                .thenReturn(RegisterMediaAssetVersionConditionalResult.unchanged(ASSET_ID, 2, NOW));
+
+        UploadMediaAssetVersionConditionalResult raceUnchanged = wiredConditional.execute(new UploadMediaAssetVersionCommand(
+                ASSET_ID, new ByteArrayInputStream(raceBytes), raceBytes.length, "video/mp4", "race.mp4"
+        ));
+        assertThat(raceUnchanged.outcome()).isEqualTo(MediaVersionUploadOutcome.UNCHANGED);
+        org.mockito.Mockito.verifyNoInteractions(coordinator);
+
+        // 3. Genuine VERSION_CREATED -> triggers post-commit enqueue with version 2 & VERSION_2_ID
+        byte[] newBytes = "new-v2-mp4-video".getBytes(StandardCharsets.UTF_8);
+        String newHash = sha256Hex(newBytes);
+        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, newHash))
+                .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
+        when(registerMediaAssetVersionUseCase.registerConditionalVersion(any()))
+                .thenReturn(RegisterMediaAssetVersionConditionalResult.versionCreated(ASSET_ID, VERSION_2_ID, 2, NOW));
+
+        UploadMediaAssetVersionConditionalResult created = wiredConditional.execute(new UploadMediaAssetVersionCommand(
+                ASSET_ID, new ByteArrayInputStream(newBytes), newBytes.length, "video/mp4", "v2.mp4"
+        ));
+        assertThat(created.outcome()).isEqualTo(MediaVersionUploadOutcome.VERSION_CREATED);
+        verify(coordinator).enqueueVideoVersionIfEnabledSafely(ASSET_ID, 2, VERSION_2_ID);
     }
 }

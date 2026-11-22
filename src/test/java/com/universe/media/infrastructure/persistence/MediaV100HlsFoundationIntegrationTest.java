@@ -2,19 +2,47 @@ package com.universe.media.infrastructure.persistence;
 
 import com.universe.media.application.asset.ArchiveMediaAssetCommand;
 import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
+import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetCommand;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
+import com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeysetUseCase;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
+import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.LockAndInspectMediaAssetUseCase;
+import com.universe.media.application.asset.LockAndValidateActiveMediaAssetUseCase;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.PurgeDeletedMediaAssetCommand;
 import com.universe.media.application.asset.PurgeDeletedMediaAssetUseCase;
 import com.universe.media.application.asset.PurgeMediaAssetMetadataService;
+import com.universe.media.application.asset.RasterContentSignatureValidator;
+import com.universe.media.application.asset.RegisterMediaAssetUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetVersionCommand;
 import com.universe.media.application.asset.RegisterMediaAssetVersionConditionalResult;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetCommand;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
+import com.universe.media.application.asset.UploadMediaAssetCommand;
+import com.universe.media.application.asset.UploadMediaAssetResult;
+import com.universe.media.application.asset.UploadMediaAssetUseCase;
+import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalResult;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
+import com.universe.media.application.asset.UploadMediaAssetVersionResult;
+import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
+import com.universe.media.application.asset.VideoUploadValidator;
 import com.universe.media.application.exceptions.StalePackagingLeaseException;
+import com.universe.media.application.facade.MediaFacade;
+import com.universe.media.application.hls.AutoPackagingEnqueueResult;
+import com.universe.media.application.hls.AutoPackagingEnqueueStatus;
+import com.universe.media.application.hls.HlsAutoEnqueueProperties;
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.application.storage.MediaStorageCutoverBarrier;
+import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.application.storage.StorageKeyAllocationService;
+import com.universe.media.application.variant.GenerateMediaImageVariantUseCase;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.contracts.exceptions.MediaAssetReferencedException;
 import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
@@ -69,12 +97,16 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -98,6 +130,7 @@ import static org.mockito.Mockito.verify;
         MediaVideoPackagingJobPersistenceAdapter.class,
         PurgeMediaAssetMetadataService.class,
         CreateMediaVideoPackagingJobUseCase.class,
+        OptInHlsPackagingEnqueueCoordinator.class,
         ClaimMediaVideoPackagingJobUseCase.class,
         HeartbeatMediaVideoPackagingJobUseCase.class,
         FailMediaVideoPackagingJobUseCase.class,
@@ -105,10 +138,17 @@ import static org.mockito.Mockito.verify;
         CancelOrSupersedeMediaVideoPackagingUseCase.class,
         ClaimHlsPackagePurgeUseCase.class,
         CompleteHlsPackagePurgeUseCase.class,
+        RegisterMediaAssetUseCase.class,
         RegisterMediaAssetVersionUseCase.class,
+        UploadMediaAssetUseCase.class,
+        UploadMediaAssetVersionUseCase.class,
+        UploadMediaAssetVersionConditionalUseCase.class,
+        RasterContentSignatureValidator.class,
+        VideoUploadValidator.class,
         DeleteMediaAssetUseCase.class,
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,
+        MediaFacade.class,
         MediaV100HlsFoundationIntegrationTest.TestConfig.class
 })
 class MediaV100HlsFoundationIntegrationTest {
@@ -160,6 +200,70 @@ class MediaV100HlsFoundationIntegrationTest {
             Mockito.when(barrier.isCutoverActive()).thenReturn(false);
             return barrier;
         }
+
+        @Bean
+        public AtomicBoolean autoEnqueueEnabledFlag() {
+            return new AtomicBoolean(false);
+        }
+
+        @Bean
+        public AtomicBoolean autoEnqueueOnRestoreFlag() {
+            return new AtomicBoolean(false);
+        }
+
+        @Bean
+        public HlsAutoEnqueueProperties hlsAutoEnqueueProperties(
+                AtomicBoolean autoEnqueueEnabledFlag,
+                AtomicBoolean autoEnqueueOnRestoreFlag
+        ) {
+            return new HlsAutoEnqueueProperties(false, false) {
+                @Override public boolean isEnabled() { return autoEnqueueEnabledFlag.get(); }
+                @Override public boolean isOnRestore() { return autoEnqueueOnRestoreFlag.get(); }
+                @Override public boolean isRestoreAutoEnqueueActive() {
+                    return autoEnqueueEnabledFlag.get() && autoEnqueueOnRestoreFlag.get();
+                }
+            };
+        }
+
+        @Bean
+        public BinaryStoragePort binaryStoragePort() {
+            BinaryStoragePort port = Mockito.mock(BinaryStoragePort.class);
+            Mockito.when(port.providerId()).thenReturn(StorageProviderId.of("local"));
+            Mockito.when(port.store(any(), any(), Mockito.anyLong(), any())).thenAnswer(inv -> {
+                StorageKey key = inv.getArgument(0);
+                InputStream in = inv.getArgument(1);
+                in.readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(StorageProviderId.of("local"), key), null);
+            });
+            return port;
+        }
+
+        @Bean
+        public StorageProviderResolverPort storageProviderResolverPort(BinaryStoragePort binaryStoragePort) {
+            StorageProviderResolverPort resolver = Mockito.mock(StorageProviderResolverPort.class);
+            Mockito.when(resolver.resolve(any())).thenReturn(binaryStoragePort);
+            return resolver;
+        }
+
+        @Bean
+        public MediaStorageRoutingService mediaStorageRoutingService() {
+            MediaStorageRoutingService routing = Mockito.mock(MediaStorageRoutingService.class);
+            Mockito.when(routing.resolveWriteProvider(any(), any())).thenReturn(StorageProviderId.of("local"));
+            Mockito.when(routing.generateStorageKey(any(), any(), any(), Mockito.anyInt()))
+                    .thenAnswer(inv -> StorageKey.of("video/test/" + UUID.randomUUID() + ".mp4"));
+            return routing;
+        }
+
+        @Bean public GetMediaAssetDetailUseCase getMediaAssetDetailUseCase() { return Mockito.mock(GetMediaAssetDetailUseCase.class); }
+        @Bean public GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase() { return Mockito.mock(GetMediaAssetCurrentMetadataUseCase.class); }
+        @Bean public ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase() { return Mockito.mock(ChangeMediaVisibilityUseCase.class); }
+        @Bean public GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase() { return Mockito.mock(GenerateMediaImageVariantUseCase.class); }
+        @Bean public GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase() { return Mockito.mock(GetCurrentMediaAssetVersionSnapshotUseCase.class); }
+        @Bean public OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase() { return Mockito.mock(OpenMediaAssetVersionContentUseCase.class); }
+        @Bean public AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase() { return Mockito.mock(AssignMediaAssetClientTagUseCase.class); }
+        @Bean public FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase() { return Mockito.mock(FindActiveMediaAssetsByClientTagKeysetUseCase.class); }
+        @Bean public LockAndValidateActiveMediaAssetUseCase lockAndValidateActiveMediaAssetUseCase() { return Mockito.mock(LockAndValidateActiveMediaAssetUseCase.class); }
+        @Bean public LockAndInspectMediaAssetUseCase lockAndInspectMediaAssetUseCase() { return Mockito.mock(LockAndInspectMediaAssetUseCase.class); }
     }
 
     @DynamicPropertySource
@@ -226,6 +330,27 @@ class MediaV100HlsFoundationIntegrationTest {
 
     @Autowired
     private CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase;
+
+    @Autowired
+    private UploadMediaAssetUseCase uploadMediaAssetUseCase;
+
+    @Autowired
+    private UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase;
+
+    @Autowired
+    private UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase;
+
+    @Autowired
+    private OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator;
+
+    @Autowired
+    private MediaFacade mediaFacade;
+
+    @Autowired
+    private AtomicBoolean autoEnqueueEnabledFlag;
+
+    @Autowired
+    private AtomicBoolean autoEnqueueOnRestoreFlag;
 
     @Autowired
     private AtomicReference<UUID> referencedAssetGuard;
@@ -897,5 +1022,139 @@ class MediaV100HlsFoundationIntegrationTest {
         assertThat(assetAdapter.findById(asset3Id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
         assertThat(hlsPackageAdapter.findById(a3Lease.packageId()).orElseThrow().getStatus())
                 .isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
+    }
+
+    @Test
+    @DisplayName("A3b opt-in post-commit enqueue integrates direct upload, conditional replace, delayed v2 skip & conservative restore policy in MySQL")
+    void shouldCoordinateOptInPostCommitAutoEnqueueAcrossUploadVersionReplaceAndRestoreInMySql() {
+        autoEnqueueEnabledFlag.set(false);
+        autoEnqueueOnRestoreFlag.set(false);
+        try {
+            byte[] mp4V1 = "ftypmp42-v1-payload-bytes".getBytes(StandardCharsets.UTF_8);
+
+            // 1. Flag OFF -> zero jobs created for initial VIDEO upload
+            UploadMediaAssetResult offResult = uploadMediaAssetUseCase.execute(new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(mp4V1), mp4V1.length, "video/mp4",
+                    MediaType.VIDEO, MediaVisibility.PRIVATE, "movie-off.mp4", "screen-video"
+            ));
+            createdAssetIds.add(offResult.assetId());
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM media_video_packaging_jobs WHERE asset_id = ?",
+                    Integer.class, offResult.assetId().toString()
+            )).isEqualTo(0);
+
+            // 2. Flag ON -> initial VIDEO upload creates 1 PENDING v1 job; non-VIDEO IMAGE creates 0 jobs
+            autoEnqueueEnabledFlag.set(true);
+            UploadMediaAssetResult onVideo = uploadMediaAssetUseCase.execute(new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(mp4V1), mp4V1.length, "video/mp4",
+                    MediaType.VIDEO, MediaVisibility.PRIVATE, "movie-on.mp4", "screen-video"
+            ));
+            createdAssetIds.add(onVideo.assetId());
+            List<MediaVideoPackagingJob> v1Jobs = readJobs(onVideo.assetId());
+            assertThat(v1Jobs).hasSize(1);
+            assertThat(v1Jobs.get(0).getStatus()).isEqualTo(MediaVideoPackagingJobStatus.PENDING);
+            assertThat(v1Jobs.get(0).getSourceVersionNumber()).isEqualTo(1);
+            assertThat(v1Jobs.get(0).getSourceVersionId()).isEqualTo(onVideo.versionId());
+
+            byte[] png = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3};
+            UploadMediaAssetResult onImage = uploadMediaAssetUseCase.execute(new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(png), png.length, "image/png",
+                    MediaType.IMAGE, MediaVisibility.PUBLIC, "cover.png", "cover"
+            ));
+            createdAssetIds.add(onImage.assetId());
+            assertThat(packagingJobAdapter.existsByAssetId(onImage.assetId())).isFalse();
+
+            // 3. Conditional upload UNCHANGED -> keeps v1 PENDING job intact, zero new jobs
+            UploadMediaAssetVersionConditionalResult unchangedRes = uploadMediaAssetVersionConditionalUseCase.execute(
+                    new UploadMediaAssetVersionCommand(
+                            onVideo.assetId(), new ByteArrayInputStream(mp4V1), mp4V1.length, "video/mp4", "dup.mp4"
+                    )
+            );
+            assertThat(unchangedRes.outcome()).isEqualTo(MediaVersionUploadOutcome.UNCHANGED);
+            assertThat(readJobs(onVideo.assetId())).hasSize(1);
+            assertThat(packagingJobAdapter.findById(v1Jobs.get(0).getId()).orElseThrow().getStatus())
+                    .isEqualTo(MediaVideoPackagingJobStatus.PENDING);
+
+            // 4. Conditional VERSION_CREATED -> cancels v1 & creates PENDING v2 job
+            byte[] mp4V2 = "ftypmp42-v2-different-payload".getBytes(StandardCharsets.UTF_8);
+            UploadMediaAssetVersionConditionalResult v2Res = uploadMediaAssetVersionConditionalUseCase.execute(
+                    new UploadMediaAssetVersionCommand(
+                            onVideo.assetId(), new ByteArrayInputStream(mp4V2), mp4V2.length, "video/mp4", "v2.mp4"
+                    )
+            );
+            assertThat(v2Res.outcome()).isEqualTo(MediaVersionUploadOutcome.VERSION_CREATED);
+            assertThat(v2Res.versionNumber()).isEqualTo(2);
+            assertThat(packagingJobAdapter.findById(v1Jobs.get(0).getId()).orElseThrow().getStatus())
+                    .isEqualTo(MediaVideoPackagingJobStatus.CANCELLED);
+            MediaVideoPackagingJob v2Job = findActiveJobInTx(v2Res.versionId()).orElseThrow();
+            assertThat(v2Job.getSourceVersionNumber()).isEqualTo(2);
+
+            // 5. Commit V3 & replay delayed V2 enqueue -> V2 skips cleanly; V3 has active job
+            byte[] mp4V3 = "ftypmp42-v3-newest-payload".getBytes(StandardCharsets.UTF_8);
+            UploadMediaAssetVersionResult v3Res = uploadMediaAssetVersionUseCase.execute(
+                    new UploadMediaAssetVersionCommand(
+                            onVideo.assetId(), new ByteArrayInputStream(mp4V3), mp4V3.length, "video/mp4", "v3.mp4"
+                    )
+            );
+            assertThat(v3Res.versionNumber()).isEqualTo(3);
+            AutoPackagingEnqueueResult delayedV2 = optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(
+                    onVideo.assetId(), 2, v2Res.versionId()
+            );
+            assertThat(delayedV2.status()).isEqualTo(AutoPackagingEnqueueStatus.SKIPPED_STALE_VERSION);
+            assertThat(findActiveJobInTx(v2Res.versionId())).isEmpty();
+            assertThat(findActiveJobInTx(v3Res.versionId())).isPresent();
+
+            // 6. Restore policy checks:
+            // 6a) onRestore=false restores archived asset with zero new jobs
+            archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(offResult.assetId()));
+            mediaFacade.restore(offResult.assetId());
+            assertThat(assetAdapter.findById(offResult.assetId()).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+            assertThat(packagingJobAdapter.existsByAssetId(offResult.assetId())).isFalse();
+
+            // 6b) enabled=true + onRestore=true enqueues virgin archived asset once, NEVER retries previously CANCELLED attempt
+            autoEnqueueOnRestoreFlag.set(true);
+            archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(offResult.assetId()));
+            mediaFacade.restore(offResult.assetId());
+            assertThat(readJobs(offResult.assetId()))
+                    .hasSize(1)
+                    .allSatisfy(j -> assertThat(j.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.PENDING));
+
+            // Archive cancels that PENDING job; subsequent restore with onRestore=true MUST NOT auto-requeue CANCELLED
+            archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(offResult.assetId()));
+            mediaFacade.restore(offResult.assetId());
+            assertThat(readJobs(offResult.assetId()))
+                    .hasSize(1)
+                    .allSatisfy(j -> assertThat(j.getStatus()).isEqualTo(MediaVideoPackagingJobStatus.CANCELLED));
+
+            // 6c) enabled=true + onRestore=true skips existing READY package on restore
+            deleteAssetUseCase.execute(new DeleteMediaAssetCommand(onVideo.assetId()));
+            UUID readyRestoreId = UUID.randomUUID();
+            UUID readyV1Id = UUID.randomUUID();
+            seedActiveVideoAsset(readyRestoreId, readyV1Id);
+            MediaVideoPackagingJob rJob = createJobUseCase.execute(readyRestoreId);
+            ClaimedVideoPackagingLease rLease = claimJobUseCase.claimNext("w-rest", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket").orElseThrow();
+            assertThat(rLease.jobId()).isEqualTo(rJob.getId());
+            completeJobUseCase.completeWithVerifiedReceipt(
+                    readyRestoreId, rJob.getId(), rLease.packageId(), "w-rest", rLease.leaseGeneration(),
+                    new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", clockRef.get().plusSeconds(1))
+            );
+            archiveAssetUseCase.execute(new ArchiveMediaAssetCommand(readyRestoreId));
+            mediaFacade.restore(readyRestoreId);
+            assertThat(readJobs(readyRestoreId)).hasSize(1);
+            assertThat(hlsPackageAdapter.findCurrentReadyByAssetId(readyRestoreId)).isPresent();
+        } finally {
+            autoEnqueueEnabledFlag.set(false);
+            autoEnqueueOnRestoreFlag.set(false);
+        }
+    }
+
+    private List<MediaVideoPackagingJob> readJobs(UUID assetId) {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(s -> packagingJobAdapter.findByAssetIdForUpdateOrderByIdAsc(assetId));
+    }
+
+    private java.util.Optional<MediaVideoPackagingJob> findActiveJobInTx(UUID sourceVersionId) {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                .execute(s -> packagingJobAdapter.findActiveBySourceVersionIdForUpdate(sourceVersionId));
     }
 }

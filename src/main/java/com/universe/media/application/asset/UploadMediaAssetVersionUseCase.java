@@ -2,6 +2,7 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
@@ -38,6 +39,7 @@ public class UploadMediaAssetVersionUseCase {
     private final VideoUploadValidator videoUploadValidator;
     private final StorageKeyAllocationService storageKeyAllocationService;
     private final MediaStorageCutoverBarrier cutoverBarrier;
+    private final OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator;
 
     @Autowired
     public UploadMediaAssetVersionUseCase(
@@ -48,16 +50,45 @@ public class UploadMediaAssetVersionUseCase {
             RasterContentSignatureValidator rasterContentSignatureValidator,
             VideoUploadValidator videoUploadValidator,
             StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageCutoverBarrier cutoverBarrier,
+            OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator
+    ) {
+        this(
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                registerMediaAssetVersionUseCase,
+                rasterContentSignatureValidator,
+                videoUploadValidator,
+                storageKeyAllocationService,
+                cutoverBarrier,
+                Objects.requireNonNull(optInEnqueueCoordinator, "OptInHlsPackagingEnqueueCoordinator cannot be null."),
+                true
+        );
+    }
+
+    public UploadMediaAssetVersionUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService,
             MediaStorageCutoverBarrier cutoverBarrier
     ) {
-        this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
-        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
-        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
-        this.registerMediaAssetVersionUseCase = Objects.requireNonNull(registerMediaAssetVersionUseCase, "RegisterMediaAssetVersionUseCase cannot be null.");
-        this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
-        this.videoUploadValidator = Objects.requireNonNull(videoUploadValidator, "VideoUploadValidator cannot be null.");
-        this.storageKeyAllocationService = storageKeyAllocationService;
-        this.cutoverBarrier = cutoverBarrier;
+        this(
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                registerMediaAssetVersionUseCase,
+                rasterContentSignatureValidator,
+                videoUploadValidator,
+                storageKeyAllocationService,
+                cutoverBarrier,
+                null,
+                false
+        );
     }
 
     public UploadMediaAssetVersionUseCase(
@@ -77,7 +108,9 @@ public class UploadMediaAssetVersionUseCase {
                 rasterContentSignatureValidator,
                 videoUploadValidator,
                 storageKeyAllocationService,
-                null
+                null,
+                null,
+                false
         );
     }
 
@@ -97,7 +130,9 @@ public class UploadMediaAssetVersionUseCase {
                 rasterContentSignatureValidator,
                 videoUploadValidator,
                 null,
-                null
+                null,
+                null,
+                false
         );
     }
 
@@ -116,8 +151,35 @@ public class UploadMediaAssetVersionUseCase {
                 rasterContentSignatureValidator,
                 new VideoUploadValidator(),
                 null,
-                null
+                null,
+                null,
+                false
         );
+    }
+
+    private UploadMediaAssetVersionUseCase(
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageCutoverBarrier cutoverBarrier,
+            OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator,
+            boolean strictAutoEnqueueWiring
+    ) {
+        this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
+        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
+        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
+        this.registerMediaAssetVersionUseCase = Objects.requireNonNull(registerMediaAssetVersionUseCase, "RegisterMediaAssetVersionUseCase cannot be null.");
+        this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
+        this.videoUploadValidator = Objects.requireNonNull(videoUploadValidator, "VideoUploadValidator cannot be null.");
+        this.storageKeyAllocationService = storageKeyAllocationService;
+        this.cutoverBarrier = cutoverBarrier;
+        this.optInEnqueueCoordinator = strictAutoEnqueueWiring
+                ? Objects.requireNonNull(optInEnqueueCoordinator, "OptInHlsPackagingEnqueueCoordinator cannot be null.")
+                : optInEnqueueCoordinator;
     }
 
     public UploadMediaAssetVersionResult execute(
@@ -224,6 +286,14 @@ public class UploadMediaAssetVersionUseCase {
                 }
             }
             throw primaryException;
+        }
+
+        if (asset.getMediaType() == MediaType.VIDEO && optInEnqueueCoordinator != null) {
+            optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(
+                    registerResult.assetId(),
+                    registerResult.newVersionNumber(),
+                    registerResult.versionId()
+            );
         }
 
         return new UploadMediaAssetVersionResult(

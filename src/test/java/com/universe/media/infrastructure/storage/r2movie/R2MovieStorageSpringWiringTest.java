@@ -1,5 +1,6 @@
 package com.universe.media.infrastructure.storage.r2movie;
 
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaUploadSessionRepositoryPort;
@@ -68,6 +69,11 @@ class R2MovieStorageSpringWiringTest {
         @Bean
         public MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort() {
             return mock(MediaAssetVersionRepositoryPort.class);
+        }
+
+        @Bean
+        public OptInHlsPackagingEnqueueCoordinator optInHlsPackagingEnqueueCoordinator() {
+            return mock(OptInHlsPackagingEnqueueCoordinator.class);
         }
     }
 

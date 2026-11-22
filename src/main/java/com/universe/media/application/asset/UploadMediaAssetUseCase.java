@@ -1,5 +1,6 @@
 package com.universe.media.application.asset;
 
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.application.ports.storage.StoredBinaryObject;
@@ -33,6 +34,7 @@ public class UploadMediaAssetUseCase {
     private final VideoUploadValidator videoUploadValidator;
     private final StorageKeyAllocationService storageKeyAllocationService;
     private final MediaStorageCutoverBarrier cutoverBarrier;
+    private final OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator;
 
     @Autowired
     public UploadMediaAssetUseCase(
@@ -42,15 +44,42 @@ public class UploadMediaAssetUseCase {
             RasterContentSignatureValidator rasterContentSignatureValidator,
             VideoUploadValidator videoUploadValidator,
             StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageCutoverBarrier cutoverBarrier,
+            OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator
+    ) {
+        this(
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                registerMediaAssetUseCase,
+                rasterContentSignatureValidator,
+                videoUploadValidator,
+                storageKeyAllocationService,
+                cutoverBarrier,
+                Objects.requireNonNull(optInEnqueueCoordinator, "OptInHlsPackagingEnqueueCoordinator cannot be null."),
+                true
+        );
+    }
+
+    public UploadMediaAssetUseCase(
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RegisterMediaAssetUseCase registerMediaAssetUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService,
             MediaStorageCutoverBarrier cutoverBarrier
     ) {
-        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
-        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
-        this.registerMediaAssetUseCase = Objects.requireNonNull(registerMediaAssetUseCase, "RegisterMediaAssetUseCase cannot be null.");
-        this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
-        this.videoUploadValidator = Objects.requireNonNull(videoUploadValidator, "VideoUploadValidator cannot be null.");
-        this.storageKeyAllocationService = storageKeyAllocationService;
-        this.cutoverBarrier = cutoverBarrier;
+        this(
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
+                registerMediaAssetUseCase,
+                rasterContentSignatureValidator,
+                videoUploadValidator,
+                storageKeyAllocationService,
+                cutoverBarrier,
+                null,
+                false
+        );
     }
 
     public UploadMediaAssetUseCase(
@@ -68,7 +97,9 @@ public class UploadMediaAssetUseCase {
                 rasterContentSignatureValidator,
                 videoUploadValidator,
                 storageKeyAllocationService,
-                null
+                null,
+                null,
+                false
         );
     }
 
@@ -86,7 +117,9 @@ public class UploadMediaAssetUseCase {
                 rasterContentSignatureValidator,
                 videoUploadValidator,
                 null,
-                null
+                null,
+                null,
+                false
         );
     }
 
@@ -103,8 +136,33 @@ public class UploadMediaAssetUseCase {
                 rasterContentSignatureValidator,
                 new VideoUploadValidator(),
                 null,
-                null
+                null,
+                null,
+                false
         );
+    }
+
+    private UploadMediaAssetUseCase(
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
+            RegisterMediaAssetUseCase registerMediaAssetUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator,
+            VideoUploadValidator videoUploadValidator,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageCutoverBarrier cutoverBarrier,
+            OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator,
+            boolean strictAutoEnqueueWiring
+    ) {
+        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
+        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
+        this.registerMediaAssetUseCase = Objects.requireNonNull(registerMediaAssetUseCase, "RegisterMediaAssetUseCase cannot be null.");
+        this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
+        this.videoUploadValidator = Objects.requireNonNull(videoUploadValidator, "VideoUploadValidator cannot be null.");
+        this.storageKeyAllocationService = storageKeyAllocationService;
+        this.cutoverBarrier = cutoverBarrier;
+        this.optInEnqueueCoordinator = strictAutoEnqueueWiring
+                ? Objects.requireNonNull(optInEnqueueCoordinator, "OptInHlsPackagingEnqueueCoordinator cannot be null.")
+                : optInEnqueueCoordinator;
     }
 
     public UploadMediaAssetResult execute(
@@ -207,6 +265,14 @@ public class UploadMediaAssetUseCase {
                 }
             }
             throw primaryException;
+        }
+
+        if (registerResult.mediaType() == MediaType.VIDEO && optInEnqueueCoordinator != null) {
+            optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(
+                    registerResult.assetId(),
+                    registerResult.versionNumber(),
+                    registerResult.versionId()
+            );
         }
 
         return new UploadMediaAssetResult(

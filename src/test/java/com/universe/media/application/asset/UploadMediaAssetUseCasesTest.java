@@ -2,6 +2,11 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
+import com.universe.media.application.hls.AutoPackagingEnqueueResult;
+import com.universe.media.application.hls.AutoPackagingEnqueueStatus;
+import com.universe.media.application.hls.CreateMediaVideoPackagingJobUseCase;
+import com.universe.media.application.hls.HlsAutoEnqueueProperties;
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
@@ -1273,6 +1278,195 @@ class UploadMediaAssetUseCasesTest {
 
             verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
             verify(rasterValidator, never()).validateAndPrepareStream(any(), anyLong(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("Opt-In Post-Commit HLS Enqueue Upload Tests")
+    class OptInAutoEnqueueUploadTests {
+
+        @Test
+        @DisplayName("VIDEO initial upload with flag ON invokes post-commit enqueue with assetId, v1 and versionId")
+        void shouldEnqueueVideoInitialUploadWhenFlagEnabled() {
+            OptInHlsPackagingEnqueueCoordinator coordinator = org.mockito.Mockito.mock(OptInHlsPackagingEnqueueCoordinator.class);
+            UploadMediaAssetUseCase wiredUseCase = new UploadMediaAssetUseCase(
+                    mediaStorageRoutingService,
+                    storageProviderResolverPort,
+                    registerMediaAssetUseCase,
+                    rasterValidator,
+                    new VideoUploadValidator(),
+                    null,
+                    null,
+                    coordinator
+            );
+
+            byte[] videoBytes = "sample-mp4-video-payload".getBytes(StandardCharsets.UTF_8);
+            doAnswer(inv -> {
+                StorageKey key = inv.getArgument(0);
+                ((InputStream) inv.getArgument(1)).readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(), any(), anyLong(), any());
+
+            UUID assetId = UUID.randomUUID();
+            UUID versionId = UUID.randomUUID();
+            when(registerMediaAssetUseCase.execute(any())).thenReturn(new RegisterMediaAssetResult(
+                    assetId, versionId, 1, MediaType.VIDEO, MediaVisibility.PRIVATE, MediaAssetStatus.ACTIVE, Instant.now()
+            ));
+
+            UploadMediaAssetResult result = wiredUseCase.execute(new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(videoBytes), videoBytes.length, "video/mp4",
+                    MediaType.VIDEO, MediaVisibility.PRIVATE, "movie.mp4", "screen-video"
+            ));
+
+            assertThat(result.assetId()).isEqualTo(assetId);
+            verify(coordinator).enqueueVideoVersionIfEnabledSafely(assetId, 1, versionId);
+            verify(binaryStoragePort, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("HLS enqueue failure after committed VIDEO registration preserves MP4 result with zero binary compensation")
+        void shouldPreserveMp4ResultWhenHlsEnqueueFailsPostCommit() {
+            CreateMediaVideoPackagingJobUseCase failingJobUseCase = org.mockito.Mockito.mock(CreateMediaVideoPackagingJobUseCase.class);
+            when(failingJobUseCase.executeIfEligibleForVersion(any(), anyInt(), any(), anyInt()))
+                    .thenThrow(new IllegalStateException("HLS DB transient error"));
+            OptInHlsPackagingEnqueueCoordinator realCoordinator = new OptInHlsPackagingEnqueueCoordinator(
+                    HlsAutoEnqueueProperties.of(true, false),
+                    failingJobUseCase
+            );
+            UploadMediaAssetUseCase wiredUseCase = new UploadMediaAssetUseCase(
+                    mediaStorageRoutingService,
+                    storageProviderResolverPort,
+                    registerMediaAssetUseCase,
+                    rasterValidator,
+                    new VideoUploadValidator(),
+                    null,
+                    null,
+                    realCoordinator
+            );
+
+            byte[] videoBytes = "sample-mp4-video-payload".getBytes(StandardCharsets.UTF_8);
+            doAnswer(inv -> {
+                StorageKey key = inv.getArgument(0);
+                ((InputStream) inv.getArgument(1)).readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(), any(), anyLong(), any());
+
+            UUID assetId = UUID.randomUUID();
+            UUID versionId = UUID.randomUUID();
+            when(registerMediaAssetUseCase.execute(any())).thenReturn(new RegisterMediaAssetResult(
+                    assetId, versionId, 1, MediaType.VIDEO, MediaVisibility.PUBLIC, MediaAssetStatus.ACTIVE, Instant.now()
+            ));
+
+            UploadMediaAssetResult result = wiredUseCase.execute(new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(videoBytes), videoBytes.length, "video/mp4",
+                    MediaType.VIDEO, MediaVisibility.PUBLIC, "movie.mp4", null
+            ));
+
+            assertThat(result.assetId()).isEqualTo(assetId);
+            verify(binaryStoragePort, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("VIDEO initial upload rollback compensates storage and never calls coordinator")
+        void shouldNeverEnqueueWhenRegistrationRollsBack() {
+            OptInHlsPackagingEnqueueCoordinator coordinator = org.mockito.Mockito.mock(OptInHlsPackagingEnqueueCoordinator.class);
+            UploadMediaAssetUseCase wiredUseCase = new UploadMediaAssetUseCase(
+                    mediaStorageRoutingService,
+                    storageProviderResolverPort,
+                    registerMediaAssetUseCase,
+                    rasterValidator,
+                    new VideoUploadValidator(),
+                    null,
+                    null,
+                    coordinator
+            );
+
+            byte[] videoBytes = "sample-mp4-video-payload".getBytes(StandardCharsets.UTF_8);
+            doAnswer(inv -> {
+                StorageKey key = inv.getArgument(0);
+                ((InputStream) inv.getArgument(1)).readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(), any(), anyLong(), any());
+            when(registerMediaAssetUseCase.execute(any())).thenThrow(new IllegalStateException("TX rolled back"));
+
+            assertThatThrownBy(() -> wiredUseCase.execute(new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(videoBytes), videoBytes.length, "video/mp4",
+                    MediaType.VIDEO, MediaVisibility.PUBLIC, "movie.mp4", null
+            ))).isInstanceOf(IllegalStateException.class);
+
+            verify(binaryStoragePort).delete(any());
+            org.mockito.Mockito.verifyNoInteractions(coordinator);
+        }
+
+        @Test
+        @DisplayName("IMAGE upload never invokes HLS enqueue coordinator")
+        void shouldNeverEnqueueForNonVideoUpload() {
+            OptInHlsPackagingEnqueueCoordinator coordinator = org.mockito.Mockito.mock(OptInHlsPackagingEnqueueCoordinator.class);
+            UploadMediaAssetUseCase wiredUseCase = new UploadMediaAssetUseCase(
+                    mediaStorageRoutingService,
+                    storageProviderResolverPort,
+                    registerMediaAssetUseCase,
+                    rasterValidator,
+                    new VideoUploadValidator(),
+                    null,
+                    null,
+                    coordinator
+            );
+
+            byte[] data = createWebpData("image");
+            doAnswer(inv -> {
+                StorageKey key = inv.getArgument(0);
+                ((InputStream) inv.getArgument(1)).readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(), any(), anyLong(), any());
+            when(registerMediaAssetUseCase.execute(any())).thenReturn(new RegisterMediaAssetResult(
+                    UUID.randomUUID(), UUID.randomUUID(), 1, MediaType.IMAGE, MediaVisibility.PUBLIC, MediaAssetStatus.ACTIVE, Instant.now()
+            ));
+
+            wiredUseCase.execute(new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data), data.length, "image/webp",
+                    MediaType.IMAGE, MediaVisibility.PUBLIC, "img.webp", null
+            ));
+
+            org.mockito.Mockito.verifyNoInteractions(coordinator);
+        }
+
+        @Test
+        @DisplayName("VIDEO unconditional version upload invokes post-commit enqueue for v2")
+        void shouldEnqueueVideoVersionReplacementPostCommit() {
+            OptInHlsPackagingEnqueueCoordinator coordinator = org.mockito.Mockito.mock(OptInHlsPackagingEnqueueCoordinator.class);
+            UploadMediaAssetVersionUseCase wiredVersionUseCase = new UploadMediaAssetVersionUseCase(
+                    mediaAssetRepositoryPort,
+                    mediaStorageRoutingService,
+                    storageProviderResolverPort,
+                    registerMediaAssetVersionUseCase,
+                    rasterValidator,
+                    new VideoUploadValidator(),
+                    null,
+                    null,
+                    coordinator
+            );
+
+            UUID assetId = UUID.randomUUID();
+            UUID v2Id = UUID.randomUUID();
+            MediaAsset videoAsset = MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(videoAsset));
+            byte[] videoBytes = "v2-mp4-video-payload".getBytes(StandardCharsets.UTF_8);
+            doAnswer(inv -> {
+                StorageKey key = inv.getArgument(0);
+                ((InputStream) inv.getArgument(1)).readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(), any(), anyLong(), any());
+            when(registerMediaAssetVersionUseCase.execute(any())).thenReturn(
+                    new RegisterMediaAssetVersionResult(assetId, v2Id, 2, Instant.now())
+            );
+
+            UploadMediaAssetVersionResult res = wiredVersionUseCase.execute(new UploadMediaAssetVersionCommand(
+                    assetId, new ByteArrayInputStream(videoBytes), videoBytes.length, "video/mp4", "v2.mp4"
+            ));
+
+            assertThat(res.versionNumber()).isEqualTo(2);
+            verify(coordinator).enqueueVideoVersionIfEnabledSafely(assetId, 2, v2Id);
         }
     }
 

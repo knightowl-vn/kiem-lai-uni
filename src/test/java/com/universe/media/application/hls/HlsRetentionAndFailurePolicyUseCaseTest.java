@@ -99,6 +99,21 @@ class HlsRetentionAndFailurePolicyUseCaseTest {
                                 || j.getStatus() == MediaVideoPackagingJobStatus.LEASED))
                         .findFirst();
             }
+            @Override public Optional<MediaVideoPackagingJobStatus> findHighestPriorityTerminalStatusBySourceVersionId(UUID sourceVersionId) {
+                if (jobs.values().stream().anyMatch(j -> j.getSourceVersionId().equals(sourceVersionId)
+                        && j.getStatus() == MediaVideoPackagingJobStatus.SUCCEEDED)) {
+                    return Optional.of(MediaVideoPackagingJobStatus.SUCCEEDED);
+                }
+                if (jobs.values().stream().anyMatch(j -> j.getSourceVersionId().equals(sourceVersionId)
+                        && j.getStatus() == MediaVideoPackagingJobStatus.FAILED)) {
+                    return Optional.of(MediaVideoPackagingJobStatus.FAILED);
+                }
+                if (jobs.values().stream().anyMatch(j -> j.getSourceVersionId().equals(sourceVersionId)
+                        && j.getStatus() == MediaVideoPackagingJobStatus.CANCELLED)) {
+                    return Optional.of(MediaVideoPackagingJobStatus.CANCELLED);
+                }
+                return Optional.empty();
+            }
             @Override public List<MediaVideoPackagingJob> findByAssetIdForUpdateOrderByIdAsc(UUID assetId) {
                 return jobs.values().stream()
                         .filter(j -> j.getAssetId().equals(assetId))

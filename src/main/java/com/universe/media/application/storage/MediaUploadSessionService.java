@@ -9,6 +9,7 @@ import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.exceptions.StorageUploadNotFoundException;
 import com.universe.media.application.exceptions.UploadSessionInitiationConflictException;
 import com.universe.media.application.exceptions.UploadSessionUnconfirmedInitiationException;
+import com.universe.media.application.hls.OptInHlsPackagingEnqueueCoordinator;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaUploadSessionPage;
@@ -60,6 +61,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Application service for orchestrating durable media upload session lifecycle and state transitions.
@@ -87,6 +89,7 @@ public class MediaUploadSessionService {
     private final Map<StorageProviderId, MultipartStoragePort> multipartStoragePorts;
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
+    private final OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator;
 
     @Autowired
     public MediaUploadSessionService(
@@ -97,7 +100,58 @@ public class MediaUploadSessionService {
             @Autowired(required = false) PlatformTransactionManager transactionManager,
             List<MultipartStoragePort> multipartStoragePorts,
             @Autowired(required = false) MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            @Autowired(required = false) MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort
+            @Autowired(required = false) MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator
+    ) {
+        this(
+                sessionRepositoryPort,
+                storageKeyAllocationService,
+                mediaStorageRoutingService,
+                clockPort,
+                transactionManager,
+                multipartStoragePorts,
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                Objects.requireNonNull(optInEnqueueCoordinator, "OptInHlsPackagingEnqueueCoordinator cannot be null."),
+                true
+        );
+    }
+
+    public MediaUploadSessionService(
+            MediaUploadSessionRepositoryPort sessionRepositoryPort,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            ClockPort clockPort,
+            PlatformTransactionManager transactionManager,
+            List<MultipartStoragePort> multipartStoragePorts,
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort
+    ) {
+        this(
+                sessionRepositoryPort,
+                storageKeyAllocationService,
+                mediaStorageRoutingService,
+                clockPort,
+                transactionManager,
+                multipartStoragePorts,
+                mediaAssetRepositoryPort,
+                mediaAssetVersionRepositoryPort,
+                null,
+                false
+        );
+    }
+
+    private MediaUploadSessionService(
+            MediaUploadSessionRepositoryPort sessionRepositoryPort,
+            StorageKeyAllocationService storageKeyAllocationService,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            ClockPort clockPort,
+            PlatformTransactionManager transactionManager,
+            List<MultipartStoragePort> multipartStoragePorts,
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            OptInHlsPackagingEnqueueCoordinator optInEnqueueCoordinator,
+            boolean strictAutoEnqueueWiring
     ) {
         this.sessionRepositoryPort = Objects.requireNonNull(sessionRepositoryPort, "MediaUploadSessionRepositoryPort cannot be null.");
         this.storageKeyAllocationService = Objects.requireNonNull(storageKeyAllocationService, "StorageKeyAllocationService cannot be null.");
@@ -106,6 +160,9 @@ public class MediaUploadSessionService {
         this.transactionManager = transactionManager;
         this.mediaAssetRepositoryPort = mediaAssetRepositoryPort;
         this.mediaAssetVersionRepositoryPort = mediaAssetVersionRepositoryPort;
+        this.optInEnqueueCoordinator = strictAutoEnqueueWiring
+                ? Objects.requireNonNull(optInEnqueueCoordinator, "OptInHlsPackagingEnqueueCoordinator cannot be null.")
+                : optInEnqueueCoordinator;
 
         Map<StorageProviderId, MultipartStoragePort> map = new HashMap<>();
         if (multipartStoragePorts != null) {
@@ -1265,12 +1322,14 @@ public class MediaUploadSessionService {
         txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 
         String claimToken = "COMPLETION_CLAIM:" + UUID.randomUUID();
+        AtomicReference<UUID> registeredVersionIdRef = new AtomicReference<>();
         MediaUploadSession claimedSession = txTemplate.execute(status ->
-                executeTxACompletionClaim(sessionId, requestingPrincipalId, manifest, claimToken)
+                executeTxACompletionClaim(sessionId, requestingPrincipalId, manifest, claimToken, registeredVersionIdRef)
         );
 
         // If the session was already COMPLETED (idempotent retry), return directly without second completion
         if (claimedSession.getStatus() == MediaUploadSessionStatus.COMPLETED) {
+            triggerOptInAutoEnqueueIfEligible(claimedSession, registeredVersionIdRef.get());
             return claimedSession;
         }
 
@@ -1439,12 +1498,32 @@ public class MediaUploadSessionService {
         // =========================================================================
         // TX-B — MySQL: Atomically register MediaAsset & MediaAssetVersion, commit allocation, mark COMPLETED
         // =========================================================================
+        registeredVersionIdRef.set(null);
+        MediaUploadSession completedSession;
         try {
-            return txTemplate.execute(status -> executeTxBRegistration(sessionId, requestingPrincipalId, claimToken));
+            completedSession = txTemplate.execute(status ->
+                    executeTxBRegistration(sessionId, requestingPrincipalId, claimToken, registeredVersionIdRef));
         } catch (RuntimeException txBException) {
             log.error("TX-B persistence failed after successful provider completion for session {} (error: {}). Preserving state for reconciliation.",
                     sessionId, txBException.getClass().getSimpleName());
             throw txBException;
+        }
+
+        triggerOptInAutoEnqueueIfEligible(completedSession, registeredVersionIdRef.get());
+        return completedSession;
+    }
+
+    private void triggerOptInAutoEnqueueIfEligible(MediaUploadSession session, UUID registeredVersionId) {
+        if (optInEnqueueCoordinator != null
+                && session != null
+                && session.getStatus() == MediaUploadSessionStatus.COMPLETED
+                && session.getMediaType() == MediaType.VIDEO
+                && session.getRegisteredAssetId() != null) {
+            optInEnqueueCoordinator.enqueueVideoVersionIfEnabledSafely(
+                    session.getRegisteredAssetId(),
+                    1,
+                    registeredVersionId
+            );
         }
     }
 
@@ -1463,7 +1542,8 @@ public class MediaUploadSessionService {
             UUID sessionId,
             String requestingPrincipalId,
             List<MultipartManifestPart> manifest,
-            String claimToken
+            String claimToken,
+            AtomicReference<UUID> registeredVersionIdRef
     ) {
         MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Upload session not found for ID: " + sessionId));
@@ -1485,7 +1565,7 @@ public class MediaUploadSessionService {
                     throw new IllegalStateException("Submitted manifest does not match completed session manifestHash");
                 }
             }
-            return verifyAndReturnIdempotentSession(session);
+            return verifyAndReturnIdempotentSession(session, registeredVersionIdRef);
         }
 
         if (session.getStatus() != MediaUploadSessionStatus.COMPLETING) {
@@ -1786,7 +1866,12 @@ public class MediaUploadSessionService {
         return resolvedValue;
     }
 
-    private MediaUploadSession executeTxBRegistration(UUID sessionId, String requestingPrincipalId, String claimToken) {
+    private MediaUploadSession executeTxBRegistration(
+            UUID sessionId,
+            String requestingPrincipalId,
+            String claimToken,
+            AtomicReference<UUID> registeredVersionIdRef
+    ) {
         MediaUploadSession session = sessionRepositoryPort.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("Upload session not found for ID: " + sessionId));
 
@@ -1794,7 +1879,7 @@ public class MediaUploadSessionService {
 
         // 1. Check for already completed session (idempotent path)
         if (session.getStatus() == MediaUploadSessionStatus.COMPLETED) {
-            return verifyAndReturnIdempotentSession(session);
+            return verifyAndReturnIdempotentSession(session, registeredVersionIdRef);
         }
 
         // 2. Validate session status
@@ -1903,6 +1988,9 @@ public class MediaUploadSessionService {
                 now
         );
         version = mediaAssetVersionRepositoryPort.save(version);
+        if (registeredVersionIdRef != null) {
+            registeredVersionIdRef.set(version.getId());
+        }
 
         // 8. Transfer allocation ownership from UPLOAD_SESSION to ASSET_VERSION
         storageKeyAllocationService.commitAllocation(
@@ -1916,7 +2004,10 @@ public class MediaUploadSessionService {
         return sessionRepositoryPort.save(session);
     }
 
-    private MediaUploadSession verifyAndReturnIdempotentSession(MediaUploadSession session) {
+    private MediaUploadSession verifyAndReturnIdempotentSession(
+            MediaUploadSession session,
+            AtomicReference<UUID> registeredVersionIdRef
+    ) {
         if (session.getRegisteredAssetId() == null) {
             throw new IllegalStateException("Upload session is COMPLETED but registeredAssetId is null: " + session.getId());
         }
@@ -1933,6 +2024,9 @@ public class MediaUploadSessionService {
 
         MediaAssetVersion version = mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(asset.getId(), 1)
                 .orElseThrow(() -> new IllegalStateException("MediaAssetVersion 1 not found for completed asset: " + asset.getId()));
+        if (registeredVersionIdRef != null) {
+            registeredVersionIdRef.set(version.getId());
+        }
 
         if (version.getVersionNumber() != 1) {
             throw new IllegalStateException("MediaAssetVersion number is not 1: " + version.getVersionNumber());

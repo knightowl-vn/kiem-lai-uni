@@ -38,6 +38,19 @@ public interface SpringDataMediaVideoPackagingJobJpaRepository
             @Param("sourceVersionId") String sourceVersionId
     );
 
+    @Query("""
+            SELECT DISTINCT j.status FROM MediaVideoPackagingJobJpaEntity j
+            WHERE j.sourceVersionId = :sourceVersionId
+              AND j.status IN (
+                  com.universe.media.domain.MediaVideoPackagingJobStatus.SUCCEEDED,
+                  com.universe.media.domain.MediaVideoPackagingJobStatus.FAILED,
+                  com.universe.media.domain.MediaVideoPackagingJobStatus.CANCELLED
+              )
+            """)
+    List<MediaVideoPackagingJobStatus> findDistinctTerminalStatusesBySourceVersionId(
+            @Param("sourceVersionId") String sourceVersionId
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT j FROM MediaVideoPackagingJobJpaEntity j WHERE j.assetId = :assetId ORDER BY j.id ASC")
     List<MediaVideoPackagingJobJpaEntity> findByAssetIdForUpdateOrderByIdAsc(@Param("assetId") String assetId);
