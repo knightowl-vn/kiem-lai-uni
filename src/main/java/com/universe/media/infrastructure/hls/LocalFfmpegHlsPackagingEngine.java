@@ -5,19 +5,24 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.universe.media.application.ports.storage.HlsArtifactStreamSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.FileStore;
+import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Stream;
 
 /**
  * Production infrastructure engine orchestrating local FFmpeg fMP4 HLS packaging
@@ -31,7 +36,14 @@ import java.util.stream.Stream;
 @ConditionalOnProperty(prefix = "media.hls.packaging", name = "enabled", havingValue = "true")
 public class LocalFfmpegHlsPackagingEngine {
 
+    private static final Logger log = LoggerFactory.getLogger(LocalFfmpegHlsPackagingEngine.class);
     private static final String ATTEMPT_DIR_PREFIX = "hls-pkg-";
+    private static final int MAX_CLEANUP_WALK_DEPTH = 16;
+
+    @FunctionalInterface
+    interface AttemptCleanupAction {
+        void cleanup(Path attemptDir, Path scratchRoot) throws IOException;
+    }
 
     /**
      * Engine-issued packaging result owning cleanup of its exact created attempt directory.
@@ -46,10 +58,15 @@ public class LocalFfmpegHlsPackagingEngine {
         private final List<String> ffmpegCommand;
         private final long encodeElapsedMillis;
         private final LocalHlsPackageVerifier.LocalHlsVerificationReport verificationReport;
+        private final AttemptCleanupAction cleanupAction;
         private final Object lifecycleLock = new Object();
         private boolean closeRequested = false;
+        private boolean cleanupClaimed = false;
+        private boolean cleanupFinished = false;
         private boolean closed = false;
         private int activeUsagePins = 0;
+        private int activeCloseWaiters = 0;
+        private IOException lastCleanupFailure = null;
 
         /**
          * Engine-backed active usage pin guaranteeing attempt directory preservation while held.
@@ -66,14 +83,27 @@ public class LocalFfmpegHlsPackagingEngine {
 
             @Override
             public void close() {
-                if (released.compareAndSet(false, true)) {
-                    synchronized (lifecycleLock) {
-                        if (activeUsagePins > 0) {
-                            activeUsagePins--;
+                if (!released.compareAndSet(false, true)) {
+                    return;
+                }
+                boolean runDeferredCleanup = false;
+                synchronized (lifecycleLock) {
+                    if (activeUsagePins > 0) {
+                        activeUsagePins--;
+                    }
+                    if (activeUsagePins == 0) {
+                        lifecycleLock.notifyAll();
+                        if (closeRequested && activeCloseWaiters == 0 && !cleanupClaimed) {
+                            cleanupClaimed = true;
+                            runDeferredCleanup = true;
                         }
-                        if (activeUsagePins == 0) {
-                            lifecycleLock.notifyAll();
-                        }
+                    }
+                }
+                if (runDeferredCleanup) {
+                    try {
+                        performCleanup(false);
+                    } catch (IOException ignored) {
+                        // Recorded in lastCleanupFailure and logged in performCleanup; ActiveUploadScope.close() stays exception-safe.
                     }
                 }
             }
@@ -86,7 +116,8 @@ public class LocalFfmpegHlsPackagingEngine {
                 HlsLadderPlanner.HlsPackagingPlan plan,
                 List<String> ffmpegCommand,
                 long encodeElapsedMillis,
-                LocalHlsPackageVerifier.LocalHlsVerificationReport verificationReport
+                LocalHlsPackageVerifier.LocalHlsVerificationReport verificationReport,
+                AttemptCleanupAction cleanupAction
         ) {
             this.packageRoot = Objects.requireNonNull(packageRoot, "packageRoot cannot be null.");
             this.scratchRoot = Objects.requireNonNull(scratchRoot, "scratchRoot cannot be null.");
@@ -95,6 +126,27 @@ public class LocalFfmpegHlsPackagingEngine {
             this.ffmpegCommand = List.copyOf(Objects.requireNonNull(ffmpegCommand, "ffmpegCommand cannot be null."));
             this.encodeElapsedMillis = encodeElapsedMillis;
             this.verificationReport = Objects.requireNonNull(verificationReport, "verificationReport cannot be null.");
+            this.cleanupAction = Objects.requireNonNull(cleanupAction, "cleanupAction cannot be null.");
+        }
+
+        static LocalHlsPackagingResult createForCleanupTest(
+                Path packageRoot,
+                Path scratchRoot,
+                HlsLadderPlanner.ProbedVideoSource probedSource,
+                HlsLadderPlanner.HlsPackagingPlan plan,
+                LocalHlsPackageVerifier.LocalHlsVerificationReport verificationReport,
+                AttemptCleanupAction cleanupAction
+        ) {
+            return new LocalHlsPackagingResult(
+                    packageRoot,
+                    scratchRoot,
+                    probedSource,
+                    plan,
+                    List.of("ffmpeg"),
+                    1L,
+                    verificationReport,
+                    cleanupAction
+            );
         }
 
         public Path packageRoot() {
@@ -131,6 +183,18 @@ public class LocalFfmpegHlsPackagingEngine {
             }
         }
 
+        boolean isCleanupCompleted() {
+            synchronized (lifecycleLock) {
+                return cleanupFinished;
+            }
+        }
+
+        Optional<IOException> lastCleanupFailure() {
+            synchronized (lifecycleLock) {
+                return Optional.ofNullable(lastCleanupFailure);
+            }
+        }
+
         ActiveUsagePin acquireUsagePin() {
             synchronized (lifecycleLock) {
                 if (closeRequested || closed) {
@@ -146,31 +210,68 @@ public class LocalFfmpegHlsPackagingEngine {
 
         @Override
         public void close() throws IOException {
-            boolean shouldDelete = false;
+            boolean runCleanupNow = false;
+            IOException interruptedExceptionToThrow = null;
             synchronized (lifecycleLock) {
-                if (closed) {
+                if (cleanupFinished) {
                     return;
                 }
                 closeRequested = true;
-                while (activeUsagePins > 0) {
-                    try {
+                activeCloseWaiters++;
+                try {
+                    while (activeUsagePins > 0 || (cleanupClaimed && !cleanupFinished)) {
                         lifecycleLock.wait();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException(
-                                "Interrupted while waiting for active HLS package upload/read operations to finish before cleanup: "
-                                        + packageRoot,
-                                e
-                        );
                     }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    interruptedExceptionToThrow = new IOException(
+                            "Interrupted while waiting for active HLS package upload/read operations to finish before cleanup: "
+                                    + packageRoot,
+                            e
+                    );
+                    if (activeUsagePins == 0 && activeCloseWaiters == 1 && !cleanupClaimed) {
+                        cleanupClaimed = true;
+                        runCleanupNow = true;
+                    } else {
+                        throw interruptedExceptionToThrow;
+                    }
+                } finally {
+                    activeCloseWaiters--;
                 }
-                if (!closed) {
-                    closed = true;
-                    shouldDelete = true;
+                if (!cleanupClaimed) {
+                    cleanupClaimed = true;
+                    runCleanupNow = true;
                 }
             }
-            if (shouldDelete) {
-                deleteAttemptDirectorySafely(packageRoot, scratchRoot);
+            if (runCleanupNow) {
+                performCleanup(interruptedExceptionToThrow == null);
+                if (interruptedExceptionToThrow != null) {
+                    throw interruptedExceptionToThrow;
+                }
+            }
+        }
+
+        private void performCleanup(boolean rethrowFailure) throws IOException {
+            IOException failure = null;
+            try {
+                cleanupAction.cleanup(packageRoot, scratchRoot);
+            } catch (IOException e) {
+                failure = e;
+            } catch (RuntimeException e) {
+                failure = new IOException("Unsafe or unexpected HLS cleanup failure: " + e.getMessage(), e);
+            }
+            synchronized (lifecycleLock) {
+                if (failure != null) {
+                    lastCleanupFailure = failure;
+                    log.warn("Failed cleaning HLS scratch attempt directory [{}]: {}",
+                            packageRoot.getFileName(), failure.getMessage());
+                }
+                closed = true;
+                cleanupFinished = true;
+                lifecycleLock.notifyAll();
+            }
+            if (failure != null && rethrowFailure) {
+                throw failure;
             }
         }
     }
@@ -293,7 +394,8 @@ public class LocalFfmpegHlsPackagingEngine {
                     plan,
                     exec.command(),
                     exec.elapsedMillis(),
-                    report
+                    report,
+                    LocalFfmpegHlsPackagingEngine::deleteAttemptDirectorySafely
             );
         } finally {
             if (!succeeded) {
@@ -350,7 +452,7 @@ public class LocalFfmpegHlsPackagingEngine {
         }
     }
 
-    private static void deleteAttemptDirectorySafely(Path attemptDir, Path scratchRoot) throws IOException {
+    static void deleteAttemptDirectorySafely(Path attemptDir, Path scratchRoot) throws IOException {
         if (attemptDir == null || scratchRoot == null) {
             return;
         }
@@ -360,19 +462,79 @@ public class LocalFfmpegHlsPackagingEngine {
                 || !normAttempt.startsWith(normScratch)
                 || !normAttempt.getFileName().toString().startsWith(ATTEMPT_DIR_PREFIX)
                 || (normAttempt.getParent() != null && !normAttempt.getParent().equals(normScratch))
-                || Files.isSymbolicLink(normAttempt)) {
+                || Files.isSymbolicLink(normAttempt)
+                || Files.isSymbolicLink(normScratch)) {
             throw new IllegalArgumentException(
                     "Refusing unsafe HLS cleanup outside isolated attempt prefix: attempt="
                             + normAttempt + ", scratch=" + normScratch
             );
         }
+        rejectUnsafeScratchLinkOrJunction(normScratch);
+        HlsPackagingProperties.validateScratchRootOutsideWorktree(normScratch);
         if (!Files.exists(normAttempt, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
-        try (Stream<Path> walk = Files.walk(normAttempt)) {
-            for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
-                Files.deleteIfExists(p);
+        BasicFileAttributes attemptAttrs =
+                Files.readAttributes(normAttempt, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (attemptAttrs.isSymbolicLink() || attemptAttrs.isOther()) {
+            Path realAttempt = normAttempt.toRealPath();
+            if (attemptAttrs.isSymbolicLink() || !realAttempt.toString().equalsIgnoreCase(normAttempt.toString())) {
+                throw new IllegalArgumentException(
+                        "Refusing unsafe HLS cleanup on symlink or junction attempt directory: " + normAttempt
+                );
             }
         }
+        if (!attemptAttrs.isDirectory()) {
+            throw new IllegalArgumentException("Refusing HLS cleanup on non-directory attempt path: " + normAttempt);
+        }
+        Path realAttempt = normAttempt.toRealPath();
+        Path realScratch = normScratch.toRealPath();
+        if (realAttempt.equals(realScratch)
+                || !realAttempt.startsWith(realScratch)
+                || !realScratch.equals(realAttempt.getParent())) {
+            throw new IllegalArgumentException(
+                    "Refusing unsafe HLS cleanup outside verified real scratch root: attempt="
+                            + realAttempt + ", scratch=" + realScratch
+            );
+        }
+        Files.walkFileTree(normAttempt, EnumSet.noneOf(FileVisitOption.class), MAX_CLEANUP_WALK_DEPTH, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                if (attrs.isSymbolicLink() || Files.isSymbolicLink(dir)) {
+                    throw new IllegalArgumentException(
+                            "Refusing traversal of symbolic link directory during HLS cleanup: " + dir
+                    );
+                }
+                if (attrs.isOther()) {
+                    Path realDir = dir.toRealPath();
+                    if (!realDir.toString().equalsIgnoreCase(dir.toAbsolutePath().normalize().toString())) {
+                        throw new IllegalArgumentException(
+                                "Refusing traversal of junction/reparse directory during HLS cleanup: " + dir
+                        );
+                    }
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                if (attrs.isSymbolicLink() || Files.isSymbolicLink(file)) {
+                    throw new IllegalArgumentException(
+                            "Refusing deletion of symbolic link inside HLS cleanup: " + file
+                    );
+                }
+                Files.deleteIfExists(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                if (exc != null) {
+                    throw exc;
+                }
+                Files.deleteIfExists(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 }

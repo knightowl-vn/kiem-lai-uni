@@ -605,6 +605,263 @@ class LocalFfmpegHlsPackagingEngineTest {
         }
     }
 
+    @Test
+    @DisplayName("Interrupted close() preserves interrupt status, does not wait indefinitely, and deferred final pin release still deletes attempt directory")
+    void shouldCleanUpAttemptDirectoryWhenCloseIsInterruptedAndFinalPinReleasesLater(@TempDir Path tempDir) throws Exception {
+        Path scratchRoot = Files.createDirectories(tempDir.resolve("scratch"));
+        Path siblingKeep = Files.writeString(scratchRoot.resolve("sibling.txt"), "keep");
+        Path attemptDir = Files.createDirectories(scratchRoot.resolve("hls-pkg-interrupt-deferred"));
+        Files.writeString(Files.createDirectories(attemptDir.resolve("video/720p")).resolve("seg_00000.m4s"), "segment");
+
+        HlsLadderPlanner.HlsPackagingPlan plan = new HlsLadderPlanner().plan(
+                sample720pSource(), 6,
+                HlsLadderPlanner.Below720Policy.SOURCE_FALLBACK_NO_UPSCALE,
+                HlsLadderPlanner.HdrPolicy.REJECT_EXPLICIT
+        );
+        LocalHlsPackageVerifier.LocalHlsVerificationReport report = new LocalHlsPackageVerifier.LocalHlsVerificationReport(
+                128L, 4, 2, 1, Map.of("720p", 1), 1, "abc",
+                Map.of("720p", List.of(6.0)), List.of(6.0), "aac", "{}"
+        );
+
+        LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult result =
+                LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.createForCleanupTest(
+                        attemptDir, scratchRoot, sample720pSource(), plan, report,
+                        LocalFfmpegHlsPackagingEngine::deleteAttemptDirectorySafely
+                );
+
+        LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.ActiveUsagePin pin = result.acquireUsagePin();
+
+        // Closing on an already-interrupted thread must NOT block on active pins, must preserve interrupt flag, and must keep attemptDir intact while pinned
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(result::close)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Interrupted while waiting");
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+
+        assertThat(result.isClosed()).isTrue();
+        assertThat(result.isCleanupCompleted()).isFalse();
+        assertThat(Files.isDirectory(attemptDir)).isTrue();
+        assertThatThrownBy(result::acquireUsagePin).isInstanceOf(IllegalStateException.class);
+        assertThat(pin.isCloseRequested()).isTrue();
+
+        // Double release of an already-released pin must not miscount when another pin is active
+        pin.close();
+        pin.close();
+
+        assertThat(result.isCleanupCompleted()).isTrue();
+        assertThat(result.lastCleanupFailure()).isEmpty();
+        assertThat(Files.exists(attemptDir)).isFalse();
+        assertThat(Files.readString(siblingKeep)).isEqualTo("keep");
+
+        // Repeated close after deferred cleanup is an idempotent no-op
+        result.close();
+    }
+
+    @Test
+    @DisplayName("Interrupted close() while waiting deterministically runs deferred cleanup on detached pin release, handles concurrent closes, double pin release, cleanup IOException, and path/symlink confinement")
+    void shouldCoordinateWaitInterruptConcurrentCloseCleanupErrorsAndSymlinkProtection(@TempDir Path tempDir) throws Exception {
+        Path scratchRoot = Files.createDirectories(tempDir.resolve("scratch"));
+        Path attemptDir = Files.createDirectories(scratchRoot.resolve("hls-pkg-concurrent-pins"));
+        Files.writeString(attemptDir.resolve("master.m3u8"), "#EXTM3U");
+
+        HlsLadderPlanner.HlsPackagingPlan plan = new HlsLadderPlanner().plan(
+                sample720pSource(), 6,
+                HlsLadderPlanner.Below720Policy.SOURCE_FALLBACK_NO_UPSCALE,
+                HlsLadderPlanner.HdrPolicy.REJECT_EXPLICIT
+        );
+        LocalHlsPackageVerifier.LocalHlsVerificationReport report = new LocalHlsPackageVerifier.LocalHlsVerificationReport(
+                128L, 4, 2, 1, Map.of("720p", 1), 1, "abc",
+                Map.of("720p", List.of(6.0)), List.of(6.0), "aac", "{}"
+        );
+
+        // 1. Interrupt during close() wait while detached reader/worker holds pin2, followed by delayed pin2 release
+        AtomicInteger cleanupInvocations = new AtomicInteger();
+        LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult result =
+                LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.createForCleanupTest(
+                        attemptDir, scratchRoot, sample720pSource(), plan, report,
+                        (dir, root) -> {
+                            cleanupInvocations.incrementAndGet();
+                            LocalFfmpegHlsPackagingEngine.deleteAttemptDirectorySafely(dir, root);
+                        }
+                );
+
+        LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.ActiveUsagePin pin1 = result.acquireUsagePin();
+        LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.ActiveUsagePin pin2 = result.acquireUsagePin();
+
+        // Double release of pin1 must NOT miscount active pins while pin2 remains open
+        pin1.close();
+        pin1.close();
+        assertThat(Files.isDirectory(attemptDir)).isTrue();
+
+        CountDownLatch closerStarted = new CountDownLatch(1);
+        CountDownLatch closerFinished = new CountDownLatch(1);
+        CountDownLatch readerStarted = new CountDownLatch(1);
+        CountDownLatch releaseReader = new CountDownLatch(1);
+        AtomicBoolean sawInterruptPreserved = new AtomicBoolean(false);
+        AtomicBoolean sawIoException = new AtomicBoolean(false);
+        var closerThreadRef = new java.util.concurrent.atomic.AtomicReference<Thread>();
+
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        try {
+            Future<?> physicalReader = pool.submit(() -> {
+                readerStarted.countDown();
+                releaseReader.await(5, TimeUnit.SECONDS);
+                assertThat(Files.isDirectory(attemptDir)).isTrue();
+                pin2.close();
+                return null;
+            });
+            assertThat(readerStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Thread closerThread = new Thread(() -> {
+                closerThreadRef.set(Thread.currentThread());
+                closerStarted.countDown();
+                try {
+                    result.close();
+                } catch (IOException expected) {
+                    sawIoException.set(true);
+                    sawInterruptPreserved.set(Thread.currentThread().isInterrupted());
+                } finally {
+                    closerFinished.countDown();
+                }
+            });
+            closerThread.start();
+
+            assertThat(closerStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            while (!result.isClosed() || closerThread.getState() != Thread.State.WAITING) {
+                Thread.onSpinWait();
+            }
+
+            // Interrupt blocked closer while detached physical reader still holds pin2
+            closerThread.interrupt();
+            assertThat(closerFinished.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(sawIoException.get()).isTrue();
+            assertThat(sawInterruptPreserved.get()).isTrue();
+            assertThat(Files.isDirectory(attemptDir)).isTrue();
+            assertThat(cleanupInvocations.get()).isZero();
+
+            // Release physical reader -> deferred final pin release cleans up exactly once
+            releaseReader.countDown();
+            physicalReader.get(5, TimeUnit.SECONDS);
+            assertThat(result.isCleanupCompleted()).isTrue();
+            assertThat(cleanupInvocations.get()).isEqualTo(1);
+            assertThat(Files.exists(attemptDir)).isFalse();
+
+            // 2. Multiple concurrent close() callers when cleanup takes time: exactly 1 delete, callers wait for completion
+            Path attemptDir2 = Files.createDirectories(scratchRoot.resolve("hls-pkg-multi-close"));
+            Files.writeString(attemptDir2.resolve("master.m3u8"), "#EXTM3U");
+            CountDownLatch cleanupEntered = new CountDownLatch(1);
+            CountDownLatch allowCleanupFinish = new CountDownLatch(1);
+            AtomicInteger multiCloseCleanupCount = new AtomicInteger();
+            LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult result2 =
+                    LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.createForCleanupTest(
+                            attemptDir2, scratchRoot, sample720pSource(), plan, report,
+                            (dir, root) -> {
+                                multiCloseCleanupCount.incrementAndGet();
+                                cleanupEntered.countDown();
+                                try {
+                                    assertThat(allowCleanupFinish.await(5, TimeUnit.SECONDS)).isTrue();
+                                } catch (InterruptedException ie) {
+                                    Thread.currentThread().interrupt();
+                                    throw new IOException("interrupted", ie);
+                                }
+                                LocalFfmpegHlsPackagingEngine.deleteAttemptDirectorySafely(dir, root);
+                            }
+                    );
+
+            Future<?> closeA = pool.submit(() -> {
+                result2.close();
+                return Files.exists(attemptDir2);
+            });
+            assertThat(cleanupEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            CountDownLatch closeBAboutToEnter = new CountDownLatch(1);
+            Future<Boolean> closeB = pool.submit(() -> {
+                closeBAboutToEnter.countDown();
+                result2.close();
+                return Files.exists(attemptDir2);
+            });
+            assertThat(closeBAboutToEnter.await(5, TimeUnit.SECONDS)).isTrue();
+
+            allowCleanupFinish.countDown();
+            assertThat(closeA.get(5, TimeUnit.SECONDS)).isEqualTo(Boolean.FALSE);
+            assertThat(closeB.get(5, TimeUnit.SECONDS)).isEqualTo(Boolean.FALSE);
+            assertThat(multiCloseCleanupCount.get()).isEqualTo(1);
+
+            // 3. Cleanup failure handling (sync and deferred) never deletes outside scratch and prevents double retry
+            Path failingDir = Files.createDirectories(scratchRoot.resolve("hls-pkg-fail-cleanup"));
+            AtomicInteger failCount = new AtomicInteger();
+            LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult failingSyncResult =
+                    LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.createForCleanupTest(
+                            failingDir, scratchRoot, sample720pSource(), plan, report,
+                            (dir, root) -> {
+                                failCount.incrementAndGet();
+                                throw new IOException("Simulated EIO lock");
+                            }
+                    );
+            assertThatThrownBy(failingSyncResult::close)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Simulated EIO lock");
+            assertThat(failingSyncResult.lastCleanupFailure()).isPresent();
+            // Repeated close after completed failed attempt does not loop cleanup
+            failingSyncResult.close();
+            assertThat(failCount.get()).isEqualTo(1);
+
+            LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult failingDeferredResult =
+                    LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.createForCleanupTest(
+                            failingDir, scratchRoot, sample720pSource(), plan, report,
+                            (dir, root) -> {
+                                throw new IOException("Deferred EIO");
+                            }
+                    );
+            var deferredPin = failingDeferredResult.acquireUsagePin();
+            Thread.currentThread().interrupt();
+            try {
+                assertThatThrownBy(failingDeferredResult::close).isInstanceOf(IOException.class);
+            } finally {
+                Thread.interrupted();
+            }
+            // Pin release must swallow deferred IOException safely while recording diagnostic failure
+            deferredPin.close();
+            assertThat(failingDeferredResult.isCleanupCompleted()).isTrue();
+            assertThat(failingDeferredResult.lastCleanupFailure()).isPresent();
+
+            // 4. Path confinement and symlink rejection inside deleteAttemptDirectorySafely
+            Path outsideSecret = Files.writeString(tempDir.resolve("outside-secret.txt"), "do-not-delete");
+            assertThatThrownBy(() -> LocalFfmpegHlsPackagingEngine.deleteAttemptDirectorySafely(scratchRoot, scratchRoot))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("outside isolated attempt prefix");
+            assertThatThrownBy(() -> LocalFfmpegHlsPackagingEngine.deleteAttemptDirectorySafely(
+                    tempDir.resolve("hls-pkg-outside"), scratchRoot
+            )).isInstanceOf(IllegalArgumentException.class);
+
+            Path symlinkAttemptDir = Files.createDirectories(scratchRoot.resolve("hls-pkg-with-symlink"));
+            Path nestedLink = symlinkAttemptDir.resolve("evil-link.m4s");
+            boolean linkCreated = false;
+            try {
+                Files.createSymbolicLink(nestedLink, outsideSecret);
+                linkCreated = true;
+            } catch (IOException | UnsupportedOperationException | SecurityException ignored) {
+            }
+            if (linkCreated) {
+                try {
+                    assertThatThrownBy(() -> LocalFfmpegHlsPackagingEngine.deleteAttemptDirectorySafely(symlinkAttemptDir, scratchRoot))
+                            .isInstanceOf(IllegalArgumentException.class)
+                            .hasMessageContaining("symbolic link");
+                    assertThat(Files.readString(outsideSecret)).isEqualTo("do-not-delete");
+                } finally {
+                    Files.deleteIfExists(nestedLink);
+                }
+            }
+        } finally {
+            pool.shutdownNow();
+            pin2.close();
+        }
+    }
+
     private static void assertOnlySiblingEntriesExist(
             Path scratchRoot,
             Path siblingFile,

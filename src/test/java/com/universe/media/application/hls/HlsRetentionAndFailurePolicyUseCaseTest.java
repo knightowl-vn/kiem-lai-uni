@@ -417,6 +417,104 @@ class HlsRetentionAndFailurePolicyUseCaseTest {
         }
     }
 
+    @Test
+    @DisplayName("Claim captures fresh timestamp strictly AFTER acquiring DB locks, revalidates eligibility, and propagates configurable segmentDurationSeconds")
+    void claimCapturesPostLockTimestampAndHonorsSegmentDurationOverload() {
+        InMemoryStores stores = new InMemoryStores();
+        AtomicReference<Instant> nowRef = new AtomicReference<>(T0);
+        ClockPort clock = nowRef::get;
+        AtomicInteger txCommits = new AtomicInteger();
+        PlatformTransactionManager txMgr = recordingRequiresNewTxManager(new ArrayList<>(), txCommits);
+
+        UUID assetId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        stores.assetRepo.save(MediaAsset.registerInitial(assetId, MediaType.VIDEO, MediaVisibility.PUBLIC, T0));
+        MediaVideoPackagingJob job = MediaVideoPackagingJob.createPending(
+                UUID.randomUUID(), assetId, versionId, 1, 3, T0
+        );
+        stores.jobRepo.save(job);
+
+        // Simulate lock wait inside findByIdForUpdate: clock advances 120s while waiting for MediaAsset lock
+        MediaAssetRepositoryPort lockAdvancingAssetRepo = new MediaAssetRepositoryPort() {
+            @Override public MediaAsset save(MediaAsset asset) { return stores.assetRepo.save(asset); }
+            @Override public Optional<MediaAsset> findById(UUID id) { return stores.assetRepo.findById(id); }
+            @Override public Optional<MediaAsset> findByIdForUpdate(UUID id) {
+                nowRef.set(T0.plusSeconds(120));
+                return stores.assetRepo.findByIdForUpdate(id);
+            }
+            @Override public void deleteById(UUID id) { stores.assetRepo.deleteById(id); }
+            @Override public List<MediaAsset> findExpiredDeleted(Instant cutoff, int limit) { return List.of(); }
+            @Override public List<MediaAssetCandidate> findActiveByClientTagKeyset(
+                    String c, Instant u, Instant lc, UUID la, int l) { return List.of(); }
+        };
+
+        ClaimMediaVideoPackagingJobUseCase claimUseCase = new ClaimMediaVideoPackagingJobUseCase(
+                lockAdvancingAssetRepo, stores.jobRepo, stores.packageRepo, clock, txMgr
+        );
+
+        ClaimedVideoPackagingLease customLease = claimUseCase.claimNext(
+                "worker-dur-4", Duration.ofMinutes(5), R2_HLS, "hls-bucket", 4
+        ).orElseThrow();
+
+        // Lease expiry MUST use post-lock T0+120s (not pre-lock T0), and package/lease must match 4s segment duration
+        assertThat(customLease.leaseExpiresAt()).isEqualTo(T0.plusSeconds(120).plus(Duration.ofMinutes(5)));
+        assertThat(customLease.segmentDurationSeconds()).isEqualTo(4);
+        MediaVideoPackagingJob persistedJob = stores.jobRepo.findById(job.getId()).orElseThrow();
+        assertThat(persistedJob.getLeaseExpiresAt()).isEqualTo(customLease.leaseExpiresAt());
+        MediaVideoHlsPackage persistedPkg = stores.packageRepo.findById(customLease.packageId()).orElseThrow();
+        assertThat(persistedPkg.getSegmentDurationSeconds()).isEqualTo(4);
+
+        // Invalid segment durations fail closed
+        assertThatThrownBy(() -> claimUseCase.claimNext("w", Duration.ofMinutes(5), R2_HLS, "b", 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> claimUseCase.claimNext("w", Duration.ofMinutes(5), R2_HLS, "b", 11))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // If lease is extended via heartbeat while candidate lock-waits, post-lock revalidation rejects reclaim
+        UUID asset2Id = UUID.randomUUID();
+        UUID ver2Id = UUID.randomUUID();
+        stores.assetRepo.save(MediaAsset.registerInitial(asset2Id, MediaType.VIDEO, MediaVisibility.PUBLIC, T0));
+        MediaVideoPackagingJob job2 = MediaVideoPackagingJob.createPending(
+                UUID.randomUUID(), asset2Id, ver2Id, 1, 3, T0
+        );
+        // Set LEASED expired at T0+300s so scanNow=T0+310s picks it up, then simulate concurrent heartbeat before Job lock
+        job2.claimOrReclaimLease("worker-alive", UUID.randomUUID(), Duration.ofSeconds(300), T0);
+        stores.jobRepo.save(job2);
+        nowRef.set(T0.plusSeconds(310));
+
+        MediaVideoPackagingJobRepositoryPort concurrentHeartbeatJobRepo = new MediaVideoPackagingJobRepositoryPort() {
+            @Override public MediaVideoPackagingJob save(MediaVideoPackagingJob j) { return stores.jobRepo.save(j); }
+            @Override public Optional<MediaVideoPackagingJob> findById(UUID id) { return stores.jobRepo.findById(id); }
+            @Override public Optional<MediaVideoPackagingJob> findByIdForUpdate(UUID id) {
+                Optional<MediaVideoPackagingJob> found = stores.jobRepo.findByIdForUpdate(id);
+                // Rehydrate extended expiry as if heartbeat committed right before we took the row lock
+                found.ifPresent(j -> {
+                    MediaVideoPackagingJob refreshed = MediaVideoPackagingJob.rehydrate(
+                            j.getId(), j.getAssetId(), j.getSourceVersionId(), j.getSourceVersionNumber(),
+                            j.getStatus(), j.getLeaseGeneration(), j.getCurrentPackageId(), j.getAttemptCount(),
+                            j.getMaxAttempts(), j.getLeaseOwner(), T0.plusSeconds(600), T0.plusSeconds(310),
+                            j.getNextAttemptAt(), j.getLastError(), j.getCreatedAt(), T0.plusSeconds(310),
+                            j.getCompletedAt(), j.getPersistenceVersion()
+                    );
+                    stores.jobRepo.save(refreshed);
+                });
+                return stores.jobRepo.findByIdForUpdate(id);
+            }
+            @Override public Optional<MediaVideoPackagingJob> findActiveBySourceVersionIdForUpdate(UUID s) { return stores.jobRepo.findActiveBySourceVersionIdForUpdate(s); }
+            @Override public Optional<MediaVideoPackagingJobStatus> findHighestPriorityTerminalStatusBySourceVersionId(UUID s) { return stores.jobRepo.findHighestPriorityTerminalStatusBySourceVersionId(s); }
+            @Override public List<MediaVideoPackagingJob> findByAssetIdForUpdateOrderByIdAsc(UUID a) { return stores.jobRepo.findByAssetIdForUpdateOrderByIdAsc(a); }
+            @Override public List<MediaVideoPackagingJobCandidate> findClaimableCandidates(Instant now, int limit) { return stores.jobRepo.findClaimableCandidates(now, limit); }
+            @Override public int updateHeartbeatIfLeaseMatches(UUID j, String l, long g, Instant n, Instant h, Instant le, Instant u) { return 0; }
+            @Override public boolean existsByAssetId(UUID a) { return stores.jobRepo.existsByAssetId(a); }
+        };
+
+        ClaimMediaVideoPackagingJobUseCase racedClaimUseCase = new ClaimMediaVideoPackagingJobUseCase(
+                stores.assetRepo, concurrentHeartbeatJobRepo, stores.packageRepo, clock, txMgr
+        );
+        assertThat(racedClaimUseCase.claimNext("worker-stealer", Duration.ofMinutes(5), R2_HLS, "hls-bucket", 8))
+                .isEmpty();
+    }
+
     @Configuration
     @EnableTransactionManagement
     static class UseCaseTxTestConfig {

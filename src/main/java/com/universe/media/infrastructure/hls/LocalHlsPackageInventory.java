@@ -51,8 +51,34 @@ public final class LocalHlsPackageInventory {
 
     public static final int DEFAULT_MAX_OBJECT_COUNT = 10_000;
     public static final long DEFAULT_MAX_SINGLE_OBJECT_BYTES = 64L * 1024L * 1024L;
+    public static final int MAX_ALLOWED_OBJECT_COUNT = 50_000;
+    public static final long MAX_ALLOWED_SINGLE_OBJECT_BYTES = 256L * 1024L * 1024L;
     private static final int MAX_DIRECTORY_DEPTH = 4;
     private static final int STREAM_HASH_BUFFER_BYTES = 8192;
+
+    /**
+     * Bounded inventory limits applied during local HLS artifact inspection.
+     */
+    public record InventoryLimits(int maxObjectCount, long maxSingleObjectBytes) {
+        public InventoryLimits {
+            validateLimits(maxObjectCount, maxSingleObjectBytes);
+        }
+
+        /**
+         * Returns the stricter of local default bounds and destination storage bounds so oversized
+         * packages fail locally before remote upload attempts begin.
+         */
+        public static InventoryLimits stricterOfDefaultsAndRemote(
+                int remoteMaxObjectCount,
+                long remoteMaxSingleObjectBytes
+        ) {
+            validateLimits(remoteMaxObjectCount, remoteMaxSingleObjectBytes);
+            return new InventoryLimits(
+                    Math.min(DEFAULT_MAX_OBJECT_COUNT, remoteMaxObjectCount),
+                    Math.min(DEFAULT_MAX_SINGLE_OBJECT_BYTES, remoteMaxSingleObjectBytes)
+            );
+        }
+    }
 
     private final LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult owningResult;
     private final Path realPackageRoot;
@@ -92,7 +118,27 @@ public final class LocalHlsPackageInventory {
         );
     }
 
-    static LocalHlsPackageInventory fromVerifiedResult(
+    public static LocalHlsPackageInventory fromVerifiedResult(
+            LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult result,
+            UUID assetId,
+            int sourceVersionNumber,
+            UUID packageUuid,
+            StorageProviderId providerId,
+            InventoryLimits limits
+    ) throws IOException {
+        Objects.requireNonNull(limits, "InventoryLimits cannot be null.");
+        return fromVerifiedResult(
+                result,
+                assetId,
+                sourceVersionNumber,
+                packageUuid,
+                providerId,
+                limits.maxObjectCount(),
+                limits.maxSingleObjectBytes()
+        );
+    }
+
+    public static LocalHlsPackageInventory fromVerifiedResult(
             LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult result,
             UUID assetId,
             int sourceVersionNumber,
@@ -102,12 +148,7 @@ public final class LocalHlsPackageInventory {
             long maxSingleObjectBytes
     ) throws IOException {
         Objects.requireNonNull(result, "LocalHlsPackagingResult cannot be null.");
-        if (maxObjectCount < HlsExpectedArtifactManifest.MIN_OBJECT_COUNT) {
-            throw new IllegalArgumentException("maxObjectCount must be >= 4, got: " + maxObjectCount);
-        }
-        if (maxSingleObjectBytes <= 0) {
-            throw new IllegalArgumentException("maxSingleObjectBytes must be > 0, got: " + maxSingleObjectBytes);
-        }
+        validateLimits(maxObjectCount, maxSingleObjectBytes);
 
         try (LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult.ActiveUsagePin inventoryPin = result.acquireUsagePin()) {
             Path packageRoot = result.packageRoot();
@@ -426,6 +467,21 @@ public final class LocalHlsPackageInventory {
                                 + actualSegs + ", report=" + expectedSegs
                 );
             }
+        }
+    }
+
+    private static void validateLimits(int maxObjectCount, long maxSingleObjectBytes) {
+        if (maxObjectCount < HlsExpectedArtifactManifest.MIN_OBJECT_COUNT || maxObjectCount > MAX_ALLOWED_OBJECT_COUNT) {
+            throw new IllegalArgumentException(
+                    "maxObjectCount must be between " + HlsExpectedArtifactManifest.MIN_OBJECT_COUNT
+                            + " and " + MAX_ALLOWED_OBJECT_COUNT + ", got: " + maxObjectCount
+            );
+        }
+        if (maxSingleObjectBytes <= 0L || maxSingleObjectBytes > MAX_ALLOWED_SINGLE_OBJECT_BYTES) {
+            throw new IllegalArgumentException(
+                    "maxSingleObjectBytes must be between 1 and " + MAX_ALLOWED_SINGLE_OBJECT_BYTES
+                            + ", got: " + maxSingleObjectBytes
+            );
         }
     }
 

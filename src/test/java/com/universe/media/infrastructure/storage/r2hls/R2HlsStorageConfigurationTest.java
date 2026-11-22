@@ -93,6 +93,8 @@ class R2HlsStorageConfigurationTest {
             R2HlsStorageProperties bean = context.getBean(R2HlsStorageProperties.class);
             assertThat(bean.bucket()).isEqualTo("my-test-bucket");
             assertThat(bean.endpoint()).isEqualTo("https://account.r2.cloudflarestorage.com");
+            assertThat(bean.uploadStageTimeout()).isEqualTo(Duration.ofSeconds(900));
+            assertThat(bean.maxVerificationCount()).isEqualTo(5000);
             assertThat(bean.requireFullSegmentIntegrityVerification()).isFalse();
         });
     }
@@ -261,5 +263,21 @@ class R2HlsStorageConfigurationTest {
                 "my-bucket", "https://account.r2.cloudflarestorage.com", "k", "s", "auto",
                 4, 30, 120, 3, 67108864L, 5000, 60, 1001, 5000, false
         )).isInstanceOf(IllegalStateException.class).hasMessageContaining("purgeBatchSize");
+
+        assertThatThrownBy(() -> new R2HlsStorageProperties(
+                "my-bucket", "https://account.r2.cloudflarestorage.com", "k", "s", "auto",
+                4, 30, 120, 60, 3, 67108864L, 5000, 60, 1000, 5000, false
+        )).isInstanceOf(IllegalStateException.class).hasMessageContaining("uploadStageTimeoutSeconds");
+
+        assertThatThrownBy(() -> new R2HlsStorageProperties(
+                "my-bucket", "https://account.r2.cloudflarestorage.com", "k", "s", "auto",
+                4, 30, 120, 0, 3, 67108864L, 5000, 60, 1000, 5000, false
+        )).isInstanceOf(IllegalStateException.class).hasMessageContaining("uploadStageTimeoutSeconds");
+
+        assertThatThrownBy(() -> new R2HlsStorageProperties(
+                "my-bucket", "https://account.r2.cloudflarestorage.com", "k", "s", "auto",
+                4, 30, 120, R2HlsStorageProperties.MAX_UPLOAD_STAGE_TIMEOUT_SECONDS + 1, 3,
+                67108864L, 5000, 60, 1000, 5000, false
+        )).isInstanceOf(IllegalStateException.class).hasMessageContaining("uploadStageTimeoutSeconds");
     }
 }

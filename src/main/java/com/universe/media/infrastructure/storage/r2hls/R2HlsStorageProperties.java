@@ -1,6 +1,7 @@
 package com.universe.media.infrastructure.storage.r2hls;
 
 import com.universe.media.application.ports.storage.HlsPackageKeyValidator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,10 @@ public class R2HlsStorageProperties {
     public static final int DEFAULT_MAX_CONCURRENT_UPLOADS = 4;
     public static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 30;
     public static final int DEFAULT_TOTAL_ATTEMPT_TIMEOUT_SECONDS = 120;
+    public static final int DEFAULT_UPLOAD_STAGE_TIMEOUT_SECONDS = 900; // 15 minutes per multi-artifact stage
+    public static final int MAX_REQUEST_TIMEOUT_SECONDS = 600;
+    public static final int MAX_TOTAL_ATTEMPT_TIMEOUT_SECONDS = 3600;
+    public static final int MAX_UPLOAD_STAGE_TIMEOUT_SECONDS = 14400; // 4 hours upper safety bound
     public static final int DEFAULT_MAX_RETRIES = 3;
     public static final int DEFAULT_MAX_VERIFICATION_COUNT = 5000;
     public static final int DEFAULT_PURGE_MAX_DURATION_SECONDS = 60;
@@ -38,6 +43,7 @@ public class R2HlsStorageProperties {
     private final int maxConcurrentUploads;
     private final Duration requestTimeout;
     private final Duration totalAttemptTimeout;
+    private final Duration uploadStageTimeout;
     private final int maxRetries;
     private final long maxArtifactSizeBytes;
     private final int maxVerificationCount;
@@ -47,6 +53,48 @@ public class R2HlsStorageProperties {
 
     private final boolean requireFullSegmentIntegrityVerification;
 
+    /**
+     * Backward-compatible constructor preserving pre-existing callers by binding
+     * {@code uploadStageTimeoutSeconds} to the supplied {@code totalAttemptTimeoutSeconds}.
+     */
+    public R2HlsStorageProperties(
+            String bucket,
+            String endpoint,
+            String accessKeyId,
+            String secretAccessKey,
+            String region,
+            int maxConcurrentUploads,
+            int requestTimeoutSeconds,
+            int totalAttemptTimeoutSeconds,
+            int maxRetries,
+            long maxArtifactSizeBytes,
+            int maxVerificationCount,
+            int purgeMaxDurationSeconds,
+            int purgeBatchSize,
+            int purgeMaxKeys,
+            boolean requireFullSegmentIntegrityVerification
+    ) {
+        this(
+                bucket,
+                endpoint,
+                accessKeyId,
+                secretAccessKey,
+                region,
+                maxConcurrentUploads,
+                requestTimeoutSeconds,
+                totalAttemptTimeoutSeconds,
+                totalAttemptTimeoutSeconds,
+                maxRetries,
+                maxArtifactSizeBytes,
+                maxVerificationCount,
+                purgeMaxDurationSeconds,
+                purgeBatchSize,
+                purgeMaxKeys,
+                requireFullSegmentIntegrityVerification
+        );
+    }
+
+    @Autowired
     public R2HlsStorageProperties(
             @Value("${media.storage.r2-hls.bucket:}") String bucket,
             @Value("${media.storage.r2-hls.endpoint:}") String endpoint,
@@ -56,6 +104,7 @@ public class R2HlsStorageProperties {
             @Value("${media.storage.r2-hls.max-concurrent-uploads:4}") int maxConcurrentUploads,
             @Value("${media.storage.r2-hls.request-timeout-seconds:30}") int requestTimeoutSeconds,
             @Value("${media.storage.r2-hls.total-attempt-timeout-seconds:120}") int totalAttemptTimeoutSeconds,
+            @Value("${media.storage.r2-hls.upload-stage-timeout-seconds:900}") int uploadStageTimeoutSeconds,
             @Value("${media.storage.r2-hls.max-retries:3}") int maxRetries,
             @Value("${media.storage.r2-hls.max-artifact-size-bytes:67108864}") long maxArtifactSizeBytes,
             @Value("${media.storage.r2-hls.max-verification-count:5000}") int maxVerificationCount,
@@ -76,15 +125,23 @@ public class R2HlsStorageProperties {
         }
         this.maxConcurrentUploads = maxConcurrentUploads;
 
-        if (requestTimeoutSeconds < 1) {
-            throw new IllegalStateException("requestTimeoutSeconds must be >= 1, got: " + requestTimeoutSeconds);
+        if (requestTimeoutSeconds < 1 || requestTimeoutSeconds > MAX_REQUEST_TIMEOUT_SECONDS) {
+            throw new IllegalStateException("requestTimeoutSeconds must be between 1 and " + MAX_REQUEST_TIMEOUT_SECONDS + ", got: " + requestTimeoutSeconds);
         }
         this.requestTimeout = Duration.ofSeconds(requestTimeoutSeconds);
 
-        if (totalAttemptTimeoutSeconds < requestTimeoutSeconds) {
-            throw new IllegalStateException("totalAttemptTimeoutSeconds must be >= requestTimeoutSeconds, got: " + totalAttemptTimeoutSeconds);
+        if (totalAttemptTimeoutSeconds < requestTimeoutSeconds || totalAttemptTimeoutSeconds > MAX_TOTAL_ATTEMPT_TIMEOUT_SECONDS) {
+            throw new IllegalStateException("totalAttemptTimeoutSeconds must be >= requestTimeoutSeconds and <= " + MAX_TOTAL_ATTEMPT_TIMEOUT_SECONDS + ", got: " + totalAttemptTimeoutSeconds);
         }
         this.totalAttemptTimeout = Duration.ofSeconds(totalAttemptTimeoutSeconds);
+
+        if (uploadStageTimeoutSeconds < totalAttemptTimeoutSeconds || uploadStageTimeoutSeconds > MAX_UPLOAD_STAGE_TIMEOUT_SECONDS) {
+            throw new IllegalStateException(
+                    "uploadStageTimeoutSeconds must be >= totalAttemptTimeoutSeconds and <= "
+                            + MAX_UPLOAD_STAGE_TIMEOUT_SECONDS + ", got: " + uploadStageTimeoutSeconds
+            );
+        }
+        this.uploadStageTimeout = Duration.ofSeconds(uploadStageTimeoutSeconds);
 
         if (maxRetries < 0 || maxRetries > 10) {
             throw new IllegalStateException("maxRetries must be between 0 and 10, got: " + maxRetries);
@@ -184,6 +241,15 @@ public class R2HlsStorageProperties {
         return totalAttemptTimeout;
     }
 
+    /**
+     * Explicit finite wall-clock budget for a single multi-artifact upload stage (Stage 1 binaries or Stage 2 playlists).
+     * Independent of single-object {@code requestTimeout} / {@code totalAttemptTimeout}; future B1/B2 workers may still
+     * interrupt an in-flight upload sooner on lease loss or outer worker cancellation.
+     */
+    public Duration uploadStageTimeout() {
+        return uploadStageTimeout;
+    }
+
     public int maxRetries() {
         return maxRetries;
     }
@@ -223,6 +289,7 @@ public class R2HlsStorageProperties {
                 ", maxConcurrentUploads=" + maxConcurrentUploads +
                 ", requestTimeout=" + requestTimeout +
                 ", totalAttemptTimeout=" + totalAttemptTimeout +
+                ", uploadStageTimeout=" + uploadStageTimeout +
                 ", maxRetries=" + maxRetries +
                 ", maxArtifactSizeBytes=" + maxArtifactSizeBytes +
                 ", maxVerificationCount=" + maxVerificationCount +

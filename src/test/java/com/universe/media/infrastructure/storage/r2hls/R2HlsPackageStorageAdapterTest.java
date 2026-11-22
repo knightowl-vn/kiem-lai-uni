@@ -1029,6 +1029,202 @@ class R2HlsPackageStorageAdapterTest {
     }
 
     // =========================================================================
+    // MS08-HLS2B3B0: Decoupled Upload-Stage Timeout & Monotonic Clock Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("Slow but progressing multi-artifact stage exceeding totalAttemptTimeout completes cleanly within uploadStageTimeout")
+    void slowProgressingStage_exceedingTotalAttemptTimeoutSucceedsWithinUploadStageTimeout() {
+        mockListingAllManifestArtifacts();
+
+        java.util.concurrent.atomic.AtomicLong fakeNanos = new java.util.concurrent.atomic.AtomicLong(1_000_000_000L);
+        R2HlsStorageProperties decoupledProps = new R2HlsStorageProperties(
+                BUCKET,
+                "https://account.r2.cloudflarestorage.com",
+                "test-access-key-id",
+                "test-secret-access-key-secret",
+                "auto",
+                1,          // maxConcurrentUploads=1 (sequential Stage 1 PUTs)
+                1,          // requestTimeoutSeconds=1s
+                2,          // totalAttemptTimeoutSeconds=2s (single artifact retry/call budget)
+                10,         // uploadStageTimeoutSeconds=10s (multi-artifact stage budget)
+                1,
+                64L * 1024L * 1024L,
+                5000,
+                60,
+                1000,
+                5000,
+                false
+        );
+
+        R2HlsPackageStorageAdapter decoupledAdapter = new R2HlsPackageStorageAdapter(
+                decoupledProps,
+                mockS3Client,
+                false,
+                Executors.newFixedThreadPool(1),
+                true,
+                fakeNanos::get
+        );
+
+        // Each of the 4 Stage-1 PUTs advances fake clock by 1.2s (< 2s per-call totalAttemptTimeout, 4.8s total > 2s!)
+        when(mockS3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenAnswer(inv -> {
+                    fakeNanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(1200));
+                    return PutObjectResponse.builder().build();
+                });
+
+        HlsArtifactStreamSource streamSource = createMockStreamSource(new AtomicBoolean(false), null);
+        HlsPackageUploadCommand command = new HlsPackageUploadCommand(BUCKET, manifest, streamSource);
+
+        HlsUploadedPackageVerification result = decoupledAdapter.uploadAndVerifyPackage(command);
+        assertThat(result).isNotNull();
+        assertThat(result.verifiedObjectCount()).isEqualTo(manifest.objectCount());
+        decoupledAdapter.close();
+    }
+
+    @Test
+    @DisplayName("Single stalled artifact still enforces totalAttemptTimeout even when uploadStageTimeout is much larger")
+    void singleArtifactRetry_stillRespectsTotalAttemptTimeout() {
+        java.util.concurrent.atomic.AtomicLong fakeNanos = new java.util.concurrent.atomic.AtomicLong(1_000_000_000L);
+        R2HlsStorageProperties decoupledProps = new R2HlsStorageProperties(
+                BUCKET,
+                "https://account.r2.cloudflarestorage.com",
+                "test-access-key-id",
+                "test-secret-access-key-secret",
+                "auto",
+                1,
+                1,          // requestTimeout=1s
+                2,          // totalAttemptTimeout=2s
+                60,         // uploadStageTimeout=60s
+                3,          // retries
+                64L * 1024L * 1024L,
+                5000,
+                60,
+                1000,
+                5000,
+                false
+        );
+
+        R2HlsPackageStorageAdapter decoupledAdapter = new R2HlsPackageStorageAdapter(
+                decoupledProps,
+                mockS3Client,
+                false,
+                Executors.newFixedThreadPool(1),
+                true,
+                fakeNanos::get
+        );
+
+        when(mockS3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenAnswer(inv -> {
+                    fakeNanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(2500));
+                    throw S3Exception.builder().statusCode(503).message("Slow retryable failure").build();
+                });
+        when(mockS3Client.getObject(any(GetObjectRequest.class)))
+                .thenThrow(S3Exception.builder().statusCode(404).message("NoSuchKey").build());
+
+        HlsArtifactStreamSource streamSource = createMockStreamSource(new AtomicBoolean(false), null);
+        HlsPackageUploadCommand command = new HlsPackageUploadCommand(BUCKET, manifest, streamSource);
+
+        assertThatThrownBy(() -> decoupledAdapter.uploadAndVerifyPackage(command))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Upload attempt timed out after 2 seconds");
+
+        ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(mockS3Client, atLeastOnce()).putObject(captor.capture(), any(RequestBody.class));
+        assertThat(captor.getAllValues().stream().map(PutObjectRequest::key).toList())
+                .doesNotContain(masterKey.value());
+        decoupledAdapter.close();
+    }
+
+    @Test
+    @DisplayName("Stage timeout cancels outstanding tasks, preserves detached ownership if unresponsive, and blocks master.m3u8")
+    void stageTimeout_cancelsTasksDetachesUnresponsiveWorkerAndBlocksMaster() throws Exception {
+        java.util.concurrent.atomic.AtomicLong fakeNanos = new java.util.concurrent.atomic.AtomicLong(1_000_000_000L);
+        R2HlsStorageProperties shortStageProps = new R2HlsStorageProperties(
+                BUCKET,
+                "https://account.r2.cloudflarestorage.com",
+                "test-access-key-id",
+                "test-secret-access-key-secret",
+                "auto",
+                2,
+                1,          // requestTimeout=1s
+                1,          // totalAttemptTimeout=1s
+                2,          // uploadStageTimeout=2s
+                0,
+                64L * 1024L * 1024L,
+                5000,
+                60,
+                1000,
+                5000,
+                false
+        );
+
+        CountDownLatch workerInPut = new CountDownLatch(1);
+        CountDownLatch releaseUnresponsiveWorker = new CountDownLatch(1);
+        CountDownLatch workerFinished = new CountDownLatch(1);
+        AtomicBoolean scopeClosed = new AtomicBoolean(false);
+
+        when(mockS3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenAnswer(inv -> {
+                    workerInPut.countDown();
+                    while (releaseUnresponsiveWorker.getCount() > 0) {
+                        try {
+                            releaseUnresponsiveWorker.await(20, TimeUnit.MILLISECONDS);
+                        } catch (InterruptedException ignored) {
+                        }
+                    }
+                    workerFinished.countDown();
+                    return PutObjectResponse.builder().build();
+                });
+
+        R2HlsPackageStorageAdapter timeoutAdapter = new R2HlsPackageStorageAdapter(
+                shortStageProps,
+                mockS3Client,
+                false,
+                Executors.newFixedThreadPool(2),
+                true,
+                fakeNanos::get
+        );
+
+        HlsArtifactStreamSource streamSource = createMockStreamSource(new AtomicBoolean(false), scopeClosed);
+        HlsPackageUploadCommand command = new HlsPackageUploadCommand(BUCKET, manifest, streamSource);
+
+        AtomicReference<Throwable> failureRef = new AtomicReference<>();
+        Thread uploadThread = new Thread(() -> {
+            try {
+                timeoutAdapter.uploadAndVerifyPackage(command);
+            } catch (Throwable t) {
+                failureRef.set(t);
+            }
+        });
+        uploadThread.start();
+
+        assertThat(workerInPut.await(5, TimeUnit.SECONDS)).isTrue();
+        // Advance monotonic clock past uploadStageTimeout (2s)
+        fakeNanos.addAndGet(TimeUnit.SECONDS.toNanos(3));
+        uploadThread.join(5000);
+
+        assertThat(failureRef.get())
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("timeout bounds");
+        assertThat(scopeClosed.get()).isFalse();
+        assertThat(timeoutAdapter.isPackageOperationActive(basePrefix)).isTrue();
+
+        ArgumentCaptor<PutObjectRequest> putCaptor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(mockS3Client, atLeastOnce()).putObject(putCaptor.capture(), any(RequestBody.class));
+        assertThat(putCaptor.getAllValues().stream().map(PutObjectRequest::key).toList())
+                .doesNotContain(masterKey.value());
+
+        releaseUnresponsiveWorker.countDown();
+        assertThat(workerFinished.await(5, TimeUnit.SECONDS)).isTrue();
+        while (!scopeClosed.get()) {
+            Thread.onSpinWait();
+        }
+        assertThat(timeoutAdapter.isPackageOperationActive(basePrefix)).isFalse();
+        timeoutAdapter.close();
+    }
+
+    // =========================================================================
     // 3. Ambiguous Completion & HTTP 412 Tests
     // =========================================================================
 

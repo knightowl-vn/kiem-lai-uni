@@ -264,6 +264,84 @@ class LocalHlsPackageInventoryTest {
     }
 
     @Test
+    @DisplayName("Exposes bounded worker factory enforcing R2 storage limits before any remote call and validates limit bounds")
+    void shouldEnforceEffectiveRemoteLimitsBeforeUploadAndRejectInvalidLimits(@TempDir Path tempDir) throws Exception {
+        Path srcDir = Files.createDirectories(tempDir.resolve("src"));
+        Path scratchRoot = Files.createDirectories(tempDir.resolve("scratch"));
+        Path sourceFile = Files.write(srcDir.resolve("episode.mp4"), new byte[]{1, 2, 3, 4});
+
+        // 1 segment per tier (video/720p + audio/main) => exact 7 objects (master + 2 playlists + 2 inits + 2 segs)
+        LocalFfmpegHlsPackagingEngine engine =
+                createSyntheticEngine(scratchRoot, probedSource(1280, 720, true), 1);
+
+        try (LocalFfmpegHlsPackagingEngine.LocalHlsPackagingResult result = engine.packageLocalSource(sourceFile)) {
+            int exactObjectCount = result.verificationReport().objectCount();
+            final long maxArtifactBytes;
+            try (var walk = Files.walk(result.packageRoot())) {
+                maxArtifactBytes = walk.filter(Files::isRegularFile)
+                        .mapToLong(p -> {
+                            try {
+                                return Files.size(p);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }).max().orElseThrow();
+            }
+
+            // Exactly at object limit AND exact byte limit -> succeeds
+            LocalHlsPackageInventory atLimit = LocalHlsPackageInventory.fromVerifiedResult(
+                    result, ASSET_ID, 1, PACKAGE_UUID, R2_HLS,
+                    LocalHlsPackageInventory.InventoryLimits.stricterOfDefaultsAndRemote(exactObjectCount, maxArtifactBytes)
+            );
+            assertThat(atLimit.expectedManifest().objectCount()).isEqualTo(exactObjectCount);
+
+            // One object above limit (maxObjectCount = exactObjectCount - 1) -> fails locally before remote upload
+            int belowCount = exactObjectCount - 1;
+            var r2MockPort = org.mockito.Mockito.mock(com.universe.media.application.ports.storage.HlsPackageArtifactStoragePort.class);
+            assertThatThrownBy(() -> {
+                LocalHlsPackageInventory rejected = LocalHlsPackageInventory.fromVerifiedResult(
+                        result, ASSET_ID, 1, PACKAGE_UUID, R2_HLS, belowCount, maxArtifactBytes
+                );
+                r2MockPort.uploadAndVerifyPackage(rejected.toUploadCommand("kiemlai-hls-priv"));
+            }).isInstanceOf(IllegalStateException.class).hasMessageContaining("exceeds bounded maximum");
+            org.mockito.Mockito.verifyNoInteractions(r2MockPort);
+
+            // One byte above artifact limit -> fails locally before remote upload
+            long belowBytes = maxArtifactBytes - 1;
+            assertThatThrownBy(() -> {
+                LocalHlsPackageInventory rejected = LocalHlsPackageInventory.fromVerifiedResult(
+                        result, ASSET_ID, 1, PACKAGE_UUID, R2_HLS, exactObjectCount, belowBytes
+                );
+                r2MockPort.uploadAndVerifyPackage(rejected.toUploadCommand("kiemlai-hls-priv"));
+            }).isInstanceOf(IllegalStateException.class).hasMessageContaining("exceeds maxSingleObjectBytes");
+            org.mockito.Mockito.verifyNoInteractions(r2MockPort);
+
+            // Stricter limit resolution picks min(local default 10000, R2 default 5000) == 5000
+            LocalHlsPackageInventory.InventoryLimits effective =
+                    LocalHlsPackageInventory.InventoryLimits.stricterOfDefaultsAndRemote(
+                            com.universe.media.infrastructure.storage.r2hls.R2HlsStorageProperties.DEFAULT_MAX_VERIFICATION_COUNT,
+                            com.universe.media.infrastructure.storage.r2hls.R2HlsStorageProperties.DEFAULT_MAX_ARTIFACT_SIZE_BYTES
+                    );
+            assertThat(effective.maxObjectCount()).isEqualTo(5000);
+            assertThat(effective.maxSingleObjectBytes()).isEqualTo(64L * 1024L * 1024L);
+
+            // Invalid limits fail closed
+            assertThatThrownBy(() -> LocalHlsPackageInventory.fromVerifiedResult(
+                    result, ASSET_ID, 1, PACKAGE_UUID, R2_HLS, 3, 1024L
+            )).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> LocalHlsPackageInventory.fromVerifiedResult(
+                    result, ASSET_ID, 1, PACKAGE_UUID, R2_HLS, LocalHlsPackageInventory.MAX_ALLOWED_OBJECT_COUNT + 1, 1024L
+            )).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> LocalHlsPackageInventory.fromVerifiedResult(
+                    result, ASSET_ID, 1, PACKAGE_UUID, R2_HLS, 10, 0L
+            )).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> LocalHlsPackageInventory.fromVerifiedResult(
+                    result, ASSET_ID, 1, PACKAGE_UUID, R2_HLS, 10, LocalHlsPackageInventory.MAX_ALLOWED_SINGLE_OBJECT_BYTES + 1
+            )).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
     @DisplayName("Explicitly rejects symbolic link inside local package directory on symlink-capable hosts")
     void shouldRejectSymlinkInsidePackageOnCapableHost(@TempDir Path tempDir) throws Exception {
         Path srcDir = Files.createDirectories(tempDir.resolve("src"));

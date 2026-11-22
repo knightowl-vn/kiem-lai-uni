@@ -63,6 +63,22 @@ public class ClaimMediaVideoPackagingJobUseCase {
             StorageProviderId outputProviderId,
             String outputBucketName
     ) {
+        return claimNext(
+                workerId,
+                leaseDuration,
+                outputProviderId,
+                outputBucketName,
+                DEFAULT_SEGMENT_DURATION_SECONDS
+        );
+    }
+
+    public Optional<ClaimedVideoPackagingLease> claimNext(
+            String workerId,
+            Duration leaseDuration,
+            StorageProviderId outputProviderId,
+            String outputBucketName,
+            int segmentDurationSeconds
+    ) {
         Objects.requireNonNull(workerId, "workerId cannot be null.");
         if (workerId.isBlank()) {
             throw new IllegalArgumentException("workerId cannot be blank.");
@@ -72,6 +88,7 @@ public class ClaimMediaVideoPackagingJobUseCase {
         if (outputBucketName == null || outputBucketName.isBlank()) {
             throw new IllegalArgumentException("outputBucketName cannot be blank.");
         }
+        validateSegmentDurationSeconds(segmentDurationSeconds);
 
         Instant scanNow = clockPort.now();
         List<MediaVideoPackagingJobCandidate> candidates =
@@ -84,7 +101,8 @@ public class ClaimMediaVideoPackagingJobUseCase {
                             workerId.trim(),
                             leaseDuration,
                             outputProviderId,
-                            outputBucketName.trim()
+                            outputBucketName.trim(),
+                            segmentDurationSeconds
                     )
             );
             if (claimed != null && claimed.isPresent()) {
@@ -94,15 +112,25 @@ public class ClaimMediaVideoPackagingJobUseCase {
         return Optional.empty();
     }
 
+    public static void validateSegmentDurationSeconds(int segmentDurationSeconds) {
+        if (segmentDurationSeconds < MediaVideoHlsPackage.MIN_SEGMENT_DURATION_SECONDS
+                || segmentDurationSeconds > MediaVideoHlsPackage.MAX_SEGMENT_DURATION_SECONDS) {
+            throw new IllegalArgumentException(
+                    "segmentDurationSeconds must be between "
+                            + MediaVideoHlsPackage.MIN_SEGMENT_DURATION_SECONDS + " and "
+                            + MediaVideoHlsPackage.MAX_SEGMENT_DURATION_SECONDS + ", got: " + segmentDurationSeconds
+            );
+        }
+    }
+
     private Optional<ClaimedVideoPackagingLease> tryClaimCandidateInTransaction(
             MediaVideoPackagingJobCandidate candidate,
             String workerId,
             Duration leaseDuration,
             StorageProviderId outputProviderId,
-            String outputBucketName
+            String outputBucketName,
+            int segmentDurationSeconds
     ) {
-        Instant now = clockPort.now();
-
         // STEP 1: MediaAsset lock FIRST (eliminates implicit InnoDB FK S-lock cycle on Package INSERT)
         Optional<MediaAsset> assetOpt = mediaAssetRepositoryPort.findByIdForUpdate(candidate.assetId());
         if (assetOpt.isEmpty()) {
@@ -117,29 +145,33 @@ public class ClaimMediaVideoPackagingJobUseCase {
         }
         MediaVideoPackagingJob job = jobOpt.get();
 
-        if (!job.isClaimableAt(now)) {
+        // Capture authoritative time STRICTLY AFTER acquiring both DB row locks so lock waits
+        // never issue already-shortened/expired leases or evaluate stale eligibility timestamps.
+        Instant lockedNow = clockPort.now();
+
+        if (!job.isClaimableAt(lockedNow)) {
             return Optional.empty();
         }
 
         // Source validity gate
         if (asset.getStatus() != MediaAssetStatus.ACTIVE
                 || asset.getCurrentVersionNumber() != job.getSourceVersionNumber()) {
-            abandonPreviousAttemptPackageIfProcessing(job, "Asset inactive or source version superseded.", now);
-            job.cancel("Asset inactive or source version superseded.", now);
+            abandonPreviousAttemptPackageIfProcessing(job, "Asset inactive or source version superseded.", lockedNow);
+            job.cancel("Asset inactive or source version superseded.", lockedNow);
             packagingJobRepositoryPort.save(job);
             return Optional.empty();
         }
 
         // Attempt exhaustion gate (expired lease on last allowed attempt)
         if (job.hasExhaustedAttempts()) {
-            abandonPreviousAttemptPackageIfProcessing(job, "Expired lease on final allowed attempt.", now);
-            job.markExhaustedFailure("Lease expired after maximum attempts (" + job.getMaxAttempts() + ").", now);
+            abandonPreviousAttemptPackageIfProcessing(job, "Expired lease on final allowed attempt.", lockedNow);
+            job.markExhaustedFailure("Lease expired after maximum attempts (" + job.getMaxAttempts() + ").", lockedNow);
             packagingJobRepositoryPort.save(job);
             return Optional.empty();
         }
 
         // STEP 3: Package lock THIRD — abandon old PROCESSING attempt on lease reclaim, then insert isolated new attempt
-        abandonPreviousAttemptPackageIfProcessing(job, "Reclaimed after lease expiry.", now);
+        abandonPreviousAttemptPackageIfProcessing(job, "Reclaimed after lease expiry.", lockedNow);
 
         UUID attemptPackageId = UUID.randomUUID();
         UUID packageUuid = UUID.randomUUID();
@@ -158,12 +190,12 @@ public class ClaimMediaVideoPackagingJobUseCase {
                 outputProviderId,
                 outputBucketName,
                 StorageKey.of(basePrefix),
-                DEFAULT_SEGMENT_DURATION_SECONDS,
-                now
+                segmentDurationSeconds,
+                lockedNow
         );
         MediaVideoHlsPackage savedPackage = hlsPackageRepositoryPort.save(attemptPackage);
 
-        long leaseGeneration = job.claimOrReclaimLease(workerId, attemptPackageId, leaseDuration, now);
+        long leaseGeneration = job.claimOrReclaimLease(workerId, attemptPackageId, leaseDuration, lockedNow);
         MediaVideoPackagingJob savedJob = packagingJobRepositoryPort.save(job);
 
         return Optional.of(new ClaimedVideoPackagingLease(
@@ -179,7 +211,8 @@ public class ClaimMediaVideoPackagingJobUseCase {
                 savedPackage.getStorageBucketName(),
                 savedPackage.getBasePrefix(),
                 savedPackage.getMasterManifestKey(),
-                savedJob.getLeaseExpiresAt()
+                savedJob.getLeaseExpiresAt(),
+                savedPackage.getSegmentDurationSeconds()
         ));
     }
 

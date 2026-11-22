@@ -73,6 +73,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.LongSupplier;
 
 /**
  * Cloudflare R2 implementation of {@link HlsPackageArtifactStoragePort} using AWS SDK v2 S3 API (MS-08 HLS-2B2B).
@@ -112,6 +113,7 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
     private final boolean ownsS3Client;
     private final ExecutorService uploadExecutor;
     private final boolean ownsExecutor;
+    private final LongSupplier nanoTimeSupplier;
     private final ConcurrentMap<StorageKey, PackageOperationType> activePackageOperations = new ConcurrentHashMap<>();
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final AtomicBoolean s3ClientClosed = new AtomicBoolean(false);
@@ -124,7 +126,8 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
                 createS3Client(properties),
                 true,
                 createUploadExecutor(properties),
-                true
+                true,
+                System::nanoTime
         );
     }
 
@@ -134,7 +137,8 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
                 Objects.requireNonNull(s3Client, "S3Client cannot be null."),
                 false,
                 createUploadExecutor(properties),
-                true
+                true,
+                System::nanoTime
         );
     }
 
@@ -148,7 +152,8 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
                 Objects.requireNonNull(s3Client, "S3Client cannot be null."),
                 false,
                 Objects.requireNonNull(uploadExecutor, "uploadExecutor cannot be null."),
-                false
+                false,
+                System::nanoTime
         );
     }
 
@@ -159,11 +164,23 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
             ExecutorService uploadExecutor,
             boolean ownsExecutor
     ) {
+        this(properties, s3Client, ownsS3Client, uploadExecutor, ownsExecutor, System::nanoTime);
+    }
+
+    R2HlsPackageStorageAdapter(
+            R2HlsStorageProperties properties,
+            S3Client s3Client,
+            boolean ownsS3Client,
+            ExecutorService uploadExecutor,
+            boolean ownsExecutor,
+            LongSupplier nanoTimeSupplier
+    ) {
         this.properties = properties;
         this.s3Client = s3Client;
         this.ownsS3Client = ownsS3Client;
         this.uploadExecutor = uploadExecutor;
         this.ownsExecutor = ownsExecutor;
+        this.nanoTimeSupplier = Objects.requireNonNull(nanoTimeSupplier, "nanoTimeSupplier cannot be null.");
     }
 
     public StorageProviderId providerId() {
@@ -274,15 +291,15 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
             int totalInspected = 0;
             int pageCount = 0;
             int maxPages = (properties.purgeMaxKeys() / 100) + 20;
-            long startTime = System.currentTimeMillis();
-            long maxDurationMs = properties.purgeMaxDuration().toMillis();
+            long startNanos = nanoTimeSupplier.getAsLong();
+            long maxDurationNanos = properties.purgeMaxDuration().toNanos();
 
             do {
                 pageCount++;
                 if (pageCount > maxPages) {
                     throw new StorageException("Purge listing exceeded maximum pagination page limit: " + maxPages);
                 }
-                if (System.currentTimeMillis() - startTime > maxDurationMs) {
+                if (nanoTimeSupplier.getAsLong() - startNanos > maxDurationNanos) {
                     throw new StorageException(
                             "Purge listing exceeded maximum allowed duration of "
                                     + properties.purgeMaxDuration().toSeconds() + " seconds for prefix " + prefix
@@ -341,7 +358,7 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
             // Batch DeleteObjects
             int batchSize = properties.purgeBatchSize();
             for (int i = 0; i < keysToDelete.size(); i += batchSize) {
-                if (System.currentTimeMillis() - startTime > maxDurationMs) {
+                if (nanoTimeSupplier.getAsLong() - startNanos > maxDurationNanos) {
                     throw new StorageException("Purge deletion batch execution exceeded maximum allowed duration");
                 }
                 int toIndex = Math.min(i + batchSize, keysToDelete.size());
@@ -621,21 +638,24 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
         }
 
         boolean interrupted = false;
-        long timeoutMs = properties.totalAttemptTimeout().toMillis();
-        long deadline = System.currentTimeMillis() + timeoutMs;
+        boolean timedOut = false;
+        long stageBudgetNanos = properties.uploadStageTimeout().toNanos();
+        long stageStartNanos = nanoTimeSupplier.getAsLong();
 
         synchronized (stageMonitor) {
-            while (System.currentTimeMillis() < deadline
-                    && completedCount.get() < artifacts.size()
+            while (completedCount.get() < artifacts.size()
                     && firstError.get() == null
                     && !coordinator.scope().isCloseRequested()
                     && !stageAborted.get()) {
-                long waitTime = deadline - System.currentTimeMillis();
-                if (waitTime <= 0) {
+                long elapsedNanos = nanoTimeSupplier.getAsLong() - stageStartNanos;
+                long remainingNanos = stageBudgetNanos - elapsedNanos;
+                if (remainingNanos <= 0L) {
+                    timedOut = true;
                     break;
                 }
+                long waitTimeMillis = Math.min(Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos)), 200L);
                 try {
-                    stageMonitor.wait(Math.min(waitTime, 200L));
+                    stageMonitor.wait(waitTimeMillis);
                 } catch (InterruptedException e) {
                     interrupted = true;
                     Thread.currentThread().interrupt();
@@ -647,7 +667,7 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
         }
 
         // Cancel pending tasks and signal abort if stage has not cleanly completed
-        if (completedCount.get() < artifacts.size() || firstError.get() != null || coordinator.scope().isCloseRequested() || interrupted) {
+        if (completedCount.get() < artifacts.size() || firstError.get() != null || coordinator.scope().isCloseRequested() || interrupted || timedOut) {
             stageAborted.set(true);
             for (Future<?> f : workerFutures) {
                 f.cancel(true);
@@ -682,6 +702,13 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
 
         if (interrupted) {
             throw new StorageException("Upload stage was interrupted");
+        }
+
+        if (timedOut) {
+            throw new StorageException(
+                    "Upload stage exceeded uploadStageTimeout (" + properties.uploadStageTimeout().toSeconds()
+                            + "s): expected=" + artifacts.size() + ", completed=" + completedCount.get()
+            );
         }
 
         if (completedCount.get() != artifacts.size()) {
@@ -733,15 +760,15 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
         );
 
         int attempt = 0;
-        long startTime = System.currentTimeMillis();
-        long maxDurationMs = properties.totalAttemptTimeout().toMillis();
+        long startNanos = nanoTimeSupplier.getAsLong();
+        long maxDurationNanos = properties.totalAttemptTimeout().toNanos();
 
         while (true) {
             attempt++;
             if (scope.isCloseRequested()) {
                 throw new IllegalStateException("Upload aborted: package closure requested during retry.");
             }
-            if (System.currentTimeMillis() - startTime > maxDurationMs) {
+            if (nanoTimeSupplier.getAsLong() - startNanos > maxDurationNanos) {
                 throw new StorageException(
                         "Upload attempt timed out after " + properties.totalAttemptTimeout().toSeconds()
                                 + " seconds for key: " + descriptor.objectKey().value()
@@ -876,15 +903,15 @@ public class R2HlsPackageStorageAdapter implements HlsPackageArtifactStoragePort
         Set<String> seenTokens = new HashSet<>();
         int pageCount = 0;
         int maxPages = (properties.maxVerificationCount() / 100) + 20;
-        long startTime = System.currentTimeMillis();
-        long maxDurationMs = properties.totalAttemptTimeout().toMillis();
+        long startNanos = nanoTimeSupplier.getAsLong();
+        long maxDurationNanos = properties.totalAttemptTimeout().toNanos();
 
         do {
             pageCount++;
             if (pageCount > maxPages) {
                 throw new StorageException("Remote listing exceeded maximum pagination page limit: " + maxPages);
             }
-            if (System.currentTimeMillis() - startTime > maxDurationMs) {
+            if (nanoTimeSupplier.getAsLong() - startNanos > maxDurationNanos) {
                 throw new StorageException("Remote listing exceeded total timeout budget for prefix: " + prefix);
             }
 

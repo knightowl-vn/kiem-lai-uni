@@ -1621,6 +1621,152 @@ class MediaVideoHlsConcurrencyIntegrationTest {
         assertThat(readJobsInTx(committedAsset)).hasSize(1);
     }
 
+    @Test
+    @DisplayName("CX-24: Real MySQL row-lock wait advances post-lock timestamp so claim issues non-expired lease and serializes competing claimer")
+    void cx24RealMysqlRowLockWaitUsesPostLockTimestampForLeaseExpiry() throws Exception {
+        UUID assetId = seedVideoAssetWithPendingJob();
+        MediaVideoPackagingJob createdJob = createJobUseCase.execute(assetId);
+
+        CountDownLatch holderLockedAsset = new CountDownLatch(1);
+        CountDownLatch releaseLockHolder = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(3);
+        try {
+            Future<Void> lockHolder = pool.submit(() -> {
+                requiresNewTemplate().executeWithoutResult(status -> {
+                    assetAdapter.findByIdForUpdate(assetId).orElseThrow();
+                    holderLockedAsset.countDown();
+                    try {
+                        assertThat(releaseLockHolder.await(15, TimeUnit.SECONDS)).isTrue();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                });
+                return null;
+            });
+
+            assertThat(holderLockedAsset.await(10, TimeUnit.SECONDS)).isTrue();
+
+            // Claimer 1 scans at BASE_TIME then blocks on InnoDB row lock inside findByIdForUpdate(assetId)
+            Future<Optional<ClaimedVideoPackagingLease>> claimer1 = pool.submit(() ->
+                    claimJobUseCase.claimNext("worker-lock-wait", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket", 4)
+            );
+
+            // Deterministically wait until InnoDB records an active row-lock wait on media_assets
+            long waitDeadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (System.nanoTime() < waitDeadlineNanos) {
+                Integer waitingCount = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM performance_schema.data_locks WHERE LOCK_STATUS = 'WAITING' AND OBJECT_NAME = 'media_assets'",
+                        Integer.class
+                );
+                if (waitingCount != null && waitingCount > 0) {
+                    break;
+                }
+                Thread.onSpinWait();
+            }
+
+            // Advance clock 120s while Claimer 1 is blocked holding pre-lock scanNow = BASE_TIME
+            Instant postLockTime = BASE_TIME.plusSeconds(120);
+            clockRef.set(postLockTime);
+            releaseLockHolder.countDown();
+            lockHolder.get(15, TimeUnit.SECONDS);
+
+            ClaimedVideoPackagingLease lease = claimer1.get(15, TimeUnit.SECONDS).orElseThrow();
+            assertThat(lease.leaseGeneration()).isEqualTo(1L);
+            assertThat(lease.segmentDurationSeconds()).isEqualTo(4);
+            // Lease expires at postLockTime + 5m, NOT BASE_TIME + 5m
+            assertThat(lease.leaseExpiresAt()).isEqualTo(postLockTime.plus(Duration.ofMinutes(5)));
+
+            MediaVideoPackagingJob persistedJob = packagingJobAdapter.findById(createdJob.getId()).orElseThrow();
+            assertThat(persistedJob.getLeaseExpiresAt()).isEqualTo(postLockTime.plus(Duration.ofMinutes(5)));
+            MediaVideoHlsPackage persistedPkg = hlsPackageAdapter.findById(lease.packageId()).orElseThrow();
+            assertThat(persistedPkg.getSegmentDurationSeconds()).isEqualTo(4);
+
+            // Competing claimer cannot claim active generation
+            assertThat(claimJobUseCase.claimNext("worker-competing", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket", 4))
+                    .isEmpty();
+        } finally {
+            releaseLockHolder.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-25: Persisted segment durations match configured values (6s default, 4s, 8s) and cancelled/replaced jobs stay ineligible after lock")
+    void cx25SegmentDurationCompatibilityAndPostLockIneligibilityInMysql() throws Exception {
+        // Asset 1: default 6s
+        UUID a6 = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(a6);
+        ClaimedVideoPackagingLease l6 = claimJobUseCase.claimNext("w6", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket")
+                .orElseThrow();
+        assertThat(l6.segmentDurationSeconds()).isEqualTo(6);
+        assertThat(hlsPackageAdapter.findById(l6.packageId()).orElseThrow().getSegmentDurationSeconds()).isEqualTo(6);
+        completeJobUseCase.completeWithVerifiedReceipt(
+                a6, l6.jobId(), l6.packageId(), "w6", l6.leaseGeneration(),
+                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 20_000L, 5, "[{\"height\":720}]", clockRef.get())
+        );
+
+        // Asset 2: 8s custom duration
+        UUID a8 = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(a8);
+        ClaimedVideoPackagingLease l8 = claimJobUseCase.claimNext("w8", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket", 8)
+                .orElseThrow();
+        assertThat(l8.segmentDurationSeconds()).isEqualTo(8);
+        assertThat(hlsPackageAdapter.findById(l8.packageId()).orElseThrow().getSegmentDurationSeconds()).isEqualTo(8);
+        completeJobUseCase.completeWithVerifiedReceipt(
+                a8, l8.jobId(), l8.packageId(), "w8", l8.leaseGeneration(),
+                new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 20_000L, 5, "[{\"height\":720}]", clockRef.get())
+        );
+
+        // Asset 3: deleted while lock waits -> ineligible under post-lock check
+        UUID aDel = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(aDel);
+        CountDownLatch deleterReady = new CountDownLatch(1);
+        CountDownLatch allowDelete = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> deleter = pool.submit(() -> {
+                requiresNewTemplate().executeWithoutResult(status -> {
+                    assetAdapter.findByIdForUpdate(aDel).orElseThrow();
+                    deleterReady.countDown();
+                    try {
+                        assertThat(allowDelete.await(15, TimeUnit.SECONDS)).isTrue();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                    MediaAsset a = assetAdapter.findByIdForUpdate(aDel).orElseThrow();
+                    a.markDeleted(clockRef.get().plusSeconds(10));
+                    assetAdapter.save(a);
+                });
+                return null;
+            });
+
+            assertThat(deleterReady.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Optional<ClaimedVideoPackagingLease>> claimAfterDelete = pool.submit(() ->
+                    claimJobUseCase.claimNext("w-del", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket", 4)
+            );
+            long waitDeadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (System.nanoTime() < waitDeadlineNanos) {
+                Integer waiting = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM performance_schema.data_locks WHERE LOCK_STATUS = 'WAITING' AND OBJECT_NAME = 'media_assets'",
+                        Integer.class
+                );
+                if (waiting != null && waiting > 0) {
+                    break;
+                }
+                Thread.onSpinWait();
+            }
+            allowDelete.countDown();
+            deleter.get(15, TimeUnit.SECONDS);
+
+            assertThat(claimAfterDelete.get(15, TimeUnit.SECONDS)).isEmpty();
+        } finally {
+            allowDelete.countDown();
+            pool.shutdownNow();
+        }
+    }
+
     private Optional<MediaVideoPackagingJob> findActiveJobInTx(UUID sourceVersionId) {
         return new TransactionTemplate(transactionManager)
                 .execute(s -> packagingJobAdapter.findActiveBySourceVersionIdForUpdate(sourceVersionId));
