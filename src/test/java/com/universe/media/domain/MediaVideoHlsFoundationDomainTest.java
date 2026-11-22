@@ -69,11 +69,194 @@ class MediaVideoHlsFoundationDomainTest {
         pkg.markSuperseded(purgeAfter, T0.plusSeconds(8));
         assertThat(pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.SUPERSEDED);
 
-        pkg.markPurging(T0.plusSeconds(9));
-        assertThat(pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        // Premature purge claim before 7-day supersession floor is rejected
+        assertThatThrownBy(() -> pkg.markPurging(T0.plusSeconds(9)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not purge-eligible");
 
-        pkg.markPurged(T0.plusSeconds(10));
+        Instant eligibleAt = T0.plus(Duration.ofDays(7)).plusSeconds(10);
+        pkg.markPurging(eligibleAt);
+        assertThat(pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(pkg.getPurgeAfter()).isEqualTo(eligibleAt.plus(MediaVideoHlsPackage.DEFAULT_PURGE_CLAIM_LEASE));
+
+        pkg.markPurged(eligibleAt.plusSeconds(5));
         assertThat(pkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGED);
+        assertThat(pkg.getPurgeAfter()).isNull();
+    }
+
+    @Test
+    @DisplayName("Purge lifecycle enforces 24h FAILED/ABANDONED & 7d SUPERSEDED floors, legacy protection, claim fencing, failure backoff, and READY/PROCESSING/PURGED immunity")
+    void shouldEnforcePurgeEligibilityRetentionFloorsClaimReclaimAndBackoffInvariants() {
+        // 1. FAILED package (including legacy purgeAfter = T0) cannot enter PURGING before T0 + 24h
+        MediaVideoHlsPackage legacyFailed = MediaVideoHlsPackage.startProcessing(
+                PKG_ID, ASSET_ID, VERSION_ID, 1, PKG_UUID, 1,
+                StorageProviderId.of("r2-hls"), "hls-bucket",
+                StorageKey.of("objects/hls/" + ASSET_ID + "/v1/" + PKG_UUID + "/"),
+                6, T0
+        );
+        // PROCESSING is never purge-eligible
+        assertThat(legacyFailed.isPurgeEligibleAt(T0.plus(Duration.ofDays(30)))).isFalse();
+        assertThatThrownBy(() -> legacyFailed.claimForPurge(T0.plus(Duration.ofDays(30)).plusSeconds(60), T0.plus(Duration.ofDays(30))))
+                .isInstanceOf(IllegalStateException.class);
+
+        Instant failTime = T0.plusSeconds(5);
+        legacyFailed.markFailed("Encoder crashed on HDR", failTime, failTime); // legacy immediate purgeAfter = failTime
+        assertThat(legacyFailed.isPurgeEligibleAt(failTime)).isFalse();
+        assertThat(legacyFailed.isPurgeEligibleAt(failTime.plus(Duration.ofHours(24)).minusSeconds(1))).isFalse();
+        assertThatThrownBy(() -> legacyFailed.claimForPurge(
+                failTime.plus(Duration.ofHours(23)).plus(Duration.ofMinutes(5)),
+                failTime.plus(Duration.ofHours(23))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(legacyFailed.isPurgeEligibleAt(failTime.plus(Duration.ofHours(24)))).isTrue();
+
+        // 2. ABANDONED package (legacy purgeAfter = abandonTime) also enforces 24h floor, while 7d stays >= 7d
+        MediaVideoHlsPackage legacyAbandoned = MediaVideoHlsPackage.startProcessing(
+                UUID.randomUUID(), ASSET_ID, VERSION_ID, 1, UUID.randomUUID(), 2,
+                StorageProviderId.of("r2-hls"), "hls-bucket",
+                StorageKey.of("objects/hls/" + ASSET_ID + "/v1/" + UUID.randomUUID() + "/"),
+                6, T0
+        );
+        Instant abandonTime = T0.plusSeconds(10);
+        legacyAbandoned.markAbandoned("Reclaimed", abandonTime, abandonTime);
+        assertThat(legacyAbandoned.isPurgeEligibleAt(abandonTime.plus(Duration.ofHours(24)).minusNanos(1))).isFalse();
+        assertThat(legacyAbandoned.isPurgeEligibleAt(abandonTime.plus(Duration.ofHours(24)))).isTrue();
+
+        // 3. SUPERSEDED missing supersededAt fails closed cleanly
+        UUID supUuid = UUID.randomUUID();
+        MediaVideoHlsPackage corruptSuperseded = MediaVideoHlsPackage.rehydrate(
+                UUID.randomUUID(), ASSET_ID, VERSION_ID, 1, supUuid, 3,
+                StorageProviderId.of("r2-hls"), "hls-bucket",
+                StorageKey.of("objects/hls/" + ASSET_ID + "/v1/" + supUuid + "/"),
+                StorageKey.of("objects/hls/" + ASSET_ID + "/v1/" + supUuid + "/master.m3u8"),
+                7, "FMP4", 6, null, null, null, null,
+                MediaVideoHlsPackageStatus.SUPERSEDED, null,
+                T0, null, null, null, T0.plusSeconds(5), T0.plusSeconds(5), 1L
+        );
+        assertThat(corruptSuperseded.effectivePurgeEligibleAt()).isEmpty();
+        assertThat(corruptSuperseded.isPurgeEligibleAt(T0.plus(Duration.ofDays(30)))).isFalse();
+
+        // 4. READY can never enter PURGING
+        MediaVideoHlsPackage readyPkg = MediaVideoHlsPackage.startProcessing(
+                UUID.randomUUID(), ASSET_ID, VERSION_ID, 1, UUID.randomUUID(), 4,
+                StorageProviderId.of("r2-hls"), "hls-bucket",
+                StorageKey.of("objects/hls/" + ASSET_ID + "/v1/" + UUID.randomUUID() + "/"),
+                6, T0
+        );
+        readyPkg.markReady(SHA256, 4096L, 5, "[{\"height\":720}]", T0.plusSeconds(2), T0.plusSeconds(3));
+        assertThat(readyPkg.isPurgeEligibleAt(T0.plus(Duration.ofDays(30)))).isFalse();
+        assertThatThrownBy(() -> readyPkg.claimForPurge(T0.plus(Duration.ofDays(30)).plusSeconds(60), T0.plus(Duration.ofDays(30))))
+                .isInstanceOf(IllegalStateException.class);
+
+        // 5. Valid initial claimForPurge + non-expired steal rejection + invalid timestamps rejected
+        Instant claimAt = failTime.plus(Duration.ofHours(24));
+        Instant claimExpires = claimAt.plus(Duration.ofMinutes(5));
+        assertThatThrownBy(() -> legacyFailed.claimForPurge(claimAt, claimAt))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> legacyFailed.claimForPurge(T0.plusSeconds(1), T0.minusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        StorageKey originalPrefix = legacyFailed.getBasePrefix();
+        UUID originalPkgUuid = legacyFailed.getPackageUuid();
+        legacyFailed.claimForPurge(claimExpires, claimAt);
+        assertThat(legacyFailed.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(legacyFailed.getPurgeAfter()).isEqualTo(claimExpires);
+        assertThat(legacyFailed.getUpdatedAt()).isEqualTo(claimAt);
+        assertThat(legacyFailed.getBasePrefix()).isEqualTo(originalPrefix);
+        assertThat(legacyFailed.getPackageUuid()).isEqualTo(originalPkgUuid);
+
+        // Non-expired PURGING cannot be stolen
+        Instant midClaim = claimAt.plus(Duration.ofMinutes(2));
+        assertThat(legacyFailed.isPurgeClaimActiveAt(midClaim)).isTrue();
+        assertThat(legacyFailed.isPurgeEligibleAt(midClaim)).isFalse();
+        assertThatThrownBy(() -> legacyFailed.claimForPurge(midClaim.plus(Duration.ofMinutes(5)), midClaim))
+                .isInstanceOf(IllegalStateException.class);
+
+        // 6. Valid failure backoff preserves original diagnostic and bumps retry purgeAfter without reapplying 24h floor
+        Instant retryAt = midClaim.plus(Duration.ofMinutes(15));
+        assertThatThrownBy(() -> legacyFailed.recordPurgeFailure("zero-backoff", midClaim, midClaim))
+                .isInstanceOf(IllegalArgumentException.class);
+        legacyFailed.recordPurgeFailure("R2 503 DeleteObjects", retryAt, midClaim);
+        assertThat(legacyFailed.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(legacyFailed.getPurgeAfter()).isEqualTo(retryAt);
+        assertThat(legacyFailed.getFailureReason()).startsWith("Encoder crashed on HDR");
+        assertThat(legacyFailed.getFailureReason()).contains("R2 503 DeleteObjects");
+
+        // Second purge failure replaces previous [purge-error: ...] cleanly while preserving original reason
+        Instant retryAt2 = midClaim.plus(Duration.ofMinutes(30));
+        legacyFailed.recordPurgeFailure("R2 Timeout", retryAt2, midClaim.plusSeconds(5));
+        assertThat(legacyFailed.getFailureReason()).isEqualTo("Encoder crashed on HDR | [purge-error: R2 Timeout]");
+
+        // 7. Reclaim once retryAt2 expires -> completes cleanly -> PURGED clears purgeAfter and cannot be reclaimed
+        assertThat(legacyFailed.isPurgeClaimActiveAt(retryAt2)).isFalse();
+        assertThatThrownBy(() -> legacyFailed.recordPurgeFailure("too-late", retryAt2.plusSeconds(60), retryAt2))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> legacyFailed.markPurged(retryAt2))
+                .isInstanceOf(IllegalStateException.class);
+
+        Instant reclaimAt = retryAt2.plusSeconds(1);
+        Instant reclaimExpires = reclaimAt.plus(Duration.ofMinutes(5));
+        legacyFailed.claimForPurge(reclaimExpires, reclaimAt);
+        assertThat(legacyFailed.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(legacyFailed.getPurgeAfter()).isEqualTo(reclaimExpires);
+
+        // 8. Domain claimForPurge & recordPurgeFailure enforce bounded lease/backoff limits and overflow guards directly
+        assertThatThrownBy(() -> MediaVideoHlsPackage.validatePurgeClaimDuration(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> MediaVideoHlsPackage.validatePurgeClaimDuration(Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MediaVideoHlsPackage.validatePurgeClaimDuration(Duration.ofSeconds(-5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MediaVideoHlsPackage.validatePurgeClaimDuration(Duration.ofNanos(500)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MediaVideoHlsPackage.validatePurgeClaimDuration(Duration.ofMillis(999)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MediaVideoHlsPackage.validatePurgeClaimDuration(
+                MediaVideoHlsPackage.MAX_PURGE_CLAIM_LEASE.plusNanos(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MediaVideoHlsPackage.computePurgeClaimExpiresAt(
+                Instant.MAX.minusSeconds(10), Duration.ofMinutes(5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> legacyFailed.recordPurgeFailure(
+                "direct-excessive-backoff",
+                reclaimAt.plusSeconds(1).plus(MediaVideoHlsPackage.MAX_PURGE_RETRY_BACKOFF).plusSeconds(1),
+                reclaimAt.plusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> legacyFailed.recordPurgeFailure(
+                "direct-overflow",
+                Instant.MAX,
+                reclaimAt.plusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        Instant purgedAt = reclaimAt.plusSeconds(2);
+        legacyFailed.markPurged(purgedAt);
+        assertThat(legacyFailed.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGED);
+        assertThat(legacyFailed.getPurgeAfter()).isNull();
+        assertThat(legacyFailed.getUpdatedAt()).isEqualTo(purgedAt);
+        assertThat(legacyFailed.isPurgeEligibleAt(purgedAt.plus(Duration.ofDays(365)))).isFalse();
+        assertThatThrownBy(() -> legacyFailed.claimForPurge(purgedAt.plusSeconds(60), purgedAt))
+                .isInstanceOf(IllegalStateException.class);
+
+        // 9. Direct domain claimForPurge rejects micro-leases (< 1s DATETIME(6)-safe min) and excessive leases (> 30m)
+        MediaVideoHlsPackage boundTestPkg = MediaVideoHlsPackage.startProcessing(
+                UUID.randomUUID(), ASSET_ID, VERSION_ID, 1, UUID.randomUUID(), 5,
+                StorageProviderId.of("r2-hls"), "hls-bucket",
+                StorageKey.of("objects/hls/" + ASSET_ID + "/v1/" + UUID.randomUUID() + "/"),
+                6, T0
+        );
+        boundTestPkg.markFailed("fail", T0, T0);
+        Instant eligibleNow = T0.plus(Duration.ofHours(24));
+        assertThatThrownBy(() -> boundTestPkg.claimForPurge(eligibleNow.plusNanos(500), eligibleNow))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> boundTestPkg.claimForPurge(eligibleNow.plusMillis(999), eligibleNow))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> boundTestPkg.claimForPurge(
+                eligibleNow.plus(MediaVideoHlsPackage.MAX_PURGE_CLAIM_LEASE).plusSeconds(1), eligibleNow))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> boundTestPkg.claimForPurge(Instant.MAX, eligibleNow))
+                .isInstanceOf(IllegalArgumentException.class);
+        // Min (1s) and Max (30m) succeed cleanly
+        boundTestPkg.claimForPurge(eligibleNow.plus(MediaVideoHlsPackage.MIN_PURGE_CLAIM_LEASE), eligibleNow);
+        assertThat(boundTestPkg.getPurgeAfter()).isEqualTo(eligibleNow.plus(MediaVideoHlsPackage.MIN_PURGE_CLAIM_LEASE));
     }
 
     @Test

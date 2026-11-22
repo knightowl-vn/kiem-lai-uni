@@ -1,8 +1,10 @@
 package com.universe.media.domain;
 
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -24,6 +26,19 @@ public final class MediaVideoHlsPackage {
     public static final Duration FAILED_RETENTION_GRACE = Duration.ofHours(24);
     public static final Duration ABANDONED_ON_RECLAIM_RETENTION_GRACE = Duration.ofHours(24);
     public static final Duration SUPERSEDED_RETENTION_GRACE = Duration.ofDays(7);
+    /**
+     * Minimum claim duration (1 second = 1,000,000 microseconds) preserves microsecond precision in
+     * MySQL DATETIME(6) columns and prevents sub-second micro-leases that would expire mid-handoff.
+     */
+    public static final Duration MIN_PURGE_CLAIM_LEASE = Duration.ofSeconds(1);
+    public static final Duration DEFAULT_PURGE_CLAIM_LEASE = Duration.ofMinutes(5);
+    /**
+     * Maximum single purge claim duration (30 minutes), aligned with R2 prefix purge operation budgets
+     * (~60s-180s per 5,000 keys with retries) while capping orphan PURGING crash recovery windows.
+     */
+    public static final Duration MAX_PURGE_CLAIM_LEASE = Duration.ofMinutes(30);
+    public static final Duration MAX_PURGE_RETRY_BACKOFF = Duration.ofHours(24);
+    private static final String PURGE_ERROR_MARKER = " | [purge-error: ";
 
     private final UUID id;
     private final UUID assetId;
@@ -319,24 +334,202 @@ public final class MediaVideoHlsPackage {
         touch(now);
     }
 
-    public void markPurging(Instant now) {
+    /**
+     * Computes the conservative effective purge eligibility deadline enforced before any package
+     * may enter or re-enter {@link MediaVideoHlsPackageStatus#PURGING}, failing closed when required
+     * persisted timestamps are missing or inconsistent.
+     */
+    public Optional<Instant> effectivePurgeEligibleAt() {
+        if (this.purgeAfter == null) {
+            return Optional.empty();
+        }
+        return switch (this.status) {
+            case PROCESSING, READY, PURGED -> Optional.empty();
+            case FAILED, ABANDONED -> {
+                if (this.updatedAt.isBefore(this.createdAt)) {
+                    yield Optional.empty();
+                }
+                Instant minFloor = this.updatedAt.plus(FAILED_RETENTION_GRACE);
+                yield Optional.of(this.purgeAfter.isAfter(minFloor) ? this.purgeAfter : minFloor);
+            }
+            case SUPERSEDED -> {
+                if (this.supersededAt == null || this.supersededAt.isBefore(this.createdAt)) {
+                    yield Optional.empty();
+                }
+                Instant minFloor = this.supersededAt.plus(SUPERSEDED_RETENTION_GRACE);
+                yield Optional.of(this.purgeAfter.isAfter(minFloor) ? this.purgeAfter : minFloor);
+            }
+            case PURGING -> Optional.of(this.purgeAfter);
+        };
+    }
+
+    public boolean isPurgeEligibleAt(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return effectivePurgeEligibleAt()
+                .map(eligibleAt -> !eligibleAt.isAfter(now))
+                .orElse(false);
+    }
+
+    /**
+     * Returns true iff this package is currently in PURGING and its claim deadline has not expired ({@code purgeAfter > now}).
+     */
+    public boolean isPurgeClaimActiveAt(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        return this.status == MediaVideoHlsPackageStatus.PURGING
+                && this.purgeAfter != null
+                && this.purgeAfter.isAfter(now);
+    }
+
+    /**
+     * Validates that a purge claim lease duration is strictly within bounded operational limits
+     * [{@link #MIN_PURGE_CLAIM_LEASE}, {@link #MAX_PURGE_CLAIM_LEASE}].
+     */
+    public static void validatePurgeClaimDuration(Duration claimDuration) {
+        Objects.requireNonNull(claimDuration, "claimDuration cannot be null.");
+        if (claimDuration.isNegative() || claimDuration.isZero()) {
+            throw new IllegalArgumentException("claimDuration must be strictly positive: " + claimDuration);
+        }
+        if (claimDuration.compareTo(MIN_PURGE_CLAIM_LEASE) < 0) {
+            throw new IllegalArgumentException(
+                    "claimDuration (" + claimDuration + ") is below minimum DATETIME(6)-safe lease ("
+                            + MIN_PURGE_CLAIM_LEASE + ")."
+            );
+        }
+        if (claimDuration.compareTo(MAX_PURGE_CLAIM_LEASE) > 0) {
+            throw new IllegalArgumentException(
+                    "claimDuration (" + claimDuration + ") exceeds maximum allowed purge claim lease ("
+                            + MAX_PURGE_CLAIM_LEASE + ")."
+            );
+        }
+    }
+
+    /**
+     * Computes a validated, overflow-safe purge claim expiration instant from the supplied timestamp.
+     */
+    public static Instant computePurgeClaimExpiresAt(Instant now, Duration claimDuration) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        validatePurgeClaimDuration(claimDuration);
+        try {
+            return now.plus(claimDuration);
+        } catch (ArithmeticException | DateTimeException ex) {
+            throw new IllegalArgumentException("Purge claim deadline overflows Instant bounds.", ex);
+        }
+    }
+
+    /**
+     * Claims a retention-eligible FAILED, ABANDONED, or SUPERSEDED package, or reclaims an expired
+     * PURGING claim, advancing status to PURGING and setting the claim deadline in {@code purgeAfter}.
+     */
+    public void claimForPurge(Instant claimExpiresAt, Instant now) {
+        Objects.requireNonNull(claimExpiresAt, "claimExpiresAt cannot be null.");
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (!claimExpiresAt.isAfter(now)) {
+            throw new IllegalArgumentException(
+                    "Purge claimExpiresAt (" + claimExpiresAt + ") must be strictly in the future of now (" + now + ")."
+            );
+        }
+        Duration requestedLease;
+        try {
+            requestedLease = Duration.between(now, claimExpiresAt);
+        } catch (ArithmeticException | DateTimeException ex) {
+            throw new IllegalArgumentException("Purge claim duration overflows Instant bounds.", ex);
+        }
+        validatePurgeClaimDuration(requestedLease);
+        if (now.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("Timestamp cannot precede createdAt.");
+        }
         if (this.status != MediaVideoHlsPackageStatus.FAILED
                 && this.status != MediaVideoHlsPackageStatus.ABANDONED
-                && this.status != MediaVideoHlsPackageStatus.SUPERSEDED) {
-            throw new IllegalStateException("Only terminal non-READY package can enter PURGING, was: " + this.status);
+                && this.status != MediaVideoHlsPackageStatus.SUPERSEDED
+                && this.status != MediaVideoHlsPackageStatus.PURGING) {
+            throw new IllegalStateException("Only terminal non-READY or expired PURGING package can be claimed for purge, was: " + this.status);
         }
-        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (!isPurgeEligibleAt(now)) {
+            throw new IllegalStateException(
+                    "HLS package [" + this.id + "] in status " + this.status
+                            + " is not purge-eligible at " + now + " (effectiveEligibleAt="
+                            + effectivePurgeEligibleAt().orElse(null) + ")."
+            );
+        }
         this.status = MediaVideoHlsPackageStatus.PURGING;
+        this.purgeAfter = claimExpiresAt;
         touch(now);
     }
 
+    /**
+     * Records a purge attempt failure for an active PURGING claim, preserving existing diagnostic failure context
+     * while scheduling a bounded future retry timestamp in {@code purgeAfter}.
+     */
+    public void recordPurgeFailure(String purgeError, Instant nextPurgeAfter, Instant now) {
+        Objects.requireNonNull(nextPurgeAfter, "nextPurgeAfter cannot be null.");
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (!isPurgeClaimActiveAt(now)) {
+            throw new IllegalStateException(
+                    "Cannot record purge failure without an active PURGING claim at " + now
+                            + " (status=" + this.status + ", purgeAfter=" + this.purgeAfter + ")."
+            );
+        }
+        if (!nextPurgeAfter.isAfter(now)) {
+            throw new IllegalArgumentException(
+                    "Purge retry timestamp (" + nextPurgeAfter + ") must be strictly in the future of now (" + now + ")."
+            );
+        }
+        Duration requestedBackoff;
+        try {
+            requestedBackoff = Duration.between(now, nextPurgeAfter);
+        } catch (ArithmeticException | DateTimeException ex) {
+            throw new IllegalArgumentException("Purge retry duration overflows Instant bounds.", ex);
+        }
+        if (requestedBackoff.compareTo(MAX_PURGE_RETRY_BACKOFF) > 0) {
+            throw new IllegalArgumentException(
+                    "Purge retry backoff (" + requestedBackoff + ") exceeds maximum allowed backoff ("
+                            + MAX_PURGE_RETRY_BACKOFF + ")."
+            );
+        }
+        this.failureReason = mergePurgeFailureReason(this.failureReason, purgeError);
+        this.purgeAfter = nextPurgeAfter;
+        touch(now);
+    }
+
+    public void markPurging(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        claimForPurge(computePurgeClaimExpiresAt(now, DEFAULT_PURGE_CLAIM_LEASE), now);
+    }
+
     public void markPurged(Instant now) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
         if (this.status != MediaVideoHlsPackageStatus.PURGING) {
             throw new IllegalStateException("Only PURGING package can transition to PURGED, was: " + this.status);
         }
-        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (!isPurgeClaimActiveAt(now)) {
+            throw new IllegalStateException(
+                    "Purge claim expired before confirmation at " + now + " (purgeAfter=" + this.purgeAfter + ")."
+            );
+        }
         this.status = MediaVideoHlsPackageStatus.PURGED;
+        this.purgeAfter = null;
         touch(now);
+    }
+
+    private static String mergePurgeFailureReason(String existingReason, String purgeError) {
+        String sanitizedPurgeErr = (purgeError == null || purgeError.isBlank())
+                ? "Purge attempt failed."
+                : purgeError.trim();
+        String base = existingReason;
+        if (base != null) {
+            int markerIdx = base.indexOf(PURGE_ERROR_MARKER);
+            if (markerIdx >= 0) {
+                base = base.substring(0, markerIdx).trim();
+            } else if (base.startsWith("[purge-error: ")) {
+                base = null;
+            }
+        }
+        if (base == null || base.isBlank()) {
+            return truncateError("[purge-error: " + sanitizedPurgeErr + "]");
+        }
+        int reserved = PURGE_ERROR_MARKER.length() + 1;
+        String basePrefix = base.length() > (1000 - reserved - 32) ? base.substring(0, 1000 - reserved - 32) : base;
+        return truncateError(basePrefix + PURGE_ERROR_MARKER + sanitizedPurgeErr + "]");
     }
 
     private void touch(Instant now) {

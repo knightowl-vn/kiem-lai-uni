@@ -1,5 +1,6 @@
 package com.universe.media.infrastructure.persistence;
 
+import com.universe.media.application.ports.MediaVideoHlsPackagePurgeCandidate;
 import com.universe.media.application.ports.MediaVideoHlsPackageRepositoryPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaVideoHlsPackage;
@@ -7,8 +8,10 @@ import com.universe.media.domain.MediaVideoHlsPackageStatus;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -121,6 +124,28 @@ public class MediaVideoHlsPackagePersistenceAdapter implements MediaVideoHlsPack
         return repository.findByAssetId(assetId.toString())
                 .stream()
                 .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<MediaVideoHlsPackagePurgeCandidate> findPurgeEligibleCandidates(Instant now, int limit) {
+        Objects.requireNonNull(now, "Timestamp cannot be null.");
+        if (limit <= 0 || limit > 100) {
+            throw new IllegalArgumentException("Limit must be between 1 and 100: " + limit);
+        }
+        Instant terminalFloorCutoff = now.minus(MediaVideoHlsPackage.FAILED_RETENTION_GRACE);
+        Instant supersededFloorCutoff = now.minus(MediaVideoHlsPackage.SUPERSEDED_RETENTION_GRACE);
+        return repository.findPurgeEligibleCandidates(
+                        now,
+                        terminalFloorCutoff,
+                        supersededFloorCutoff,
+                        PageRequest.of(0, limit)
+                )
+                .stream()
+                .map(p -> new MediaVideoHlsPackagePurgeCandidate(
+                        UUID.fromString(p.getId()),
+                        UUID.fromString(p.getAssetId())
+                ))
                 .toList();
     }
 

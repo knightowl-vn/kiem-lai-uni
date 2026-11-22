@@ -3,6 +3,7 @@ package com.universe.media.application.hls;
 import com.universe.media.application.exceptions.StalePackagingLeaseException;
 import com.universe.media.application.ports.MediaAssetCandidate;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
+import com.universe.media.application.ports.MediaVideoHlsPackagePurgeCandidate;
 import com.universe.media.application.ports.MediaVideoHlsPackageRepositoryPort;
 import com.universe.media.application.ports.MediaVideoPackagingJobCandidate;
 import com.universe.media.application.ports.MediaVideoPackagingJobRepositoryPort;
@@ -164,6 +165,15 @@ class HlsRetentionAndFailurePolicyUseCaseTest {
             @Override public List<MediaVideoHlsPackage> findByAssetId(UUID assetId) {
                 return packages.values().stream()
                         .filter(p -> p.getAssetId().equals(assetId))
+                        .toList();
+            }
+            @Override public List<MediaVideoHlsPackagePurgeCandidate> findPurgeEligibleCandidates(Instant now, int limit) {
+                return packages.values().stream()
+                        .filter(p -> p.isPurgeEligibleAt(now))
+                        .sorted(Comparator.comparing(MediaVideoHlsPackage::getPurgeAfter)
+                                .thenComparing(p -> p.getId().toString()))
+                        .limit(limit)
+                        .map(p -> new MediaVideoHlsPackagePurgeCandidate(p.getId(), p.getAssetId()))
                         .toList();
             }
             @Override public boolean existsByAssetId(UUID assetId) {

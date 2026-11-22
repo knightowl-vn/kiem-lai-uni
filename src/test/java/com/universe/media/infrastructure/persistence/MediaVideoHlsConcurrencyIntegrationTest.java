@@ -2,9 +2,13 @@ package com.universe.media.infrastructure.persistence;
 
 import com.universe.media.application.asset.PurgeMediaAssetMetadataService;
 import com.universe.media.application.exceptions.StalePackagingLeaseException;
+import com.universe.media.application.exceptions.StalePurgeClaimException;
 import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
+import com.universe.media.application.hls.ClaimHlsPackagePurgeUseCase;
 import com.universe.media.application.hls.ClaimMediaVideoPackagingJobUseCase;
+import com.universe.media.application.hls.ClaimedHlsPackagePurgeLease;
 import com.universe.media.application.hls.ClaimedVideoPackagingLease;
+import com.universe.media.application.hls.CompleteHlsPackagePurgeUseCase;
 import com.universe.media.application.hls.CompleteVerifiedHlsPackagingUseCase;
 import com.universe.media.application.hls.CreateMediaVideoPackagingJobUseCase;
 import com.universe.media.application.hls.FailMediaVideoPackagingJobUseCase;
@@ -81,6 +85,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         FailMediaVideoPackagingJobUseCase.class,
         CompleteVerifiedHlsPackagingUseCase.class,
         CancelOrSupersedeMediaVideoPackagingUseCase.class,
+        ClaimHlsPackagePurgeUseCase.class,
+        CompleteHlsPackagePurgeUseCase.class,
         MediaVideoHlsConcurrencyIntegrationTest.TestConfig.class
 })
 class MediaVideoHlsConcurrencyIntegrationTest {
@@ -152,11 +158,19 @@ class MediaVideoHlsConcurrencyIntegrationTest {
     @Autowired
     private CancelOrSupersedeMediaVideoPackagingUseCase cancelOrSupersedeUseCase;
 
+    @Autowired
+    private ClaimHlsPackagePurgeUseCase claimPurgeUseCase;
+
+    @Autowired
+    private CompleteHlsPackagePurgeUseCase completePurgeUseCase;
+
     private final List<UUID> createdAssetIds = new ArrayList<>();
 
     @BeforeEach
     void resetClock() {
         clockRef.set(BASE_TIME);
+        jdbcTemplate.update("DELETE FROM media_video_packaging_jobs");
+        jdbcTemplate.update("DELETE FROM media_video_hls_packages");
     }
 
     @AfterEach
@@ -678,6 +692,361 @@ class MediaVideoHlsConcurrencyIntegrationTest {
             assertThat(hlsPackageAdapter.findById(staleLease.packageId()).orElseThrow().getPurgeAfter())
                     .isEqualTo(reclaimTime.plus(Duration.ofHours(24)));
         } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-09: Two concurrent purge claimers serialize via MediaAsset -> HlsPackage lock order with single winner")
+    void cx09ShouldSerializeConcurrentPurgeClaimsWithSingleWinner() throws Exception {
+        UUID assetId = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease pkgLease = claimJobUseCase.claimNext(
+                "worker-prep", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+        failJobUseCase.executePermanentFailure(
+                assetId, pkgLease.jobId(), "worker-prep", pkgLease.leaseGeneration(), "Permanent HDR reject"
+        );
+
+        // Advance past 24h retention floor
+        Instant eligibleTime = BASE_TIME.plus(Duration.ofHours(25));
+        clockRef.set(eligibleTime);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<Optional<ClaimedHlsPackagePurgeLease>> f1 = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return claimPurgeUseCase.claimNext(Duration.ofMinutes(5));
+            });
+            Future<Optional<ClaimedHlsPackagePurgeLease>> f2 = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return claimPurgeUseCase.claimNext(Duration.ofMinutes(5));
+            });
+
+            Optional<ClaimedHlsPackagePurgeLease> r1 = f1.get(15, TimeUnit.SECONDS);
+            Optional<ClaimedHlsPackagePurgeLease> r2 = f2.get(15, TimeUnit.SECONDS);
+            List<ClaimedHlsPackagePurgeLease> winners = java.util.stream.Stream.of(r1, r2)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .toList();
+
+            assertThat(winners).hasSize(1);
+            ClaimedHlsPackagePurgeLease winner = winners.get(0);
+            assertThat(winner.packageId()).isEqualTo(pkgLease.packageId());
+            assertThat(winner.claimVersion()).isGreaterThan(1L);
+            MediaVideoHlsPackage claimedPkg = hlsPackageAdapter.findById(pkgLease.packageId()).orElseThrow();
+            assertThat(claimedPkg.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+            assertThat(claimedPkg.getPersistenceVersion()).isEqualTo(winner.claimVersion());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("CX-10: Crash recovery, stale purge completion/failure fencing across reclaim, backoff, and PURGED tombstone")
+    void cx10ShouldFenceStalePurgeCompletionAndFailureAcrossCrashReclaimAndExpiry() throws Exception {
+        UUID assetId = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease jobLease = claimJobUseCase.claimNext(
+                "worker-1", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+        failJobUseCase.executePermanentFailure(
+                assetId, jobLease.jobId(), "worker-1", jobLease.leaseGeneration(), "Corrupt MP4 container"
+        );
+
+        // Sweeper A claims at T0+25h -> hypothetical crash after claim (remains PURGING, never falsely PURGED)
+        Instant tClaimA = BASE_TIME.plus(Duration.ofHours(25));
+        clockRef.set(tClaimA);
+        ClaimedHlsPackagePurgeLease leaseA = claimPurgeUseCase.claimNext(Duration.ofMinutes(5)).orElseThrow();
+
+        // Exactly at expiry: Sweeper A completion rejected (expired)
+        clockRef.set(leaseA.claimExpiresAt());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> completePurgeUseCase.markPurged(leaseA))
+                .isInstanceOf(StalePurgeClaimException.class);
+        assertThat(hlsPackageAdapter.findById(leaseA.packageId()).orElseThrow().getStatus())
+                .isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+
+        // Sweeper B reclaims expired claim -> bumped version
+        clockRef.set(leaseA.claimExpiresAt().plusSeconds(5));
+        ClaimedHlsPackagePurgeLease leaseB = claimPurgeUseCase.claimNext(Duration.ofMinutes(5)).orElseThrow();
+        assertThat(leaseB.claimVersion()).isGreaterThan(leaseA.claimVersion());
+
+        // Concurrent race: Sweeper A attempts completion & failure with stale leaseA vs Sweeper B recording failure backoff
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CyclicBarrier barrier = new CyclicBarrier(2);
+            Future<Throwable> staleComplete = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                try {
+                    completePurgeUseCase.markPurged(leaseA);
+                    return null;
+                } catch (Throwable t) {
+                    return t;
+                }
+            });
+            Future<MediaVideoHlsPackage> freshBackoff = pool.submit(() -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return completePurgeUseCase.recordFailure(leaseB, "Transient R2 503", Duration.ofMinutes(10));
+            });
+
+            assertThat(staleComplete.get(15, TimeUnit.SECONDS)).isInstanceOf(StalePurgeClaimException.class);
+            MediaVideoHlsPackage backedOff = freshBackoff.get(15, TimeUnit.SECONDS);
+            assertThat(backedOff.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+            assertThat(backedOff.getPersistenceVersion()).isGreaterThan(leaseB.claimVersion());
+            assertThat(backedOff.getFailureReason()).isEqualTo("Corrupt MP4 container | [purge-error: Transient R2 503]");
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // Stale leaseA & old leaseB failure reports are both rejected cleanly
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> completePurgeUseCase.recordFailure(leaseA, "stale-A", Duration.ofMinutes(5)))
+                .isInstanceOf(StalePurgeClaimException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> completePurgeUseCase.recordFailure(leaseB, "stale-B", Duration.ofMinutes(5)))
+                .isInstanceOf(StalePurgeClaimException.class);
+
+        // Restart recovery after backoff -> Sweeper C reclaims and completes with live version -> PURGED tombstone
+        Instant tAfterBackoff = clockRef.get().plus(Duration.ofMinutes(11));
+        clockRef.set(tAfterBackoff);
+        ClaimedHlsPackagePurgeLease leaseC = claimPurgeUseCase.claimNext(Duration.ofMinutes(5)).orElseThrow();
+        assertThat(leaseC.claimVersion()).isGreaterThan(leaseB.claimVersion() + 1L);
+
+        clockRef.set(tAfterBackoff.plusSeconds(2));
+        MediaVideoHlsPackage purged = completePurgeUseCase.markPurged(leaseC);
+        assertThat(purged.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGED);
+        assertThat(purged.getPurgeAfter()).isNull();
+        assertThat(purged.getPersistenceVersion()).isEqualTo(leaseC.claimVersion() + 1L);
+    }
+
+    @Test
+    @DisplayName("CX-11: Concurrent purge claim vs packaging job claim and supersession preserves parent-first lock order and READY package")
+    void cx11ShouldSerializePurgeClaimAgainstConcurrentJobLifecycleWithoutDeadlock() throws Exception {
+        for (int round = 0; round < 3; round++) {
+            Instant tStart = BASE_TIME.plus(Duration.ofDays(round * 10L));
+            clockRef.set(tStart);
+            UUID assetId = seedVideoAssetWithPendingJob();
+
+            // Produce 1 FAILED attempt (eligible at tStart + 25h) AND 1 READY attempt on the same asset
+            MediaVideoPackagingJob job1 = createJobUseCase.execute(assetId);
+            ClaimedVideoPackagingLease l1 = claimJobUseCase.claimNext(
+                    "worker-1", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+            ).orElseThrow();
+            failJobUseCase.execute(assetId, job1.getId(), "worker-1", l1.leaseGeneration(), "fail-1", Duration.ofSeconds(5));
+
+            clockRef.set(tStart.plusSeconds(10));
+            ClaimedVideoPackagingLease l2 = claimJobUseCase.claimNext(
+                    "worker-2", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+            ).orElseThrow();
+            completeJobUseCase.completeWithVerifiedReceipt(
+                    assetId, job1.getId(), l2.packageId(), "worker-2", l2.leaseGeneration(),
+                    new VerifiedHlsPackageReceipt(MANIFEST_SHA256, 40960L, 5, "[{\"height\":720}]", tStart.plusSeconds(10))
+            );
+
+            // Re-enqueue a second packaging job on same asset & advance 25h so l1.packageId() is purge-eligible
+            Instant tRace = tStart.plus(Duration.ofHours(25));
+            clockRef.set(tRace);
+            createJobUseCase.execute(assetId);
+
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            try {
+                CyclicBarrier barrier = new CyclicBarrier(2);
+                Future<Optional<ClaimedHlsPackagePurgeLease>> purgeClaimFuture = pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    return claimPurgeUseCase.claimNext(Duration.ofMinutes(5));
+                });
+                Future<Optional<ClaimedVideoPackagingLease>> jobClaimFuture = pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    return claimJobUseCase.claimNext("worker-3", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket");
+                });
+
+                Optional<ClaimedHlsPackagePurgeLease> purgedLease = purgeClaimFuture.get(15, TimeUnit.SECONDS);
+                Optional<ClaimedVideoPackagingLease> nextJobLease = jobClaimFuture.get(15, TimeUnit.SECONDS);
+
+                assertThat(purgedLease).isPresent();
+                assertThat(purgedLease.get().packageId()).isEqualTo(l1.packageId());
+                assertThat(nextJobLease).isPresent();
+                assertThat(hlsPackageAdapter.findById(l2.packageId()).orElseThrow().getStatus())
+                        .isEqualTo(MediaVideoHlsPackageStatus.READY);
+
+                MediaVideoHlsPackage finished = completePurgeUseCase.markPurged(purgedLease.get());
+                assertThat(finished.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGED);
+
+                // Clean up round rows before next loop iteration so neither active jobs nor ABANDONED/SUPERSEDED packages leak into round N+1
+                cleanUp();
+            } finally {
+                pool.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("CX-12: Expired purge claim while waiting for DB row lock rejects markPurged without mutating package")
+    void cx12ShouldRejectExpiredPurgeCompletionWhenClockAdvancesDuringRowLockWait() throws Exception {
+        ClaimedHlsPackagePurgeLease lease = seedEligiblePurgeLease("worker-cx12", "Corrupt MP4 CX12");
+        clockRef.set(lease.claimExpiresAt().minusSeconds(1));
+
+        Throwable thrown = executeWhileAssetRowLockedAndWaitForInnodbLockWait(
+                lease.assetId(),
+                () -> clockRef.set(lease.claimExpiresAt().plusSeconds(10)),
+                () -> {
+                    try {
+                        completePurgeUseCase.markPurged(lease);
+                        return null;
+                    } catch (Throwable t) {
+                        return t;
+                    }
+                }
+        );
+
+        assertThat(thrown).isInstanceOf(StalePurgeClaimException.class);
+        MediaVideoHlsPackage persisted = hlsPackageAdapter.findById(lease.packageId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(persisted.getPurgeAfter()).isEqualTo(lease.claimExpiresAt());
+        assertThat(persisted.getPersistenceVersion()).isEqualTo(lease.claimVersion());
+    }
+
+    @Test
+    @DisplayName("CX-13: Expired purge claim while waiting for DB row lock rejects recordFailure without writing retry deadline")
+    void cx13ShouldRejectExpiredPurgeFailureWhenClockAdvancesDuringRowLockWait() throws Exception {
+        ClaimedHlsPackagePurgeLease lease = seedEligiblePurgeLease("worker-cx13", "Corrupt MP4 CX13");
+        clockRef.set(lease.claimExpiresAt().minusSeconds(1));
+
+        Throwable thrown = executeWhileAssetRowLockedAndWaitForInnodbLockWait(
+                lease.assetId(),
+                () -> clockRef.set(lease.claimExpiresAt().plusSeconds(10)),
+                () -> {
+                    try {
+                        completePurgeUseCase.recordFailure(lease, "Transient R2 503", Duration.ofMinutes(10));
+                        return null;
+                    } catch (Throwable t) {
+                        return t;
+                    }
+                }
+        );
+
+        assertThat(thrown).isInstanceOf(StalePurgeClaimException.class);
+        MediaVideoHlsPackage persisted = hlsPackageAdapter.findById(lease.packageId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(persisted.getPurgeAfter()).isEqualTo(lease.claimExpiresAt());
+        assertThat(persisted.getFailureReason()).isEqualTo("Corrupt MP4 CX13");
+        assertThat(persisted.getPersistenceVersion()).isEqualTo(lease.claimVersion());
+    }
+
+    @Test
+    @DisplayName("CX-14: Purge claim blocked on DB row lock issues lease and purgeAfter from post-lock timestamp")
+    void cx14ShouldUsePostLockTimestampWhenPurgeClaimWaitsForRowLock() throws Exception {
+        UUID assetId = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease pkgLease = claimJobUseCase.claimNext(
+                "worker-cx14", Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+        failJobUseCase.executePermanentFailure(
+                assetId, pkgLease.jobId(), "worker-cx14", pkgLease.leaseGeneration(), "Permanent CX14"
+        );
+
+        Instant tScan = BASE_TIME.plus(Duration.ofHours(25));
+        Instant tLocked = tScan.plus(Duration.ofMinutes(3));
+        clockRef.set(tScan);
+
+        Optional<ClaimedHlsPackagePurgeLease> claimedOpt = executeWhileAssetRowLockedAndWaitForInnodbLockWait(
+                assetId,
+                () -> clockRef.set(tLocked),
+                () -> claimPurgeUseCase.claimNext(Duration.ofMinutes(5))
+        );
+
+        assertThat(claimedOpt).isPresent();
+        ClaimedHlsPackagePurgeLease claimed = claimedOpt.get();
+        Instant expectedExpiry = tLocked.plus(Duration.ofMinutes(5));
+        assertThat(claimed.claimExpiresAt()).isEqualTo(expectedExpiry);
+
+        MediaVideoHlsPackage persisted = hlsPackageAdapter.findById(claimed.packageId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(persisted.getPurgeAfter()).isEqualTo(expectedExpiry);
+        assertThat(persisted.getUpdatedAt()).isEqualTo(tLocked);
+    }
+
+    private ClaimedHlsPackagePurgeLease seedEligiblePurgeLease(String workerId, String failReason) {
+        UUID assetId = seedVideoAssetWithPendingJob();
+        createJobUseCase.execute(assetId);
+        ClaimedVideoPackagingLease jobLease = claimJobUseCase.claimNext(
+                workerId, Duration.ofMinutes(5), R2_PROVIDER, "movie-bucket"
+        ).orElseThrow();
+        failJobUseCase.executePermanentFailure(
+                assetId, jobLease.jobId(), workerId, jobLease.leaseGeneration(), failReason
+        );
+        clockRef.set(BASE_TIME.plus(Duration.ofHours(25)));
+        return claimPurgeUseCase.claimNext(Duration.ofMinutes(5)).orElseThrow();
+    }
+
+    private <T> T executeWhileAssetRowLockedAndWaitForInnodbLockWait(
+            UUID assetId,
+            Runnable onLockWaitConfirmed,
+            java.util.concurrent.Callable<T> blockedOperation
+    ) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch holderLocked = new CountDownLatch(1);
+        CountDownLatch releaseHolder = new CountDownLatch(1);
+        Future<Void> lockHolderFuture = null;
+        Future<T> waiterFuture = null;
+        try {
+            lockHolderFuture = pool.submit(() -> {
+                requiresNewTemplate().execute(status -> {
+                    assetAdapter.findByIdForUpdate(assetId).orElseThrow();
+                    holderLocked.countDown();
+                    try {
+                        if (!releaseHolder.await(15, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("Timed out waiting to release InnoDB holder lock");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("Interrupted while holding InnoDB lock", e);
+                    }
+                    return null;
+                });
+                return null;
+            });
+
+            assertThat(holderLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            waiterFuture = pool.submit(blockedOperation);
+
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            int lockWaitCount = 0;
+            while (System.nanoTime() < deadlineNanos) {
+                Integer trxWaitCount = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM information_schema.innodb_trx WHERE trx_state = 'LOCK WAIT'",
+                        Integer.class
+                );
+                Integer dataWaitCount = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM performance_schema.data_lock_waits",
+                        Integer.class
+                );
+                if ((trxWaitCount != null && trxWaitCount >= 1) || (dataWaitCount != null && dataWaitCount >= 1)) {
+                    lockWaitCount = Math.max(trxWaitCount == null ? 0 : trxWaitCount, dataWaitCount == null ? 0 : dataWaitCount);
+                    break;
+                }
+                Thread.sleep(20);
+            }
+            if (lockWaitCount < 1) {
+                System.err.println("[DIAG] innodb_trx=" + jdbcTemplate.queryForList("SELECT trx_id, trx_state, trx_query FROM information_schema.innodb_trx"));
+                System.err.println("[DIAG] data_locks=" + jdbcTemplate.queryForList("SELECT OBJECT_NAME, LOCK_TYPE, LOCK_MODE, LOCK_STATUS FROM performance_schema.data_locks"));
+            }
+            assertThat(lockWaitCount)
+                    .as("Expected waiter thread to enter real InnoDB LOCK WAIT before advancing clock")
+                    .isGreaterThanOrEqualTo(1);
+
+            onLockWaitConfirmed.run();
+            releaseHolder.countDown();
+
+            lockHolderFuture.get(15, TimeUnit.SECONDS);
+            return waiterFuture.get(15, TimeUnit.SECONDS);
+        } finally {
+            releaseHolder.countDown();
+            if (lockHolderFuture != null) {
+                try { lockHolderFuture.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
+            }
+            if (waiterFuture != null) {
+                try { waiterFuture.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
+            }
             pool.shutdownNow();
         }
     }

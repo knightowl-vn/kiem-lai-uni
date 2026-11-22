@@ -5,13 +5,17 @@ import com.universe.media.application.asset.PurgeDeletedMediaAssetUseCase;
 import com.universe.media.application.asset.PurgeMediaAssetMetadataService;
 import com.universe.media.application.exceptions.StalePackagingLeaseException;
 import com.universe.media.application.hls.CancelOrSupersedeMediaVideoPackagingUseCase;
+import com.universe.media.application.hls.ClaimHlsPackagePurgeUseCase;
 import com.universe.media.application.hls.ClaimMediaVideoPackagingJobUseCase;
+import com.universe.media.application.hls.ClaimedHlsPackagePurgeLease;
 import com.universe.media.application.hls.ClaimedVideoPackagingLease;
+import com.universe.media.application.hls.CompleteHlsPackagePurgeUseCase;
 import com.universe.media.application.hls.CompleteVerifiedHlsPackagingUseCase;
 import com.universe.media.application.hls.CreateMediaVideoPackagingJobUseCase;
 import com.universe.media.application.hls.FailMediaVideoPackagingJobUseCase;
 import com.universe.media.application.hls.HeartbeatMediaVideoPackagingJobUseCase;
 import com.universe.media.application.hls.VerifiedHlsPackageReceipt;
+import com.universe.media.application.ports.MediaVideoHlsPackagePurgeCandidate;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -86,6 +90,8 @@ import static org.mockito.Mockito.verify;
         FailMediaVideoPackagingJobUseCase.class,
         CompleteVerifiedHlsPackagingUseCase.class,
         CancelOrSupersedeMediaVideoPackagingUseCase.class,
+        ClaimHlsPackagePurgeUseCase.class,
+        CompleteHlsPackagePurgeUseCase.class,
         MediaV100HlsFoundationIntegrationTest.TestConfig.class
 })
 class MediaV100HlsFoundationIntegrationTest {
@@ -153,6 +159,12 @@ class MediaV100HlsFoundationIntegrationTest {
 
     @Autowired
     private CompleteVerifiedHlsPackagingUseCase completeJobUseCase;
+
+    @Autowired
+    private ClaimHlsPackagePurgeUseCase claimPurgeUseCase;
+
+    @Autowired
+    private CompleteHlsPackagePurgeUseCase completePurgeUseCase;
 
     private final List<UUID> createdAssetIds = new ArrayList<>();
 
@@ -571,5 +583,116 @@ class MediaV100HlsFoundationIntegrationTest {
         // Re-verify DB candidate query skips terminal FAILED job even far in the future
         assertThat(packagingJobAdapter.findClaimableCandidates(permFailTime.plus(Duration.ofDays(30)), 20))
                 .noneMatch(c -> c.jobId().equals(created.getId()));
+    }
+
+    @Test
+    @DisplayName("Purge candidate scan uses idx_hls_pkg_purge, avoids legacy starvation, tracks @Version across txs, and preserves PURGED tombstone")
+    void shouldVerifyPurgeCandidateIndexNonStarvationVersionIncrementsAndTombstoneRetention() {
+        UUID assetId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        seedActiveVideoAsset(assetId, versionId);
+
+        Timestamp baseTs = Timestamp.from(BASE_TIME);
+        Timestamp recentLegacyTs = Timestamp.from(BASE_TIME.plus(Duration.ofHours(2)));
+
+        // Insert 3 legacy FAILED rows with purge_after = updated_at = T0+2h (stored purge_after <= now at T0+24h30m,
+        // yet NOT past the 24h floor!) alongside 1 truly eligible FAILED row created at T0.
+        for (int i = 0; i < 3; i++) {
+            UUID legId = UUID.randomUUID();
+            UUID legUuid = UUID.randomUUID();
+            jdbcTemplate.update(
+                    "INSERT INTO media_video_hls_packages (id, asset_id, source_version_id, source_version_number, "
+                            + "package_uuid, attempt_number, storage_provider_id, storage_bucket_name, base_prefix, "
+                            + "master_manifest_key, segment_duration_seconds, status, failure_reason, "
+                            + "created_at, updated_at, purge_after, persistence_version) "
+                            + "VALUES (?, ?, ?, 1, ?, ?, 'r2-hls', 'hls-bucket', ?, ?, 6, 'FAILED', 'Legacy immediate', ?, ?, ?, 0)",
+                    legId.toString(), assetId.toString(), versionId.toString(), legUuid.toString(), i + 1,
+                    "objects/hls/" + assetId + "/v1/" + legUuid + "/",
+                    "objects/hls/" + assetId + "/v1/" + legUuid + "/master.m3u8",
+                    baseTs, recentLegacyTs, recentLegacyTs
+            );
+        }
+
+        UUID eligibleId = UUID.randomUUID();
+        UUID eligibleUuid = UUID.randomUUID();
+        MediaVideoHlsPackage initial = MediaVideoHlsPackage.startProcessing(
+                eligibleId, assetId, versionId, 1, eligibleUuid, 10,
+                StorageProviderId.of("r2-hls"), "hls-bucket",
+                StorageKey.of("objects/hls/" + assetId + "/v1/" + eligibleUuid + "/"),
+                6, BASE_TIME
+        );
+        hlsPackageAdapter.save(initial);
+        MediaVideoHlsPackage loadedProcessing = hlsPackageAdapter.findById(eligibleId).orElseThrow();
+        long vProcessing = loadedProcessing.getPersistenceVersion();
+        assertThat(vProcessing).isEqualTo(0L);
+
+        loadedProcessing.markFailed("Encoder timeout", BASE_TIME, BASE_TIME); // even with legacy purgeAfter=T0
+        MediaVideoHlsPackage savedFailed = hlsPackageAdapter.save(loadedProcessing);
+        assertThat(savedFailed.getPersistenceVersion()).isEqualTo(1L);
+
+        // At T0 + 24h30m: limit=1 scan must return eligibleId cleanly without starving behind the 3 recent legacy rows
+        Instant scanTime = BASE_TIME.plus(Duration.ofHours(24)).plus(Duration.ofMinutes(30));
+        List<MediaVideoHlsPackagePurgeCandidate> candidates =
+                hlsPackageAdapter.findPurgeEligibleCandidates(scanTime, 1);
+        assertThat(candidates).containsExactly(new MediaVideoHlsPackagePurgeCandidate(eligibleId, assetId));
+
+        // Verify MySQL 8 query plan includes idx_hls_pkg_purge
+        List<java.util.Map<String, Object>> explainRows = jdbcTemplate.queryForList(
+                "EXPLAIN SELECT p.id, p.asset_id FROM media_video_hls_packages p "
+                        + "WHERE p.status IN ('FAILED','ABANDONED','SUPERSEDED','PURGING') "
+                        + "AND p.purge_after IS NOT NULL AND p.purge_after <= ? "
+                        + "AND ((p.status IN ('FAILED','ABANDONED') AND p.updated_at <= ? AND p.updated_at >= p.created_at) "
+                        + "OR (p.status = 'SUPERSEDED' AND p.superseded_at IS NOT NULL AND p.superseded_at <= ? AND p.superseded_at >= p.created_at) "
+                        + "OR p.status = 'PURGING') "
+                        + "ORDER BY p.purge_after ASC, p.id ASC LIMIT 10",
+                Timestamp.from(scanTime),
+                Timestamp.from(scanTime.minus(Duration.ofHours(24))),
+                Timestamp.from(scanTime.minus(Duration.ofDays(7)))
+        );
+        assertThat(explainRows).isNotEmpty();
+        java.util.Map<String, Object> plan = explainRows.get(0);
+        System.out.println("[HLS-2B3A2B-EXPLAIN] type=" + plan.get("type")
+                + ", possible_keys=" + plan.get("possible_keys")
+                + ", key=" + plan.get("key")
+                + ", key_len=" + plan.get("key_len")
+                + ", ref=" + plan.get("ref")
+                + ", rows=" + plan.get("rows")
+                + ", filtered=" + plan.get("filtered")
+                + ", Extra=" + plan.get("Extra"));
+        assertThat(String.valueOf(plan.get("possible_keys"))).contains("idx_hls_pkg_purge");
+        assertThat(plan).containsKeys("type", "key", "rows", "Extra");
+
+        // Claim -> version=2, fail -> version=3, reclaim -> version=4, PURGED -> version=5 & purgeAfter=null
+        clockRef.set(scanTime);
+        ClaimedHlsPackagePurgeLease lease1 = claimPurgeUseCase.claimNext(Duration.ofMinutes(5), 1).orElseThrow();
+        assertThat(lease1.packageId()).isEqualTo(eligibleId);
+        assertThat(lease1.claimVersion()).isEqualTo(2L);
+        assertThat(hlsPackageAdapter.findById(eligibleId).orElseThrow().getPersistenceVersion()).isEqualTo(2L);
+
+        clockRef.set(scanTime.plusSeconds(10));
+        MediaVideoHlsPackage failedPurge = completePurgeUseCase.recordFailure(lease1, "R2 timeout", Duration.ofMinutes(15));
+        assertThat(failedPurge.getPersistenceVersion()).isEqualTo(3L);
+        assertThat(failedPurge.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGING);
+        assertThat(failedPurge.getFailureReason()).isEqualTo("Encoder timeout | [purge-error: R2 timeout]");
+
+        // Advance past backoff + 24h legacy floor so reclaim picks up eligibleId first (purgeAfter = scanTime+10s+15m < legacy T0+26h)
+        clockRef.set(scanTime.plus(Duration.ofMinutes(16)));
+        ClaimedHlsPackagePurgeLease lease2 = claimPurgeUseCase.claimNext(Duration.ofMinutes(5), 10).orElseThrow();
+        assertThat(lease2.packageId()).isEqualTo(eligibleId);
+        assertThat(lease2.claimVersion()).isEqualTo(4L);
+
+        clockRef.set(scanTime.plus(Duration.ofMinutes(17)));
+        MediaVideoHlsPackage purged = completePurgeUseCase.markPurged(lease2);
+        assertThat(purged.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGED);
+        assertThat(purged.getPurgeAfter()).isNull();
+        assertThat(purged.getPersistenceVersion()).isEqualTo(5L);
+
+        // Tombstone row stays persisted with immutable base_prefix and zero future purge eligibility
+        MediaVideoHlsPackage tombstone = hlsPackageAdapter.findById(eligibleId).orElseThrow();
+        assertThat(tombstone.getStatus()).isEqualTo(MediaVideoHlsPackageStatus.PURGED);
+        assertThat(tombstone.getPurgeAfter()).isNull();
+        assertThat(tombstone.getBasePrefix()).isEqualTo(initial.getBasePrefix());
+        assertThat(hlsPackageAdapter.findPurgeEligibleCandidates(scanTime.plus(Duration.ofDays(30)), 20))
+                .noneMatch(c -> c.packageId().equals(eligibleId));
     }
 }
